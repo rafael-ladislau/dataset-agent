@@ -1,0 +1,22 @@
+{
+  "dataset_name": "NASS Census of Agriculture",
+  "home_url": "https://www.nass.usda.gov/AgCensus/",
+  "description": "The NASS Census of Agriculture is a comprehensive dataset produced by the U.S. Department of Agriculture\u2019s National Agricultural Statistics Service (NASS). Conducted every five years, it provides a detailed snapshot of U.S. agriculture, capturing trends in demographics, economics, land use, production practices, and farm operator characteristics. The census collects data on all commodities produced, farm income and expenses, land ownership, and emerging topics like hemp, precision agriculture, and internet access (as seen in the 2022 edition). Its primary purpose is to inform policymakers, researchers, and agricultural stakeholders by highlighting shifts in the industry, supporting business decisions, and guiding resource allocation. The dataset is widely used for academic research, policy analysis, and sector planning. Key features include its nationwide scope (covering all states and counties), high granularity (down to county-level details), and confidentiality guarantees (per CIPSEA laws, ensuring only aggregated data is published). The 2022 census achieved a 61% response rate, with over 40% of responses submitted online. Data is accessible via the Quick Stats database, which allows users to query historical censuses (1997\u20132022) and survey estimates. Unique aspects include its long-term trend analysis capability and inclusion of innovative agricultural topics, making it an indispensable resource for understanding U.S. agriculture\u2019s evolving landscape. (URL reference: https://www.nass.usda.gov/AgCensus/)",
+  "aliases": [
+    "Nass Quick Stats",
+    "Nass Census of Agriculture",
+    "Usda Census of Agriculture"
+  ],
+  "organizations": [
+    "NASS",
+    "National Agricultural Statistics Service",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "United States Department of Agriculture"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.nass.usda.gov/AgCensus/",
+  "schema_url": "https://www.nass.usda.gov/Quick_Stats/",
+  "documentation_url": "https://www.nass.usda.gov/AgCensus/",
+  "_metadata": {}
+}

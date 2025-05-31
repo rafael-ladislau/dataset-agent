@@ -1,0 +1,22 @@
+{
+  "dataset_name": "Academic Research and Development Survey",
+  "home_url": null,
+  "description": "The Academic Research and Development Survey (HERD), managed by the U.S. National Science Foundation\u2019s National Center for Science and Engineering Statistics (NCSES), tracks research and development (R&D) expenditures and activities at U.S. higher education institutions. It contains annual data on R&D funding sources, expenditure breakdowns by research field (e.g., engineering, life sciences), types of research (basic, applied, etc.), and workforce statistics (e.g., faculty and student involvement). The survey includes institutions spending at least $150,000 on separately accounted R&D in a fiscal year, covering over 700 colleges and universities. Its primary purpose is to inform policymakers, researchers, and institutions about trends in academic R&D investment, aiding decisions on funding allocation and strategic planning. Key features include granular expenditure categorization, longitudinal data for trend analysis, and a focus on U.S.-specific higher education R&D. The dataset is widely used for analyzing research productivity, federal vs. private funding shifts, and institutional research capacity. It serves as a critical resource for understanding the role of academia in national innovation ecosystems.",
+  "aliases": [
+    "Herd",
+    "Academic Research and Development Survey",
+    "Higher Education Research and Development Survey"
+  ],
+  "organizations": [
+    "NCSES",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Science Foundation",
+    "U.S. Federal Government"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://www.nsf.gov/statistics/herd/",
+  "schema_url": "https://ncses.nsf.gov/herd",
+  "documentation_url": "https://www.nsf.gov/ncses/heritage/academy/herd",
+  "_metadata": {}
+}

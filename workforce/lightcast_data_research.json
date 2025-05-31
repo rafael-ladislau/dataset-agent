@@ -1,0 +1,24 @@
+{
+  "dataset_name": "Lightcast data",
+  "home_url": null,
+  "description": "The Lightcast dataset is a comprehensive labor market intelligence resource created by Lightcast, a leader in workforce data analysis. It integrates economic, labor market, demographic, education, and job posting data from government sources (e.g., Bureau of Labor Statistics\u2019 QCEW, NCES\u2019 IPEDS) and private-sector platforms, offering insights at national, state, metropolitan, county, and ZIP code levels. The dataset tracks employment trends, wages, job vacancies, skills demand, career pathways, and workforce demographics, with historical data extending over three decades\u2014three times deeper than competitors. Its primary purpose is to provide actionable insights for enterprises, educational institutions, and governments to optimize workforce planning, skill development, and labor market strategies. Key use cases include analyzing labor supply/demand, tracking compensation trends, and enhancing job-posting effectiveness via tools like Open Skills, which matches skills to occupations. Unique features include real-time job posting analytics from 160,000+ sources, advanced pattern recognition for skills trends, and flexible data delivery via APIs, cloud storage, or data warehouses. Lightcast\u2019s data is celebrated for its granularity, comprehensiveness, and role as an industry standard in labor market analysis.",
+  "aliases": [
+    "Lightcast",
+    "Emsi Burning Glass"
+  ],
+  "organizations": [
+    "BLS",
+    "Bureau of Labor Statistics",
+    "KKR",
+    "Lightcast",
+    "NCES",
+    "National Center for Education Statistics",
+    "U.S. Census Bureau",
+    "U.S. Department of Education"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://lightcast.com/data-solutions/",
+  "schema_url": "https://www.lightcast.com/resources/data-schema-guides/employment-data-dictionary",
+  "documentation_url": "https://kb.lightcast.io/en/articles/6957498-lightcast-data-basic-overview",
+  "_metadata": {}
+}

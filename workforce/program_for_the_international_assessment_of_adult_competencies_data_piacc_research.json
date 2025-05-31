@@ -1,0 +1,26 @@
+{
+  "dataset_name": "Program for the International Assessment of Adult Competencies data - PIACC",
+  "home_url": null,
+  "description": "The Program for the International Assessment of Adult Competencies (PIAAC), administered by the Organization for Economic Cooperation and Development (OECD), evaluates cognitive and workplace skills of adults aged 16\u201374 globally. It assesses literacy, numeracy, and problem-solving in technology-rich environments, focusing on skills critical for 21st-century societal and economic participation. The U.S. National Center for Education Statistics (NCES) leads its implementation domestically. PIAAC\u2019s primary purpose is to compare adult competencies across countries, analyze relationships between skills and outcomes (e.g., employment, income, education), and inform policy on education and workforce training. It provides data to evaluate education systems and design interventions to enhance skill development. Key features include its cyclical, large-scale design (with data collection rounds every 5\u20137 years), cross-country comparability, and inclusion of contextual background information on participants\u2019 education, work, and demographics. Unique aspects are its focus on both foundational skills (e.g., reading, math) and complex problem-solving, as well as its role in tracking skill trends over time. The dataset supports research on social mobility, economic productivity, and the impact of globalization on workforce readiness. (Word count: 198)",
+  "aliases": [
+    "Piaac",
+    "Survey of Adult Skills",
+    "Program for the International Assessment of Adult Competencies Data"
+  ],
+  "organizations": [
+    "CSO Ireland",
+    "ETS",
+    "IES",
+    "Institute of Education Sciences",
+    "NCES",
+    "OECD",
+    "Statistics Canada",
+    "U.S. Department of Education",
+    "U.S. Government"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://nces.ed.gov/surveys/piaac/datafiles.asp",
+  "schema_url": "https://nces.ed.gov/surveys/piaac/",
+  "documentation_url": "https://www.oecd.org/education/piaac/",
+  "_metadata": {}
+}

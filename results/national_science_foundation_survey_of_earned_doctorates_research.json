@@ -1,0 +1,30 @@
+{
+  "dataset_name": "National Science Foundation Survey of Earned Doctorates",
+  "home_url": null,
+  "description": "The National Science Foundation Survey of Earned Doctorates (SED) is an annual census conducted by the National Center for Science and Engineering Statistics (NCSES) within the NSF, in collaboration with the National Institutes of Health, U.S. Department of Education, and National Endowment for the Humanities. Established in 1957, it collects data on all individuals earning research doctorates from accredited U.S. institutions in a given year, covering demographics, field of study, institutional details, funding sources, and post-graduation employment. The dataset serves to track trends in doctoral education, inform science and workforce policy, and support research on academic and career pathways. Its long-term scope (spanning over six decades) and comprehensive coverage of U.S. doctorates make it a critical resource for analyzing educational attainment, diversity in STEM fields, and labor market outcomes. Unique features include the Doctorate Records File (DRF), a historical database dating to 1920, and tools like the Restricted Data Analysis System (RDAS), which enables customized data queries. The SED is widely used by researchers, policymakers, and institutions to assess workforce development, funding effectiveness, and demographic shifts in graduate education. Recent reports highlight growing doctoral awards in fields like computer science and health sciences, underscoring its relevance for evidence-based decision-making.",
+  "aliases": [
+    "Sed",
+    "Survey of Earned Doctorates"
+  ],
+  "organizations": [
+    "Department of Education",
+    "ED",
+    "Education Department",
+    "NCSES",
+    "NEH",
+    "NIH",
+    "NORC",
+    "NORC at the University of Chicago",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Endowment for the Humanities",
+    "National Institutes of Health",
+    "National Science Foundation",
+    "U.S. Department of Education"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://catalog.data.gov/dataset/survey-of-earned-doctorates-2023/resource/65686f7e-c76e-4502-b393-e94dfb1f84db",
+  "schema_url": "https://data.nsf.gov/datasets/nsf-survey-earned-doctorates/data-dictionary",
+  "documentation_url": "https://nces.ed.gov/statprog/handbook/sed_methodology.asp",
+  "_metadata": {}
+}

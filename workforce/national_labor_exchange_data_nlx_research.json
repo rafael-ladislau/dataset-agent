@@ -1,0 +1,22 @@
+{
+  "dataset_name": "National Labor Exchange data - NLx",
+  "home_url": null,
+  "description": "The National Labor Exchange (NLx) dataset is a comprehensive repository of U.S. job postings, created through a partnership between the Direct Employers Association (DEA) and the National Association of State Workforce Agencies (NASWA). It aggregates real-time and historical job vacancy data from multiple sources, including job boards, employer career sites, and workforce agencies, dating back to 2010. The dataset contains granular details on job postings, such as position titles, locations, descriptions, salary ranges, educational/certification requirements, and O*NET occupational codes. Its primary purpose is to enable researchers, policymakers, and workforce professionals to analyze labor market trends, inform credentialing policies, and support evidence-based workforce development strategies. Use cases include tracking skill demand, evaluating regional economic shifts, and improving job-matching efficiency. Key features include daily updates ensuring timeliness, high data quality (minimal duplicates or \"junk\" records), and access via API for approved researchers. Unique aspects of NLx include its national scope, integration with O*NET standards for occupational analysis, and collaboration between public and private entities to lower access barriers. The dataset\u2019s longitudinal depth and real-time refresh make it a critical tool for studying labor market dynamics and aligning training programs with employer needs. Access requires approval through the NLx Research Hub, which provides technical resources for data retrieval and analysis.",
+  "aliases": [
+    "Nlx",
+    "National Labor Exchange Dataset",
+    "National Labor Exchange Jobs Platform"
+  ],
+  "organizations": [
+    "DEA",
+    "Direct Employers Association",
+    "NASWA",
+    "NLx Research Hub",
+    "National Association of State Workforce Agencies"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://nlxresearchhub.org/",
+  "schema_url": "https://nlxresearchhub.org/data-dictionary/",
+  "documentation_url": "https://nlxresearchhub.org/",
+  "_metadata": {}
+}

@@ -1,0 +1,25 @@
+{
+  "dataset_name": "Science & Engineering Indicators",
+  "home_url": null,
+  "description": "The Science & Engineering Indicators (SEI) dataset is a comprehensive, congressionally mandated report produced every even-numbered year by the U.S. National Science Foundation\u2019s (NSF) National Center for Science and Engineering Statistics (NCSES). It provides authoritative data on science and engineering (S&E) resources, trends, and outputs in the U.S. and globally. The dataset includes statistics on R&D spending, workforce demographics, STEM education enrollment and degrees, patent activity, scientific publications, and international collaborations. It also features state-level comparisons of S&E indicators, such as R&D investment, workforce distribution, and innovation metrics. The primary purpose of SEI is to inform policymakers, researchers, and the public about the state of S&E in the U.S., supporting evidence-based decisions in education, innovation, and international competitiveness. Key features include its biennial update cycle, granular state-level data, and a focus on long-term trends in global S&E activity. A related OECD initiative, the Main Science and Technology Indicators (MSTI), offers similar metrics for international comparisons. SEI is widely used to track national progress in STEM fields, assess workforce dynamics, and evaluate the impact of R&D investments.",
+  "aliases": [
+    "Sei",
+    "Science & Engineering Indicators",
+    "Science and Engineering Indicators"
+  ],
+  "organizations": [
+    "NCSES",
+    "NSB",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Science Board",
+    "National Science Foundation",
+    "OECD",
+    "Organisation for Economic Co-operation and Development"
+  ],
+  "access_type": "Open",
+  "data_url": "https://ncses.nsf.gov/explore-data",
+  "schema_url": "https://resources.data.gov/resources/dcat-us/",
+  "documentation_url": "https://www.nsf.gov/statistics/seindicators/",
+  "_metadata": {}
+}

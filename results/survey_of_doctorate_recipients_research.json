@@ -1,0 +1,24 @@
+{
+  "dataset_name": "Survey of Doctorate Recipients",
+  "home_url": null,
+  "description": "The Survey of Doctorate Recipients (SDR) is a dataset created by the National Center for Science and Engineering Statistics (NCSES) under the U.S. National Science Foundation (NSF). It provides comprehensive data on individuals who earned research doctorates in science, engineering, or health (SEH) fields from U.S. academic institutions. The survey captures demographic information, educational background, career trajectories, employment status, and work experiences of doctorate holders, both within the U.S. and abroad. Its primary purpose is to inform policy and research on the SEH workforce, offering insights into career patterns, labor market dynamics, and the long-term impacts of doctoral education. Key features include its representative sampling of doctorate recipients (including those retired or seeking work), expanded coverage of specialized fields, and an online format to enhance data quality and participation. Unique aspects include integrated data on international and domestic recipients, enabling analysis of global career trends. The SDR is widely used by researchers, policymakers, and institutions to track workforce development, assess the return on investment in higher education, and shape STEM (science, technology, engineering, and mathematics) initiatives. Regular updates ensure relevance to evolving scientific and economic landscapes.",
+  "aliases": [
+    "Sdr",
+    "Doctorate Recipients Survey",
+    "Survey of Doctorate Recipients",
+    "Doctorate Recipients From U.s. Universities"
+  ],
+  "organizations": [
+    "NCSES",
+    "NIH",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Institutes of Health",
+    "National Science Foundation"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.nsf.gov/ncses/sdrsdrdataaccess.jsp",
+  "schema_url": "https://www.nsf.gov/ncses/sdrs/data-dictionary",
+  "documentation_url": "https://nces.ed.gov/sdr/data-products",
+  "_metadata": {}
+}

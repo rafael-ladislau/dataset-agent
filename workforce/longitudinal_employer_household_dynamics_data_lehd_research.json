@@ -1,0 +1,25 @@
+{
+  "dataset_name": "Longitudinal Employer Household Dynamics data - LEHD",
+  "home_url": null,
+  "description": "The Longitudinal Employer-Household Dynamics (LEHD) dataset, created by the U.S. Census Bureau\u2019s Center for Economic Studies, combines federal, state, and administrative data (e.g., Unemployment Insurance earnings and the Quarterly Census of Employment and Wages) to track employment, earnings, and job flows. Developed under the Local Employment Dynamics (LED) Partnership, it partners with states to share data, enabling detailed economic analysis at geographic, industry, and demographic levels. The dataset\u2019s primary purpose is to support state and local authorities in decision-making by providing dynamic labor market indicators, such as job creation, worker mobility, and industry trends. It also facilitates research on topics like job-to-job transitions and workforce demographics. Key features include longitudinal linking of employer and household data, coverage of over 95% of U.S. employment, and integration of confidential administrative records with robust privacy protections. Unique aspects like granular geographic detail (down to county or ZIP code levels) and quarterly updates make it a vital tool for economic analysis, policy planning, and academic research. The LEHD program emphasizes cost-effective data sharing without additional collection burdens, ensuring high-quality, publicly accessible insights into labor market dynamics.",
+  "aliases": [
+    "Lodes",
+    "Lehd Program",
+    "Lehd Data At the U.s. Census Bureau",
+    "Longitudinal Employer-household Dynamics Data",
+    "Lehd"
+  ],
+  "organizations": [
+    "Acronym for the Local Employment Dynamics Partnership.",
+    "Creator and publisher of the LEHD dataset.",
+    "Full name of the collaborative program between the U.S. Census Bureau and state employment agencies.",
+    "Funder of the LEHD program.",
+    "Hosts the LEHD program within the U.S. Census Bureau.",
+    "Publisher/hosting institution for LEHD data."
+  ],
+  "access_type": "Open",
+  "data_url": "https://lehd.ces.census.gov/data/",
+  "schema_url": "https://lehd.ces.census.gov/data/schema/latest/lehd_public_use_schema.html",
+  "documentation_url": "https://www.census.gov/programs-surveys/lehd.html",
+  "_metadata": {}
+}

@@ -1,0 +1,24 @@
+{
+  "dataset_name": "food access research atlas",
+  "home_url": null,
+  "description": "The Food Access Research Atlas (FARA), developed by the U.S. Department of Agriculture\u2019s Economic Research Service (USDA ERS), is a spatial dataset and mapping tool designed to analyze food access disparities. It provides census tract-level data on low-income and low-access areas, using metrics like proximity to supermarkets and vehicle availability. The dataset identifies regions where populations face barriers to affordable, healthy food, often termed \"food deserts.\" FARA supports research, policy development, and community planning by offering customizable maps and downloadable data for U.S. census tracts. Key features include comparisons of food access between 2015 and 2019, alternative definitions of low-income thresholds, and geospatial APIs for integration into GIS systems. Unique aspects include contextual data on demographic factors (e.g., income, population density) and accessibility metrics, enabling nuanced analysis of food insecurity drivers. The tool also distinguishes between urban, suburban, and rural access challenges. Created to expand on earlier \"Food Desert Locator\" efforts, FARA aims to inform interventions addressing food system inequities. Its open-access data and user-friendly interface cater to researchers, policymakers, and local organizations seeking evidence-based solutions.",
+  "aliases": [
+    "Fara",
+    "Food Desert Locator",
+    "Food Access Research Atlas"
+  ],
+  "organizations": [
+    "ArcGIS",
+    "ERS",
+    "Economic Research Service",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "United States Department of Agriculture",
+    "data.gov"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.ers.usda.gov/data-products/food-access-research-atlas/food-access-research-atlas-data/",
+  "schema_url": "https://www.ers.usda.gov/webdocs/data-products/food-access-research-atlas/food-access-research-atlas-data-dictionary.pdf",
+  "documentation_url": "https://www.ers.usda.gov/data-products/food-access-research-atlas/",
+  "_metadata": {}
+}

@@ -1,0 +1,25 @@
+{
+  "dataset_name": "Burning Glass Technologies data",
+  "home_url": null,
+  "description": "Burning Glass Technologies Dataset The Burning Glass Technologies dataset, now part of Lightcast following a 2021 merger with Emsi, contains real-time labor market data derived from over 45,000 online job sites, government reports, and professional profiles. It aggregates billions of data points, including job postings, skills requirements, career transitions, compensation trends, and industry-specific insights. Created by Burning Glass Technologies\u2014a leader in labor market analytics\u2014the dataset aims to bridge gaps between employers, educators, and job seekers by providing actionable, data-driven insights. Its primary purpose is to inform workforce and education strategies, enabling employers to fill roles effectively, educators to align curricula with market demands, and policymakers to shape labor strategies. Key features include AI-driven analysis of job descriptions to identify skills and qualifications, real-time tracking of labor market trends, and comprehensive coverage of industries and geographies. The dataset uniquely captures granular details like skill hierarchies, in-demand occupations, and emerging job requirements, offering a dynamic view of the evolving workforce. With applications spanning career counseling, recruitment, and economic planning, it serves governments, educational institutions, and businesses globally. The merger with Emsi expanded its scope, combining Burning Glass\u2019s real-time data with Emsi\u2019s workforce analytics to create a robust, integrated labor market intelligence platform.",
+  "aliases": [
+    "Burning Glass Data",
+    "10.1787/cd75c3e7-en",
+    "Burning Glass Technologies Data",
+    "Lightcast Burning Glass Dataset",
+    "Burning Glass Technologies Dataset"
+  ],
+  "organizations": [
+    "Accenture",
+    "Burning Glass Technologies",
+    "Elsner Metric Solutions, Inc.",
+    "Emsi",
+    "Lightcast",
+    "The Burning Glass Institute"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://lightcast.io/burning-glass-technologies",
+  "schema_url": "https://lightcast.io/burning-glass-technologies",
+  "documentation_url": "https://www.illinoisworknet.com/DownloadPrint/Burning%20Glass%20User%20Manual.pdf",
+  "_metadata": {}
+}

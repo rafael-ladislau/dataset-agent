@@ -1,0 +1,24 @@
+{
+  "dataset_name": "RUCC",
+  "home_url": null,
+  "description": "The Rural-Urban Continuum Codes (RUCC) dataset, created by the U.S. Department of Agriculture\u2019s Economic Research Service (ERS), classifies U.S. counties based on their degree of urbanization and proximity to metropolitan areas. Counties are categorized as metropolitan (metro) or nonmetropolitan (nonmetro). Metro counties are further divided by the population size of their metro area, while nonmetro counties are classified by urbanization levels and adjacency to metro regions. This framework provides a nuanced continuum from highly urbanized areas to remote rural regions. The dataset\u2019s primary purpose is to support policy analysis, economic research, and resource allocation by offering a standardized method to study rural-urban disparities. It is widely used in fields like public health (e.g., tracking health outcomes tied to rurality), sociology, and regional planning. A key feature is its integration with Census data and updates aligned with the Office of Management and Budget\u2019s (OMB) metro area delineations, ensuring relevance over time. The RUCC\u2019s adjacency criteria and population-based stratification make it unique compared to simpler rural-urban dichotomies. Its application in initiatives like the Alzheimer\u2019s Disease Neuroimaging Initiative (ADNI) highlights its value in understanding social determinants of health. The dataset remains a critical tool for researchers and policymakers addressing regional challenges.",
+  "aliases": [
+    "Rucc",
+    "Rural-urban Continuum Code",
+    "Rural-urban Continuum Codes"
+  ],
+  "organizations": [
+    "Economic Research Service",
+    "OMB",
+    "Office of Management and Budget",
+    "U.S. Census Bureau",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "United States Department of Agriculture"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.ers.usda.gov/data-products/rural-urban-continuum-codes",
+  "schema_url": "https://www.ers.usda.gov/datasets/rural-urban-continuum-codes/",
+  "documentation_url": "https://www.ers.usda.gov/data-products/rural-urban-continuum-codes/",
+  "_metadata": {}
+}

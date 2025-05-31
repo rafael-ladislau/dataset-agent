@@ -1,0 +1,915 @@
+#!/usr/bin/env python3
+"""
+Simple Dataset Research Agent
+
+This tool makes individual requests to an LLM for different aspects of dataset information,
+reinforcing the use of web_search and requests tools for each request.
+It uses the qwen3:32b model from Ollama and a tool-calling agent.
+"""
+
+import logging
+import argparse
+import json
+import time
+import sys
+import random
+import requests
+from typing import List, Dict, Any, Optional, Callable
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("dataset_agent.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Import LangChain components
+try:
+    from langchain_ollama import ChatOllama
+    from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+    from langchain_core.tools import Tool, tool
+    from langchain.agents import create_tool_calling_agent, AgentExecutor
+    from pydantic import BaseModel, Field
+    from langchain_core.prompts import PromptTemplate
+except ImportError as e:
+    logger.critical(f"Failed to import required libraries: {str(e)}")
+    logger.info("Try installing required packages with: pip install langchain-ollama langchain-core langchain pydantic")
+    sys.exit(1)
+
+# Define the web search tool
+@tool
+def web_search(query: str) -> str:
+    """
+    Search the web using DuckDuckGo for the specified query.
+    
+    Args:
+        query (str): The search query string
+        
+    Returns:
+        str: Search results as a formatted string
+    """
+    logger.info(f"🔍 TOOL CALL: web_search with query: '{query}'")
+    tool_start_time = time.time()
+    
+    try:
+        from duckduckgo_search import DDGS
+        
+        # Log the search start
+        search_start = time.time()
+        
+        # Try different search backends with error handling
+        results = []
+        
+        # First try the html backend
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=7))
+            if results:
+                logger.info(f"response: https://html.duckduckgo.com/html 200")
+                logger.info(f"Successfully retrieved {len(results)} results from html backend")
+        except Exception as e1:
+            logger.warning(f"HTML backend failed with error: {str(e1)}")
+            
+            # Try lite backend as fallback
+            try:
+                with DDGS() as ddgs:
+                    results = list(ddgs.text(query, max_results=7, backend="lite"))
+                if results:
+                    logger.info(f"response: https://lite.duckduckgo.com/lite/ 200")
+                    logger.info(f"Successfully retrieved {len(results)} results from lite backend")
+            except Exception as e2:
+                logger.error(f"Lite backend failed with error: {str(e2)}")
+        
+        # Calculate and log search time
+        search_time = time.time() - search_start
+        logger.info(f"Web search completed in {search_time:.2f} seconds with {len(results)} results")
+        
+        # Format results for the LLM
+        if not results:
+            return "No results found."
+        
+        formatted_results = "Search results for '" + query + "':\n\n"
+        for i, result in enumerate(results, 1):
+            formatted_results += f"[{i}] {result['title']}\n"
+            formatted_results += f"URL: {result['href']}\n"
+            formatted_results += f"Summary: {result['body']}\n\n"
+            
+            # Log a sample of results (first result only)
+            if i == 1:
+                logger.info(f"Search results (sample): {formatted_results[:500]}...")
+        
+        tool_execution_time = time.time() - tool_start_time
+        logger.info(f"🔍 TOOL RETURN: web_search completed in {tool_execution_time:.2f} seconds")
+        return formatted_results
+    except ImportError:
+        logger.error("DuckDuckGo search package not installed. Install with: pip install duckduckgo-search")
+        return "Error: Search capability is not available. DuckDuckGo search package not installed."
+    except Exception as e:
+        logger.error(f"Web search failed with error: {str(e)}", exc_info=True)
+        return f"Error: Web search failed with: {str(e)}"
+
+# Define the custom requests tool
+@tool
+def make_request(url: str) -> str:
+    """
+    Make an HTTP request to the specified URL and return information about the response.
+    
+    Args:
+        url (str): The URL to request
+        
+    Returns:
+        str: Response information as a formatted string
+    """
+    logger.info(f"🌐 TOOL CALL: make_request to URL: '{url}'")
+    tool_start_time = time.time()
+    
+    try:
+        from requests.exceptions import RequestException
+        
+        # Basic URL validation
+        if not url.startswith(('http://', 'https://')):
+            if url.startswith('www.'):
+                url = 'https://' + url
+                logger.info(f"Added https:// prefix to URL: {url}")
+            else:
+                return "Error: Invalid URL format. URL must start with http:// or https://"
+        
+        # Set up browser-like headers
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0',
+        }
+        
+        # Log request start
+        request_start = time.time()
+        
+        # Make the request with a timeout
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        # Calculate request time
+        request_time = time.time() - request_start
+        
+        # Prepare the response information
+        status_code = response.status_code
+        content_type = response.headers.get('Content-Type', 'unknown')
+        content_length = len(response.content)
+        
+        # Determine if URL is valid (200 response)
+        valid = status_code == 200
+        
+        # Get a preview of the content (limit to 500 chars to avoid overwhelming the model)
+        try:
+            if 'text/html' in content_type or 'application/json' in content_type or 'text/plain' in content_type:
+                content_preview = response.text[:500] + ('...' if len(response.text) > 500 else '')
+            else:
+                content_preview = f"Binary content of type {content_type}"
+        except:
+            content_preview = "Unable to decode content for preview"
+        
+        # Format the result
+        result = f"URL: {url}\n"
+        result += f"Status code: {status_code}\n"
+        result += f"Valid: {valid}\n"
+        result += f"Content type: {content_type}\n"
+        result += f"Content length: {content_length} bytes\n"
+        result += f"Request time: {request_time:.2f} seconds\n"
+        result += f"Content preview:\n{content_preview}"
+        
+        logger.info(f"Request to {url} completed with status code {status_code} ({request_time:.2f}s)")
+        
+        tool_execution_time = time.time() - tool_start_time
+        logger.info(f"🌐 TOOL RETURN: make_request completed in {tool_execution_time:.2f} seconds")
+        return result
+        
+    except ImportError:
+        logger.error("Requests package not installed. Install with: pip install requests")
+        return "Error: HTTP request capability is not available. Requests package not installed."
+    except RequestException as e:
+        logger.error(f"HTTP request to {url} failed with error: {str(e)}")
+        return f"Error: HTTP request failed with: {str(e)}"
+    except Exception as e:
+        logger.error(f"make_request failed with error: {str(e)}", exc_info=True)
+        return f"Error: Request failed with: {str(e)}"
+
+def check_ollama_health():
+    """Check if Ollama server is running and healthy."""
+    try:
+        response = requests.get("http://127.0.0.1:11434/api/tags", timeout=5)
+        if response.status_code == 200:
+            logger.info("Ollama server is running and healthy")
+            return True
+        else:
+            logger.error(f"Ollama server returned status code {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Ollama server health check failed: {str(e)}")
+        return False
+
+def create_llm():
+    """Create and return an instance of the LLM."""
+    logger.info("Initializing ChatOllama model")
+    
+    # First check if Ollama is running
+    if not check_ollama_health():
+        logger.critical("Ollama server is not running or not responding")
+        print("\nERROR: Ollama server is not running or not responding.")
+        print("Please make sure Ollama is installed and running with:")
+        print("  1. Install: curl -fsSL https://ollama.com/install.sh | sh")
+        print("  2. Start: ollama serve")
+        print("  3. Pull model: ollama pull qwen3:32b")
+        sys.exit(1)
+    
+    try:
+        # Adjust model parameters for better response generation
+        llm = ChatOllama(
+            model="qwen3:32b",  # Using a model better suited for function calling
+            temperature=0.6,
+            top_k=20,
+            top_p=0.95,
+            streaming=False
+        )
+        logger.info("ChatOllama model initialized successfully")
+        return llm
+    except Exception as e:
+        logger.critical(f"Failed to initialize ChatOllama model: {str(e)}", exc_info=True)
+        raise Exception(f"Failed to initialize model: {str(e)}")
+
+def create_agent_executor(llm, tools):
+    """
+    Create an agent executor with the provided LLM and tools.
+    
+    Args:
+        llm: The language model
+        tools: List of tools for the agent
+        
+    Returns:
+        AgentExecutor: An agent executor that can handle tool calls
+    """
+    logger.info("Creating agent executor with tool-calling capabilities")
+    
+    # Import required modules for the hub prompt
+    try:
+        from langchain import hub
+        
+        # Use the pre-built agent prompt from hub
+        prompt = hub.pull("hwchase17/openai-tools-agent")
+        logger.info("Using hub prompt for agent")
+    except Exception as e:
+        logger.warning(f"Could not load hub prompt: {str(e)}")
+        
+        # Create a custom prompt with the required agent_scratchpad
+        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+        
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", "You are a dataset research expert. Your job is to find information about datasets. Always use the tools when external information is required rather than relying on your knowledge."),
+                ("user", "{input}"),
+                MessagesPlaceholder(variable_name="agent_scratchpad"),
+            ]
+        )
+        logger.info("Using custom prompt for agent")
+    
+    try:
+        # Create the agent
+        agent = create_tool_calling_agent(llm, tools, prompt)
+        
+        # Create an agent executor
+        agent_executor = AgentExecutor.from_agent_and_tools(
+            agent=agent,
+            tools=tools,
+            verbose=True,
+            handle_parsing_errors=True,
+            max_iterations=5
+        )
+        
+        logger.info("Agent executor created successfully")
+        return agent_executor
+    except Exception as e:
+        logger.error(f"Failed to create agent executor: {str(e)}")
+        
+        # Fall back to a simpler implementation if tool-calling agent fails
+        logger.info("Falling back to a simpler agent implementation")
+        
+        from langchain.agents import AgentType, initialize_agent
+        
+        agent_executor = initialize_agent(
+            tools, 
+            llm, 
+            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+            verbose=True,
+            handle_parsing_errors=True,
+            max_iterations=5
+        )
+        
+        logger.info("Fallback agent executor created successfully")
+        return agent_executor
+
+def get_information_with_agent(agent_executor, input_text):
+    """
+    Use the agent to get information based on the input text.
+    
+    Args:
+        agent_executor: The agent executor
+        input_text: The input text/question for the agent
+        
+    Returns:
+        str: The response from the agent
+    """
+    logger.info(f"🧠 AGENT REQUEST: {input_text}")
+    agent_start_time = time.time()
+    
+    try:
+        # Invoke the agent
+        response = agent_executor.invoke({"input": input_text})
+        agent_execution_time = time.time() - agent_start_time
+        logger.info(f"🧠 AGENT RESPONSE: Received response in {agent_execution_time:.2f} seconds")
+        
+        # Extract the output
+        output = response.get("output", "")
+        if not output:
+            logger.warning("Empty response from agent, using fallback message")
+            output = "No detailed information could be found for this request."
+        
+        # Log a preview of the output
+        output_preview = output[:100] + "..." if len(output) > 100 else output
+        logger.info(f"Agent response (preview): {output_preview}")
+        
+        return output
+    except Exception as e:
+        logger.error(f"Agent execution failed: {str(e)}", exc_info=True)
+        return f"Error in agent execution: {str(e)}"
+
+def get_description(llm, dataset_name: str, dataset_url: Optional[str] = None) -> str:
+    """
+    Get a description of the dataset using web search.
+    
+    Args:
+        llm: The language model
+        dataset_name: Name of the dataset
+        dataset_url: Optional URL for the dataset
+        
+    Returns:
+        str: Dataset description
+    """
+    logger.info(f"Requesting description for dataset: {dataset_name}")
+    
+    # Create tools and agent executor
+    tools = [web_search, make_request]
+    agent_executor = create_agent_executor(llm, tools)
+    
+    # Create input for the agent
+    input_text = f"""Research the dataset named '{dataset_name}'. 
+    
+    If a URL was provided for reference, it is: {dataset_url if dataset_url else 'None'}
+    
+    I need a concise description (150-200 words) that includes:
+    - What the dataset contains
+    - Who created it
+    - Its purpose and use cases
+    - Key features or unique aspects
+    
+    Use the web_search tool to find information about this dataset.
+    """
+    
+    # Get description using the agent
+    description = get_information_with_agent(agent_executor, input_text)
+    
+    # If description is still empty, provide a minimal fallback
+    if not description or not description.strip():
+        logger.warning("Received empty description, using fallback")
+        description = f"Dataset: {dataset_name}\n\nNo detailed description could be generated. This dataset may require manual research."
+    
+    return description
+
+def get_aliases(llm, dataset_name: str, description: str, dataset_url: Optional[str] = None) -> List[str]:
+    """
+    Get aliases for the dataset using web search.
+    
+    Args:
+        llm: The language model
+        dataset_name: Name of the dataset
+        description: Description of the dataset
+        dataset_url: Optional URL for the dataset
+        
+    Returns:
+        List[str]: List of aliases
+    """
+    logger.info(f"Requesting aliases for dataset: {dataset_name}")
+    
+    # Create tools and agent executor
+    tools = [web_search, make_request]
+    agent_executor = create_agent_executor(llm, tools)
+    
+    # Create input for the agent
+    input_text = f"""Find all aliases, names, acronyms, and identifiers for the dataset '{dataset_name}'.
+
+Dataset description: {description}
+If a URL was provided for reference, it is: {dataset_url if dataset_url else 'None'}
+
+Return your findings as a Python list of strings like this: ["Alias1", "Alias2", "Alias3"]
+Even if you only find ONE alias, format it as a list: ["Alias1"]
+Include the original dataset name as one of the aliases.
+If you find no additional aliases, still include the original name: ["{dataset_name}"]
+
+Use the web_search tool to search for "{dataset_name} dataset aliases acronyms alternative names"
+"""
+    
+    # Get aliases using the agent
+    aliases_text = get_information_with_agent(agent_executor, input_text)
+    
+    # Parse the Python list from the text
+    try:
+        # Find the list in the text using a simple approach
+        import re
+        import ast
+        
+        # Try to find a Python list pattern using regex
+        list_pattern = r'\[(.*?)\]'
+        match = re.search(list_pattern, aliases_text, re.DOTALL)
+        
+        if match:
+            # Get the content inside brackets
+            items_text = match.group(1)
+            
+            # Try to parse as Python literal
+            try:
+                # Reconstruct the list syntax
+                list_str = f"[{items_text}]"
+                aliases = ast.literal_eval(list_str)
+                logger.info(f"Successfully extracted {len(aliases)} aliases using ast.literal_eval")
+                
+                # Filter out empty strings
+                aliases = [alias for alias in aliases if alias and alias.strip()]
+                
+                # If we still have no valid aliases, add the dataset name as fallback
+                if not aliases:
+                    aliases = [dataset_name]
+                    logger.warning(f"No valid aliases found, using dataset name as fallback: {dataset_name}")
+                
+                return aliases
+            except:
+                # If that fails, try a more manual approach
+                items = []
+                for item in re.findall(r'"([^"]*)"', items_text) + re.findall(r"'([^']*)'", items_text):
+                    if item and item.strip():
+                        items.append(item)
+                
+                # If we found items, return them
+                if items:
+                    logger.info(f"Successfully extracted {len(items)} aliases using regex")
+                    return items
+                
+                # Fallback to dataset name if no items found
+                logger.warning(f"No valid aliases found with regex, using dataset name as fallback: {dataset_name}")
+                return [dataset_name]
+        
+        # If no list pattern found, check if the entire response is a valid list
+        try:
+            aliases = ast.literal_eval(aliases_text)
+            if isinstance(aliases, list):
+                logger.info(f"Successfully parsed entire response as list with {len(aliases)} items")
+                
+                # Filter out empty strings
+                aliases = [alias for alias in aliases if alias and alias.strip()]
+                
+                # If we still have no valid aliases, add the dataset name as fallback
+                if not aliases:
+                    aliases = [dataset_name]
+                    logger.warning(f"No valid aliases found in full response, using dataset name as fallback: {dataset_name}")
+                
+                return aliases
+        except:
+            pass
+            
+        # If all else fails, return the dataset name as the only alias
+        logger.warning(f"Could not parse aliases as a list, using dataset name as fallback: {dataset_name}")
+        return [dataset_name]
+        
+    except Exception as e:
+        logger.error(f"Failed to parse aliases list: {str(e)}", exc_info=True)
+        return [dataset_name]
+
+def get_organizations(llm, dataset_name: str, description: str, dataset_url: Optional[str] = None) -> List[str]:
+    """
+    Get organizations related to the dataset using web search.
+    
+    Args:
+        llm: The language model
+        dataset_name: Name of the dataset
+        description: Description of the dataset
+        dataset_url: Optional URL for the dataset
+        
+    Returns:
+        List[str]: List of organizations
+    """
+    logger.info(f"Requesting organizations for dataset: {dataset_name}")
+    
+    # Create tools and agent executor
+    tools = [web_search, make_request]
+    agent_executor = create_agent_executor(llm, tools)
+    
+    # Create input for the agent
+    input_text = f"""Find all organizations related to the dataset '{dataset_name}'.
+
+Dataset description: {description}
+If a URL was provided for reference, it is: {dataset_url if dataset_url else 'None'}
+
+Look for these types of organizations:
+- Dataset creators
+- Publishers
+- Funders
+- Hosting institutions
+- Research collaborators
+
+Return your findings as a Python list of strings like this: ["Organization Name 1", "Organization Name 2 (ON2)"]
+Include both full organization names and acronyms when available.
+Even if you find just ONE organization, format it as: ["Organization Name"]
+If you cannot find any organizations, return: ["Unknown"]
+
+Use the web_search tool to search for "{dataset_name} dataset organization creator publisher"
+"""
+    
+    # Get organizations using the agent
+    orgs_text = get_information_with_agent(agent_executor, input_text)
+    
+    # Parse the Python list from the text
+    try:
+        # Find the list in the text using a simple approach
+        import re
+        import ast
+        
+        # Try to find a Python list pattern using regex
+        list_pattern = r'\[(.*?)\]'
+        match = re.search(list_pattern, orgs_text, re.DOTALL)
+        
+        if match:
+            # Get the content inside brackets
+            items_text = match.group(1)
+            
+            # Try to parse as Python literal
+            try:
+                # Reconstruct the list syntax
+                list_str = f"[{items_text}]"
+                orgs = ast.literal_eval(list_str)
+                logger.info(f"Successfully extracted {len(orgs)} organizations using ast.literal_eval")
+                
+                # Filter out empty strings
+                orgs = [org for org in orgs if org and org.strip()]
+                
+                # If we still have no valid organizations, add Unknown as fallback
+                if not orgs:
+                    orgs = ["Unknown"]
+                    logger.warning("No valid organizations found, using 'Unknown' as fallback")
+                
+                return orgs
+            except:
+                # If that fails, try a more manual approach
+                items = []
+                for item in re.findall(r'"([^"]*)"', items_text) + re.findall(r"'([^']*)'", items_text):
+                    if item and item.strip():
+                        items.append(item)
+                
+                # If we found items, return them
+                if items:
+                    logger.info(f"Successfully extracted {len(items)} organizations using regex")
+                    return items
+                
+                # Fallback to Unknown if no items found
+                logger.warning("No valid organizations found with regex, using 'Unknown' as fallback")
+                return ["Unknown"]
+        
+        # If no list pattern found, check if the entire response is a valid list
+        try:
+            orgs = ast.literal_eval(orgs_text)
+            if isinstance(orgs, list):
+                logger.info(f"Successfully parsed entire response as list with {len(orgs)} items")
+                
+                # Filter out empty strings
+                orgs = [org for org in orgs if org and org.strip()]
+                
+                # If we still have no valid organizations, add Unknown as fallback
+                if not orgs:
+                    orgs = ["Unknown"]
+                    logger.warning("No valid organizations found in full response, using 'Unknown' as fallback")
+                
+                return orgs
+        except:
+            pass
+            
+        # If all else fails, return Unknown
+        logger.warning("Could not parse organizations as a list, using 'Unknown' as fallback")
+        return ["Unknown"]
+        
+    except Exception as e:
+        logger.error(f"Failed to parse organizations list: {str(e)}", exc_info=True)
+        return ["Unknown"]
+
+def get_access_type(llm, dataset_name: str, description: str, dataset_url: Optional[str] = None) -> str:
+    """
+    Get access type for the dataset using web search.
+    
+    Args:
+        llm: The language model
+        dataset_name: Name of the dataset
+        description: Description of the dataset
+        dataset_url: Optional URL for the dataset
+        
+    Returns:
+        str: Access type (Open, Restricted, or Unknown)
+    """
+    logger.info(f"Requesting access type for dataset: {dataset_name}")
+    
+    # Create tools and agent executor
+    tools = [web_search, make_request]
+    agent_executor = create_agent_executor(llm, tools)
+    
+    # Create input for the agent
+    input_text = f"""Determine the access type for the dataset '{dataset_name}'.
+
+Dataset description: {description}
+If a URL was provided for reference, it is: {dataset_url if dataset_url else 'None'}
+
+CLASSIFY the dataset into exactly ONE of these categories:
+- "Open" = freely accessible to anyone without login or payment
+- "Restricted" = requires registration, login, payment, or has specific access conditions
+- "Unknown" = cannot determine the access type from available information
+
+Your response MUST be EXACTLY one of these three words: Open, Restricted, or Unknown
+If you find ANY indication of registration or approval requirements, classify as "Restricted"
+
+Use the web_search tool to search for "{dataset_name} dataset access download availability"
+"""
+    
+    # Get access type using the agent
+    access_type = get_information_with_agent(agent_executor, input_text)
+    
+    # Extract the access type from the response
+    access_type = access_type.strip()
+    logger.info(f"Raw access type response: '{access_type}'")
+    
+    # Normalize the response to one of the expected values
+    if not access_type:
+        logger.warning("Received empty access type, using 'Unknown'")
+        return "Unknown"
+    elif "open" in access_type.lower():
+        return "Open"
+    elif "restricted" in access_type.lower():
+        return "Restricted"
+    else:
+        return "Unknown"
+
+def get_url_with_validation(llm, dataset_name: str, description: str, url_type: str, dataset_url: Optional[str] = None) -> Optional[str]:
+    """
+    Get a validated URL of the specified type using web search and request validation.
+    
+    Args:
+        llm: The language model
+        dataset_name: Name of the dataset
+        description: Description of the dataset
+        url_type: Type of URL to search for (data, schema, documentation)
+        dataset_url: Optional URL for the dataset
+        
+    Returns:
+        Optional[str]: Validated URL or None if not found
+    """
+    logger.info(f"Requesting {url_type} URL for dataset: {dataset_name}")
+    
+    # Create tools and agent executor
+    tools = [web_search, make_request]
+    agent_executor = create_agent_executor(llm, tools)
+    
+    # Define type-specific search terms
+    if url_type == "data":
+        search_desc = "download link or direct access URL"
+        search_query = f"{dataset_name} dataset download link data access"
+    elif url_type == "schema":
+        search_desc = "data dictionary, schema information, or field definitions"
+        search_query = f"{dataset_name} dataset schema data dictionary field definitions metadata"
+    elif url_type == "documentation":
+        search_desc = "documentation, user guide, or technical documentation"
+        search_query = f"{dataset_name} dataset documentation user guide technical manual help"
+    else:
+        logger.error(f"Invalid URL type: {url_type}")
+        return None
+    
+    # Create input for the agent
+    input_text = f"""Find and validate a URL for {search_desc} for the dataset '{dataset_name}'.
+
+Dataset description: {description}
+If a reference URL was provided, it is: {dataset_url if dataset_url else 'None'}
+
+Follow these steps:
+1. Use the web_search tool to search for: "{search_query}"
+2. Identify potential URLs from the search results that might contain {search_desc}
+3. For each potential URL, use the make_request tool to validate it
+4. Choose the best validated URL that:
+   - Returns a 200 status code
+   - Contains {search_desc} content (not just a landing page)
+   - Comes from an official or authoritative source
+
+Your FINAL response must be ONLY a single valid URL string.
+If you find multiple valid URLs, return the best/most official one.
+If you don't find any valid URLs, respond with exactly "Not found"
+"""
+    
+    # Get URL using the agent
+    url_response = get_information_with_agent(agent_executor, input_text)
+    
+    # Extract the URL from the response
+    url = url_response.strip()
+    logger.info(f"Raw {url_type} URL response: '{url}'")
+    
+    # Handle cases where no URL was found
+    if not url or url.lower() == "none" or "not found" in url.lower() or url.lower() == "n/a":
+        logger.info(f"No valid {url_type} URL found")
+        return None
+        
+    # Basic validation of returned URL
+    if not url.startswith(('http://', 'https://')):
+        if url.startswith('www.'):
+            url = 'https://' + url
+            logger.info(f"Added https:// prefix to {url_type} URL: {url}")
+        else:
+            # Try to extract a URL from the response if it contains other text
+            import re
+            url_pattern = r'https?://[^\s<>"\']+|www\.[^\s<>"\']+'
+            matches = re.findall(url_pattern, url)
+            if matches:
+                url = matches[0]
+                if url.startswith('www.'):
+                    url = 'https://' + url
+                logger.info(f"Extracted URL from response: {url}")
+            else:
+                logger.warning(f"Invalid {url_type} URL format returned: {url}")
+                return None
+    
+    # Additional validation: Make an actual request to verify the URL
+    try:
+        logger.info(f"Performing final validation of URL: {url}")
+        response = requests.head(url, timeout=5, allow_redirects=True)
+        if response.status_code >= 400:
+            logger.warning(f"URL validation failed with status code {response.status_code}: {url}")
+            return None
+        logger.info(f"URL validation successful with status code {response.status_code}: {url}")
+    except Exception as e:
+        logger.warning(f"URL validation request failed: {str(e)}")
+        # We'll still return the URL even if validation fails, as it might be temporary
+    
+    logger.info(f"Validated {url_type} URL: {url}")
+    return url
+
+def research_dataset(dataset_name: str, dataset_url: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Research a dataset and return information about it.
+    
+    Args:
+        dataset_name: Name of the dataset
+        dataset_url: Optional URL for the dataset
+    
+    Returns:
+        Dict: Information about the dataset
+    """
+    logger.info(f"Starting research for dataset: {dataset_name}")
+    logger.info("=" * 50)
+    
+    # Initialize result
+    result = {
+        "dataset_name": dataset_name,
+        "description": "",
+        "aliases": [],
+        "organizations": [],
+        "access_type": "Unknown",
+        "data_url": None,
+        "schema_url": None,
+        "documentation_url": None
+    }
+    
+    # Create the language model
+    llm = create_llm()
+    
+    # Get description first
+    start_time = time.time()
+    result["description"] = get_description(llm, dataset_name, dataset_url)
+    logger.info(f"Description obtained in {time.time() - start_time:.2f} seconds")
+    
+    # Use the description to get other information
+    description = result["description"]
+    
+    # Get aliases
+    start_time = time.time()
+    result["aliases"] = get_aliases(llm, dataset_name, description, dataset_url)
+    logger.info(f"Aliases obtained in {time.time() - start_time:.2f} seconds")
+    
+    # Get organizations
+    start_time = time.time()
+    result["organizations"] = get_organizations(llm, dataset_name, description, dataset_url)
+    logger.info(f"Organizations obtained in {time.time() - start_time:.2f} seconds")
+    
+    # Get access type
+    start_time = time.time()
+    result["access_type"] = get_access_type(llm, dataset_name, description, dataset_url)
+    logger.info(f"Access type determined in {time.time() - start_time:.2f} seconds")
+    
+    # Get data URL
+    start_time = time.time()
+    result["data_url"] = get_url_with_validation(llm, dataset_name, description, "data", dataset_url)
+    logger.info(f"Data URL obtained in {time.time() - start_time:.2f} seconds")
+    
+    # Get schema URL
+    start_time = time.time()
+    result["schema_url"] = get_url_with_validation(llm, dataset_name, description, "schema", dataset_url)
+    logger.info(f"Schema URL obtained in {time.time() - start_time:.2f} seconds")
+    
+    # Get documentation URL
+    start_time = time.time()
+    result["documentation_url"] = get_url_with_validation(llm, dataset_name, description, "documentation", dataset_url)
+    logger.info(f"Documentation URL obtained in {time.time() - start_time:.2f} seconds")
+    
+    logger.info("=" * 50)
+    logger.info("Research completed")
+    
+    return result
+
+def save_results(result: Dict[str, Any], dataset_name: str) -> str:
+    """
+    Save research results to a JSON file.
+    
+    Args:
+        result: Research results
+        dataset_name: Name of the dataset
+    
+    Returns:
+        str: Path to the saved file
+    """
+    # Create a filename based on the dataset name
+    import re
+    filename = re.sub(r'[^\w\s-]', '', dataset_name.lower())
+    filename = re.sub(r'[-\s]+', '_', filename)
+    filename = f"{filename}_research.json"
+    
+    # Save to file
+    with open(filename, 'w') as f:
+        json.dump(result, f, indent=2)
+    
+    logger.info(f"Results saved to {filename}")
+    return filename
+
+def main():
+    """Main function for running the dataset research agent."""
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description="Research a dataset using LLM and web search")
+    parser.add_argument("dataset_name", help="Name of the dataset to research")
+    parser.add_argument("--url", help="Optional URL for the dataset", default=None)
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
+    # Log start
+    logger.info("Dataset Research Agent starting")
+    logger.info(f"Researching dataset: {args.dataset_name}")
+    if args.url:
+        logger.info(f"Starting URL: {args.url}")
+    
+    try:
+        # Research the dataset
+        start_time = time.time()
+        result = research_dataset(args.dataset_name, args.url)
+        
+        # Calculate total research time
+        research_time = time.time() - start_time
+        logger.info(f"Research completed in {research_time:.2f} seconds")
+        
+        # Log some stats about the results
+        logger.info(f"Description length: {len(result['description'])} chars")
+        logger.info(f"Found {len(result['aliases'])} aliases: {result['aliases']}")
+        logger.info(f"Found {len(result['organizations'])} organizations: {result['organizations']}")
+        logger.info(f"Access type: {result['access_type']}")
+        logger.info(f"Data URL: {result['data_url']}")
+        logger.info(f"Schema URL: {result['schema_url']}")
+        logger.info(f"Documentation URL: {result['documentation_url']}")
+        
+        # Save results
+        filename = save_results(result, args.dataset_name)
+        
+        # Print results for user
+        print("\nDataset Research Results:")
+        print(json.dumps(result, indent=2))
+        print(f"\nResults saved to {filename}")
+        
+    except Exception as e:
+        logger.critical(f"Research failed with error: {str(e)}", exc_info=True)
+        print(f"Error: {str(e)}")
+        return 1
+    
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

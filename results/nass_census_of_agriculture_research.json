@@ -1,0 +1,24 @@
+{
+  "dataset_name": "NASS Census of Agriculture",
+  "home_url": "https://www.nass.usda.gov/AgCensus/",
+  "description": "The NASS Census of Agriculture is a comprehensive dataset produced by the U.S. Department of Agriculture\u2019s (USDA) National Agricultural Statistics Service (NASS). Conducted every five years, the census gathers detailed data on America\u2019s farming and ranching operations. It covers a wide range of topics, including land use and ownership, farm and operator characteristics, production practices, income, expenditures, and the types and quantities of crops and livestock produced. The primary purpose of the Census of Agriculture is to provide accurate, objective, and meaningful statistical information that supports agricultural policy-making, business decisions, research, and rural development. It serves as a key resource for government agencies, policymakers, researchers, agribusinesses, and farmers themselves, helping to track trends and inform decisions at national, state, and county levels. Key features of the dataset include its breadth and depth\u2014data are collected from all U.S. farms and ranches, regardless of size\u2014and its granularity, offering insights down to the county level. The census uniquely gives voice to all agricultural producers, ensuring even small and specialized operations are represented, making it an essential tool for understanding the evolving landscape of American agriculture.",
+  "aliases": [
+    "Ag Stats",
+    "Agcensus",
+    "Ag Census",
+    "Census of Agriculture",
+    "Agricultural Census"
+  ],
+  "organizations": [
+    "NASS",
+    "National Agricultural Statistics Service",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "United States Department of Agriculture"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.nass.usda.gov/Publications/AgCensus/2022/Online_Resources/Ag_Census_Web_Maps/Data_download/index.php",
+  "schema_url": "https://www.nass.usda.gov/Publications/AgCensus/2022/Online_Resources/Ag_Census_Web_Maps/Data_download/index.php",
+  "documentation_url": "https://www.agcensus.usda.gov/Surveys/Guide_to_NASS_Surveys/index.php",
+  "_metadata": {}
+}

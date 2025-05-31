@@ -1,0 +1,18 @@
+{
+  "dataset_name": "State Longitudinal Data Systems Data - SLDS",
+  "home_url": null,
+  "description": "The State Longitudinal Data Systems (SLDS) dataset is a comprehensive, unit-level data system designed to collect, manage, and analyze education and workforce data across time and sectors. Created and maintained by state education agencies (e.g., Massachusetts Department of Elementary and Secondary Education) with federal support, SLDS integrates records from K-12, postsecondary, labor market, and sometimes early childhood programs. Its primary purpose is to enable evidence-based policymaking by tracking student outcomes, evaluating program effectiveness, and informing decisions to improve education and workforce systems. Key features include longitudinal tracking of individuals\u2019 educational and career pathways, cross-sector data linkage (e.g., connecting K-12 to college and employment data), and standardized metrics for consistent analysis. Use cases span research on educational equity, resource allocation, career trend analysis, and policy evaluation. For example, Massachusetts\u2019 SLDS (Edwin Analytics) links course, institution, and system-level data to optimize student learning and labor market outcomes. Unique aspects of SLDS include its granular, individual-level data and its role in supporting both systemic improvements (e.g., curriculum adjustments) and individual decision-making (e.g., career planning). Funded through grants like the U.S. Department of Education\u2019s SLDS initiative, these systems are critical for fostering data-driven strategies to enhance educational attainment and economic development.",
+  "aliases": [
+    "Slds",
+    "P-20w",
+    "Wsp-20w",
+    "Edwin Analytics"
+  ],
+  "organizations": [
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://nces.ed.gov/Programs/SLDS/",
+  "schema_url": "https://www.mass.gov/service-details/state-longitudinal-data-systems-slds",
+  "documentation_url": "https://nces.ed.gov/programs/slds/publications.asp",
+  "_metadata": {}
+}

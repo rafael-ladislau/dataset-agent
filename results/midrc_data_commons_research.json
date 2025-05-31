@@ -1,0 +1,51 @@
+{
+  "dataset_name": "MIDRC Data Commons",
+  "home_url": "https://data.midrc.org/",
+  "description": "The **MIDRC Data Commons** is a repository of medical imaging and associated metadata, curated to support research in artificial intelligence (AI) and machine learning (ML). Created by the **Medical Imaging and Data Resource Center (MIDRC)**, it is funded by the National Institute of Biomedical Imaging and Bioengineering (NIBIB) and the Advanced Research Projects Agency for Health (ARPA-H). The dataset includes standardized, vetted medical images, clinical data, and metadata, organized under a common data model to ensure interoperability. It serves as an AI-ready resource for developing and validating diagnostic tools, with use cases spanning radiology, pathology, and multi-modal data analysis. Key features include access via the **Gen3 Data Ecosystem**, secure query infrastructure, and integration with external data sources. MIDRC collects data through portals at RSNA and ACR, harmonizing datasets to address duplication and ensure quality. Researchers can query and access data through a unified portal, leveraging unique identifiers to retrieve files from distributed repositories. The commons emphasizes privacy compliance, scalability, and collaboration, enabling large-scale, interoperable research while adhering to ethical standards. Its design supports advancing medical AI while addressing challenges in data diversity and accessibility.",
+  "aliases": [
+    "Midrc",
+    "Midrc-dc",
+    "Midrc Commons",
+    "Midrc Data Commons",
+    "Gen3 Data Ecosystem",
+    "Data Commons By Midrc",
+    "Midrc Data Repository",
+    "Medical Imaging Data Commons",
+    "Nibib-funded Midrc Data Commons",
+    "Arpa-h-funded Midrc Data Commons",
+    "Medical Imaging and Data Resource Center Data Commons",
+    "Advanced Research Projects Agency for Health Data Initiative",
+    "National Institute of Biomedical Imaging and Bioengineering Data Resource"
+  ],
+  "organizations": [
+    "ACR",
+    "ARPA-H",
+    "Advanced Research Projects Agency for Health",
+    "American College of Radiology",
+    "MIDRC",
+    "Medical Imaging and Data Resource Center",
+    "NIBIB",
+    "National Institute of Biomedical Imaging and Bioengineering",
+    "RSNA",
+    "Radiological Society of North America",
+    "University of Chicago"
+  ],
+  "access_type": "Open",
+  "data_url": "https://data.midrc.org/",
+  "schema_url": "https://github.com/uc-cdis/midrc_dictionary",
+  "documentation_url": "https://data.midrc.org/",
+  "_metadata": {
+    "timing": {
+      "description": 22.116178035736084,
+      "organizations": 52.816243171691895,
+      "aliases": 54.17535614967346,
+      "access_type": 27.619780778884888,
+      "data_url": 19.350653171539307,
+      "schema_url": 32.2680778503418,
+      "documentation_url": 12.52997899055481,
+      "total": 221.269766330719
+    },
+    "status": "success",
+    "completed": true
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "dataset_name": "Multipurpose Occupational Systems Analysis Inventory data",
+  "home_url": null,
+  "description": "The Multipurpose Occupational Systems Analysis Inventory-Closed Ended (MOSAIC) is a dataset developed by the U.S. Office of Personnel Management (OPM) to standardize occupational analysis across federal jobs. It collects detailed data on occupational descriptors through surveys completed by incumbents and supervisors, focusing on 617 \"work elements\" categorized into information processing, mental activities, work behavior, goals, and context. Each element is rated on predefined scales to quantify job requirements. Purpose and Use Cases: MOSAIC supports human resource management functions such as recruitment, employee development, position classification, and performance appraisal. It provides a standardized framework for comparing roles across federal agencies and informs competency-based hiring and training strategies. Key Features: 1. Automation and Efficiency: Reduces redundancy in data collection through a reusable survey structure. 2. Comprehensive Coverage: Captures tasks, competencies, and contextual factors for diverse occupations. 3. HR Integration: Data is compiled into accessible electronic databases for federal workforce management. 4. Focus on Competencies: Emphasizes skills and personal/organizational styles over traditional job-task listings. MOSAIC has been used for over two decades, primarily in federal clerical, technical, and managerial roles, and serves as a foundation for modern occupational data systems. Its emphasis on scalability and comparability addresses gaps in earlier job-analysis tools.",
+  "aliases": [
+    "Mosaic",
+    "Multipurpose Occupational Systems Analysis Inventory Data",
+    "Multipurpose Occupational Systems Analysis Inventory"
+  ],
+  "organizations": [
+    "NTIS",
+    "National Technical Information Service",
+    "OPM",
+    "Office of Personnel Management"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.opm.gov/policy-data-oversight/assessment-and-selection/competencies/",
+  "schema_url": "https://www.opm.gov/policy-data-oversight/assessment-and-selection/competencies/mosaic-studies-competencies.pdf",
+  "documentation_url": "https://www.opm.gov/policy-data-oversight/employee-information-systems/mosaic-data-dictionary-and-user-guide.pdf",
+  "_metadata": {}
+}

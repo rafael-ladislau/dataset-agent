@@ -1,0 +1,23 @@
+{
+  "dataset_name": "Survey of Graduate Students and Postdoctorates in Science and Engineering",
+  "home_url": null,
+  "description": "The Survey of Graduate Students and Postdoctorates in Science and Engineering (GSS) is an annual census conducted by the U.S. National Center for Science and Engineering Statistics (NCSES) under the National Science Foundation (NSF) and co-sponsored by the National Institutes of Health (NIH). It collects data from all U.S. academic institutions granting research-based master\u2019s or doctoral degrees in science, engineering, and selected health fields as of fall each year. The dataset includes the total number of graduate students (master\u2019s and doctoral), postdoctoral appointees, and doctorate-level nonfaculty researchers, categorized by demographics (e.g., gender, race/ethnicity), field of study, citizenship status, funding sources, and institutional characteristics. Its primary purpose is to track trends in STEM education and workforce development, supporting policy decisions, resource allocation, and research on workforce diversity and training. Key features include its comprehensive coverage of U.S. institutions, granular demographic breakdowns, and longitudinal data for analyzing changes over time. Unique aspects are its role as the sole federal survey capturing institutional-level data on graduate students and postdocs, making it critical for understanding STEM education pipelines and workforce dynamics. The dataset is widely used by policymakers, researchers, and institutions to assess workforce needs and equity in STEM fields.",
+  "aliases": [
+    "Gss",
+    "National Science Foundation Graduate Student Survey",
+    "Ncses Survey of Graduate Students and Postdoctorates",
+    "Survey of Graduate Students and Postdoctorates in Science and Engineering"
+  ],
+  "organizations": [
+    "NCSES",
+    "NIH",
+    "NSF",
+    "National Institutes of Health",
+    "National Science Foundation"
+  ],
+  "access_type": "Open",
+  "data_url": "https://ncses.nsf.gov/explore-data/microdata/graduate-students-postdoctorates-s-e",
+  "schema_url": "https://www.nsf.gov/ncses/gss/",
+  "documentation_url": "https://www.nsf.gov/ncses/gss/documents/GSS_User_Guide.pdf",
+  "_metadata": {}
+}

@@ -1,0 +1,23 @@
+{
+  "dataset_name": "National Survey of Recent College Graduates",
+  "home_url": null,
+  "description": "The National Survey of College Graduates (NSCG) is a biennial dataset sponsored by the U.S. National Science Foundation (NSF) and conducted by the Census Bureau since the 1970s. It captures detailed information on U.S. residents aged under 76 with at least a bachelor\u2019s degree, focusing on demographics, employment, salaries, work activities, and educational backgrounds. The survey emphasizes graduates in science and engineering (S&E) fields, though it includes all degree holders. Its primary purpose is to provide data for policymakers, researchers, and institutions to analyze workforce trends, evaluate educational outcomes, and inform decisions on workforce development and education policy. Key features include longitudinal tracking of degree-field-occupation relationships, detailed labor market insights, and public microdata files dating back to 1993. The dataset is released every two years, with 2023 being the most recent iteration, and includes specialized tools for examining the impact of factors like the COVID-19 pandemic on career trajectories. Unique aspects include its focus on S&E workforce dynamics and granular data on salary ranges and job activities, making it a critical resource for understanding the economic contributions of college-educated professionals.",
+  "aliases": [
+    "Nscg",
+    "National Survey of College Graduates",
+    "National Survey of Recent College Graduates",
+    "National Science Foundation College Graduates Survey"
+  ],
+  "organizations": [
+    "NCSES",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Science Foundation",
+    "U.S. Census Bureau"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://ncses.nsf.gov/explore-data/microdata/national-survey-college-graduates",
+  "schema_url": "https://www.nsf.gov/statistics/nsf/survey/nsfg/",
+  "documentation_url": "https://www.nsf.gov/awardsearch/showAward?AWD_ID=2319904",
+  "_metadata": {}
+}

@@ -1,0 +1,34 @@
+{
+  "dataset_name": "Census of Agriculture",
+  "home_url": "https://www.nass.usda.gov/AgCensus/",
+  "description": "The Census of Agriculture is a comprehensive dataset compiled by the USDA National Agricultural Statistics Service (NASS), providing a detailed snapshot of U.S. farming and ranching activities. Conducted every five years, it counts all farms and ranches, including small urban or rural operations, focusing on agricultural production, land use, and operator demographics. The dataset covers over 260 commodities (e.g., crops, livestock) and includes historical data from 1997 onward, with tools like Quick Stats enabling customizable queries by commodity, location, or time period. Its purpose is to inform policy, research, and market trends, supporting stakeholders in understanding agricultural economics, resource allocation, and industry shifts. Unique features include its complete count methodology (not a sample), integration with mapping tools, and accessibility via downloadable formats (CSV, PDF). The 2022 census, the most recent, highlights evolving practices like specialty crops and conservation efforts, making it a critical resource for researchers, policymakers, and agricultural planners.",
+  "aliases": [
+    "Usda Ag Census",
+    "Usda Nass Ag Census",
+    "Census of Agriculture",
+    "Usda Nass Census Data",
+    "Usda Agriculture Census",
+    "Usda Nass Agcensus Report",
+    "Agriculture Census By Usda",
+    "Census of Agriculture, Usda",
+    "Census of Agriculture, Nass",
+    "The Fact Finders of U.s. Agriculture",
+    "National Agricultural Statistics Service Census"
+  ],
+  "organizations": [
+    "Department of Agriculture",
+    "NASS",
+    "National Agricultural Statistics Service",
+    "Social Explorer",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "United States Department of Agriculture",
+    "University of Michigan",
+    "figshare"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.nass.usda.gov/AgCensus/",
+  "schema_url": "https://www.nass.usda.gov/AgCensus/2022/Data",
+  "documentation_url": "https://www.nass.usda.gov/AgCensus/",
+  "_metadata": {}
+}

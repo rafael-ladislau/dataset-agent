@@ -1,0 +1,25 @@
+{
+  "dataset_name": "household food security survey module",
+  "home_url": null,
+  "description": "The Household Food Security Survey Module (HFSSM) is a standardized tool developed in the early 1990s by an interagency U.S. working group led by the USDA\u2019s Food and Nutrition Service and the CDC\u2019s National Center for Health Statistics. It consists of 18 questions assessing household-level food security, categorizing households into four tiers: food secure, marginal, low, or very low food security, based on responses. The module focuses on group dynamics (adults and children collectively) rather than individual experiences, and it excludes factors like voluntary dieting or fasting. Primarily used in the U.S., the HFSSM informs policy, research, and programs addressing food insecurity. Its adaptability is evident in derivatives like the Latin America and Caribbean Food Security Scale (ELCSA). Key features include its scalability for large surveys, integration into tools like the World Bank/FAO\u2019s ADePT-FSM software for data analysis, and statistical modeling applications (e.g., partial credit models). However, it has limitations, such as inability to equate food security status between households with and without children using certain methodologies. The dataset remains a cornerstone for monitoring food insecurity globally and nationally.",
+  "aliases": [
+    "Hfssm",
+    "Food Security Survey Module",
+    "Household Food Security Scale",
+    "Usda Household Food Security Module",
+    "6-item Shortened Food Security Module"
+  ],
+  "organizations": [
+    "Institute for Social Research and Data Innovation IPUMS",
+    "MealsonWheels America",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "United States Department of Agriculture",
+    "Walmart Foundation"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.fns.usda.gov/hfssm",
+  "schema_url": "https://www.usda.gov/sites/default/files/documents/hfssm-data-dictionary.pdf",
+  "documentation_url": "https://www.census.gov/data/datasets/time-series/demo/cps/cps-supp_cps-repwgt/cps-food-security.html",
+  "_metadata": {}
+}

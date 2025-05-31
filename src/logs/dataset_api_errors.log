@@ -1,0 +1,15 @@
+2025-05-17 02:13:47,762 - dataset_agent.adapters.agent - ERROR - [58293] - Agent execution failed: model "llama3" not found, try pulling it first (status code: 404)
+2025-05-17 02:13:47,976 - dataset_agent.adapters.agent - ERROR - [58293] - Agent execution failed: model "llama3" not found, try pulling it first (status code: 404)
+2025-05-17 02:13:48,180 - dataset_agent.adapters.agent - ERROR - [58293] - Agent execution failed: model "llama3" not found, try pulling it first (status code: 404)
+2025-05-17 02:13:48,389 - dataset_agent.adapters.agent - ERROR - [58293] - Agent execution failed: model "llama3" not found, try pulling it first (status code: 404)
+2025-05-17 02:13:48,597 - dataset_agent.adapters.agent - ERROR - [58293] - Agent execution failed: model "llama3" not found, try pulling it first (status code: 404)
+2025-05-17 02:13:48,810 - dataset_agent.adapters.agent - ERROR - [58293] - Agent execution failed: model "llama3" not found, try pulling it first (status code: 404)
+2025-05-17 02:13:49,015 - dataset_agent.adapters.agent - ERROR - [58293] - Agent execution failed: model "llama3" not found, try pulling it first (status code: 404)
+2025-05-17 02:19:35,785 - dataset_agent.adapters.tools - ERROR - [61173] - TAVILY_API_KEY not found in environment variables
+2025-05-17 02:20:20,403 - dataset_agent.adapters.tools - ERROR - [61173] - TAVILY_API_KEY not found in environment variables
+2025-05-17 02:20:40,052 - dataset_agent.adapters.agent - ERROR - [61173] - Agent execution failed: cannot schedule new futures after interpreter shutdown
+2025-05-17 02:20:40,054 - dataset_agent.adapters.agent - ERROR - [61173] - Agent execution failed: cannot schedule new futures after interpreter shutdown
+2025-05-17 02:20:40,054 - dataset_agent.adapters.agent - ERROR - [61173] - Agent execution failed: cannot schedule new futures after interpreter shutdown
+2025-05-17 02:20:40,055 - dataset_agent.adapters.agent - ERROR - [61173] - Agent execution failed: cannot schedule new futures after interpreter shutdown
+2025-05-17 02:20:40,055 - dataset_agent.adapters.agent - ERROR - [61173] - Agent execution failed: cannot schedule new futures after interpreter shutdown
+2025-05-17 02:21:23,401 - dataset_agent.adapters.tools - ERROR - [61914] - TAVILY_API_KEY not found in environment variables

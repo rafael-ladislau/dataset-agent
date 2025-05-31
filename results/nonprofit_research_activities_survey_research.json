@@ -1,0 +1,40 @@
+{
+  "dataset_name": "Nonprofit Research Activities Survey",
+  "home_url": null,
+  "description": "The Nonprofit Research Activities (NPRA) Survey is a dataset developed by the U.S. Census Bureau in collaboration with the National Center for Science and Engineering Statistics (NCSES) under the National Science Foundation (NSF). It measures research and experimental development (R&D) activities, performance, and funding within U.S. 501(c) nonprofit organizations. Designed as part of the Annual Business Survey, the NPRA provides insights into the role of nonprofits in innovation and scientific advancement. The survey\u2019s primary purpose is to track R&D expenditures, workforce, and funding sources in the nonprofit sector, offering critical data for policymakers, researchers, and stakeholders to assess trends and inform decisions. Key features include its national scope, standardized metrics for R&D analysis, and partnerships with federal science agencies. Notably, the 2016 survey marked the first comprehensive national collection of nonprofit R&D data since 1997, though pre-2020 data lacks consistency for long-term trend analysis due to methodological changes. Unique aspects of the NPRA include its focus on a historically underdocumented sector and its integration with broader federal science statistics. The dataset is publicly accessible via platforms like data.gov and supports research on nonprofit contributions to innovation, economic impact studies, and policy development. Its structured format and alignment with IRS tax data (e.g., 990 filings) enhance its utility for cross-sector analyses.",
+  "aliases": [
+    "Npra Survey",
+    "Nonprofit R&d Survey",
+    "Abs Nonprofit R&d Component",
+    "Nonprofit R&d Activities Survey",
+    "Nsf Nonprofit R&d Data Collection",
+    "Nonprofit Research Activities Survey",
+    "U.s. Census Bureau Nonprofit R&d Dataset",
+    "Nonprofit R&d Performance Metrics Survey",
+    "U.s. Nonprofit Innovation and R&d Survey",
+    "Census Bureau Nonprofit Innovation Survey",
+    "Nonprofit Experimental Development Survey",
+    "Nonprofit R&d Expenditure Tracking System",
+    "Annual Business Survey Nonprofit Component",
+    "Nonprofit R&d Workforce and Funding Survey",
+    "Nonprofit Research Activities Annual Survey",
+    "National Science Foundation Nonprofit R&d Data",
+    "Nonprofit Research Activities 990-linked Dataset",
+    "Nonprofit Science and Engineering Statistics Survey",
+    "Nonprofit Research Activities Annual Business Survey"
+  ],
+  "organizations": [
+    "Census Bureau",
+    "NCSES",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Science Foundation",
+    "U.S. Census Bureau",
+    "data.gov"
+  ],
+  "access_type": "Open",
+  "data_url": "https://catalog.data.gov/dataset/nonprofit-research-activities-survey-2021",
+  "schema_url": "https://data.gov/nonprofit-research-activities-survey",
+  "documentation_url": "https://ncses.nsf.gov/pubs/nsf881950/assets/nsf881950.pdf",
+  "_metadata": {}
+}

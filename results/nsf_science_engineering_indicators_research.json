@@ -1,0 +1,44 @@
+{
+  "dataset_name": "NSF Science & Engineering Indicators",
+  "home_url": "https://ncses.nsf.gov/indicators",
+  "description": "The **NSF Science & Engineering Indicators** is a comprehensive dataset compiled by the **National Science Foundation (NSF)**, specifically through its **National Center for Science and Engineering Statistics (NCSES)**. It serves as a congressionally mandated biennial report tracking the state of science, technology, engineering, and mathematics (STEM) in the U.S. and globally. The dataset includes metrics on the STEM workforce (size, growth, education, salaries, diversity), research and development (R&D) investments, patents, publications, and international comparisons. It also covers higher education trends in STEM fields and state-level indicators for regional analysis.  \n\nCreated to inform policymakers, researchers, and educators, the dataset supports evidence-based decisions on workforce development, innovation strategies, and national competitiveness. Its key features include long-term trend analysis, standardized data collection, and alignment with global benchmarks. The NSF provides interactive tools (e.g., S&E State Indicators) for comparative analysis, making it a critical resource for understanding U.S. scientific and engineering landscapes. For details, visit: [https://ncses.nsf.gov/indicators](https://ncses.nsf.gov/indicators).",
+  "aliases": [
+    "Nsb--33",
+    "Indicators",
+    "S&e Indicators",
+    "Ncses Indicators",
+    "Nsf S&e Indicators",
+    "S&e State Indicators",
+    "Science and Engineering Indicators",
+    "Nsf Science & Engineering Indicators",
+    "Nsf Science and Engineering Indicators",
+    "The State of U.s. Science and Engineering",
+    "Science and Engineering Indicators Report"
+  ],
+  "organizations": [
+    "NCSES",
+    "NSB",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Science Board",
+    "National Science Foundation"
+  ],
+  "access_type": "Open",
+  "data_url": "https://ncses.nsf.gov/indicators",
+  "schema_url": "https://ncses.nsf.gov/browse-library?dataCollection=Science+and+Engineering+Indicators",
+  "documentation_url": "https://www.ncses.nsf.gov/indicators/help",
+  "_metadata": {
+    "timing": {
+      "description": 19.534739017486572,
+      "organizations": 26.449574947357178,
+      "aliases": 45.74010896682739,
+      "access_type": 26.433416843414307,
+      "data_url": 19.034693956375122,
+      "schema_url": 106.8743200302124,
+      "documentation_url": 51.18912410736084,
+      "total": 295.6364872455597
+    },
+    "status": "success",
+    "completed": true
+  }
+}

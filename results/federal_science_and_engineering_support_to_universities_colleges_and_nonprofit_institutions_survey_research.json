@@ -1,0 +1,31 @@
+{
+  "dataset_name": "Federal Science and Engineering Support to Universities, Colleges, and Nonprofit Institutions Survey",
+  "home_url": null,
+  "description": "The Federal Science and Engineering (S&E) Support to Universities, Colleges, and Nonprofit Institutions Survey is a dataset created by the National Center for Science and Engineering Statistics (NCSES) under the National Science Foundation (NSF). It compiles federal funding data for S&E research and development (R&D) provided to U.S. universities, colleges, and nonprofit institutions. The dataset aggregates obligations from 19 federal agencies (e.g., NSF, NIH, DOE) that fund S&E activities, tracking amounts, recipient institutions, and funding purposes. Originally a standalone survey through FY 2020, it transitioned into a module within the broader Federal Funds for R&D survey starting in FY 2021. Its primary purpose is to inform policymakers, researchers, and institutions about federal R&D investment trends, enabling analysis of geographic distribution, agency contributions, and institutional success in securing funding. Use cases include assessing state-level funding disparities, evaluating agency priorities, and benchmarking institutional research capacity. Key features include granular data on obligational amounts, agency-specific breakdowns, and longitudinal trends, making it a critical resource for understanding the U.S. federal R&D ecosystem. The dataset also highlights top recipient institutions, offering insights into academic research competitiveness.",
+  "aliases": [
+    "Federal Support Survey",
+    "Federal S&e Support Survey",
+    "Federal Funds for R&d Survey Module",
+    "Federal Science and Engineering Support Survey",
+    "Federal S&e Support To Universities, Colleges, and Nonprofit Institutions Survey",
+    "Federal Science and Engineering Support To Universities, Colleges, and Nonprofit Institutions Survey",
+    "Survey of Federal Science and Engineering Support To Universities, Colleges, and Nonprofit Institutions",
+    "Federal Support of Research and Development At Universities and Colleges and Selected Nonprofit Institutions"
+  ],
+  "organizations": [
+    "DOE",
+    "Department of Energy",
+    "NCSES",
+    "NIH",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Institutes of Health",
+    "National Science Foundation",
+    "U.S. Department of Energy"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.nsf.gov/ncses/federalfundsrd/data.cfm",
+  "schema_url": "https://www.nsf.gov/pubs/2023/nsf23093/nsf23093.pdf",
+  "documentation_url": "https://ncses.nsf.gov/surveys/federal-support-survey/2022/",
+  "_metadata": {}
+}
