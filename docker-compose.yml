@@ -1,0 +1,27 @@
+services:
+  api:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    ports:
+      - "8888:8888"
+    volumes:
+      - "/Users/leandroferreira/Projects/ladis/dataset-agent/data:/app/data"
+#      - "/mnt/volume/sqlite/data:/app/data"
+    networks:
+      - dataset
+    command:
+      - python
+      - -m
+      - src.dataset_agent.api
+
+networks:
+  dataset:
+    driver: bridge
+
+volumes:
+  logs-folder:
+    name: ${log_rabbitmq_management}
+    driver: local

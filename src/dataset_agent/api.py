@@ -5,18 +5,18 @@ FastAPI application for dataset research agent API.
 import logging
 import os
 import uuid
+import traceback
+import uvicorn
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .auth import APIKeyAuth
 from .database import Database
 from .main import run_research
-from .domain.models import DatasetInfo
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -135,6 +135,7 @@ def process_research_task(task_id: str, dataset_name: str, dataset_url: Optional
         # Update task status to 'failed'
         db.update_task_status(task_id, 'failed')
         logger.error(f"Task {task_id} failed: {str(e)}", exc_info=True)
+        logger.error(traceback.format_exc())
 
 @app.post(
     "/api/research", 
@@ -189,10 +190,12 @@ async def create_research_task(
         )
     except Exception as e:
         logger.error(f"Error creating research task: {str(e)}", exc_info=True)
+        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=500,
             detail=f"Error creating research task: {str(e)}"
         )
+
 
 @app.get(
     "/api/research/{task_id}", 
@@ -315,4 +318,7 @@ async def health_check():
     Returns:
         dict: Health status
     """
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()} 
+    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8888)

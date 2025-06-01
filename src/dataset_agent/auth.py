@@ -3,8 +3,10 @@ Authentication module for API key validation.
 """
 
 import logging
+
 import os
 from typing import List, Optional
+from dotenv import load_dotenv, find_dotenv
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +20,7 @@ class APIKeyAuth:
         Args:
             api_keys: Comma-separated list of API keys, defaults to API_KEYS environment variable
         """
+        load_dotenv(find_dotenv())
         if api_keys is None:
             api_keys = os.environ.get('API_KEYS', '')
         
