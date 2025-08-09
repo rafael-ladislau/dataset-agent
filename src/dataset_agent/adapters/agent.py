@@ -59,6 +59,7 @@ class LangChainAgent(AgentInterface):
                 
                 # Initialize Ollama LLM
                 llm = ChatOllama(
+                    base_url="http://ollama:11434",
                     model=self.model_name,
                     temperature=self.temperature,
                     top_k=20,
@@ -141,7 +142,7 @@ class LangChainAgent(AgentInterface):
         import requests
         
         try:
-            response = requests.get("http://127.0.0.1:11434/api/tags", timeout=5)
+            response = requests.get("http://ollama:11434/api/tags", timeout=5)
             return response.status_code == 200
         except Exception as e:
             logger.error(f"Ollama server health check failed: {str(e)}")

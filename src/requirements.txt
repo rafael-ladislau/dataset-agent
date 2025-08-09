@@ -5,3 +5,7 @@ pydantic>=2.5.3
 uuid>=1.30
 python-multipart>=0.0.7
 python-dotenv
+langchain_core
+langchain
+langchain_ollama
+tavily-python
