@@ -1,1 +1,161 @@
+###############################
+# General Python ignores
+###############################
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+###############################
+# Distribution / packaging
+###############################
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+###############################
+# Unit test / coverage reports
+###############################
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+###############################
+# Jupyter
+###############################
+.ipynb_checkpoints
+
+###############################
+# Type checkers / linters
+###############################
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+###############################
+# Environments
+###############################
 .env
+.env.*
+.envrc
+.venv
+.venv*/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+*.env
+__pypackages__/
+.python-version
+
+###############################
+# IDEs and editors
+###############################
+.vscode/
+.idea/
+*.code-workspace
+
+###############################
+# OS files
+###############################
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+Thumbs.db
+ehthumbs.db
+
+###############################
+# Logs
+###############################
+logs/
+*.log
+
+###############################
+# Databases / caches
+###############################
+*.db
+*.sqlite
+*.sqlite3
+
+###############################
+# Temp files
+###############################
+tmp/
+temp/
+*.tmp
+*.bak
+*.bkp
+*.swp
+*.swo
+
+###############################
+# Sphinx / docs
+###############################
+docs/_build/
+
+###############################
+# Flask / Django (common local artifacts)
+###############################
+instance/
+.webassets-cache
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+###############################
+# LangChain / LLM artifacts
+###############################
+.langchain/
+langchain.db
+chroma/
+chroma_db/
+chroma-collections.parquet
+chroma-embeddings.parquet
+index/
+indexes/
+faiss_index/
+faiss_store/
+*.faiss
+*.npy
+*.bin
+
+###############################
+# Project-specific
+###############################
+.agent-os/

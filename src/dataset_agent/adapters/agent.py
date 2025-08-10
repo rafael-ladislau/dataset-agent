@@ -31,11 +31,16 @@ class LangChainAgent(AgentInterface):
             api_key: API key for OpenRouter
             base_url: Base URL for OpenRouter API
         """
-        self.model_name = model_name
+        # Allow environment variables to override provided values
+        # Model name for both providers
+        self.model_name = os.environ.get("DATASET_AGENT_LLM_MODEL", model_name)
         self.temperature = temperature
         self.provider = provider
         self.api_key = api_key
+        # Base URL for OpenRouter (if used)
         self.base_url = base_url
+        # Base URL for Ollama
+        self.ollama_url = os.environ.get("DATASET_AGENT_URL", "http://localhost:11434")
         self.agent_executor = None
         self._initialize_agent()
     
@@ -59,7 +64,7 @@ class LangChainAgent(AgentInterface):
                 
                 # Initialize Ollama LLM
                 llm = ChatOllama(
-                    base_url="http://ollama:11434",
+                    base_url=self.ollama_url,
                     model=self.model_name,
                     temperature=self.temperature,
                     top_k=20,
@@ -142,7 +147,8 @@ class LangChainAgent(AgentInterface):
         import requests
         
         try:
-            response = requests.get("http://ollama:11434/api/tags", timeout=5)
+            health_url = f"{self.ollama_url.rstrip('/')}/api/tags"
+            response = requests.get(health_url, timeout=5)
             return response.status_code == 200
         except Exception as e:
             logger.error(f"Ollama server health check failed: {str(e)}")

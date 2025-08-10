@@ -219,7 +219,6 @@ Examples of aliases include:
 
 Specifically consider these common patterns:
 - Adjective form of the main noun (e.g., "National" instead of "Nation")
-- Organization name + key terms 
 - Abbreviations of key terms
 - Re-ordering of terms
 - With and without "of" or other connecting words

@@ -1,0 +1,28 @@
+{
+  "dataset_name": "NASS Census of Agriculture",
+  "home_url": null,
+  "description": "The U.S. Census of Agriculture is a comprehensive enumeration of the nation\u2019s agricultural production, conducted every five years by the U.S. Department of Agriculture\u2019s National Agricultural Statistics Service (NASS). It contains data on land use, crop production, livestock, producer demographics, and farm economics at the national, state, and county levels. Originally conducted by the U.S. Census Bureau as part of the decennial census, responsibility shifted to NASS in 1997. This transition ensured a more focused and frequent collection of agricultural data. The Census of Agriculture serves as the sole source of uniform, detailed agricultural data for every county in the United States. Its primary purpose is to provide a snapshot of U.S. agriculture, informing policy decisions, supporting research, and guiding agricultural businesses. Data users include government agencies, agricultural organizations, researchers, and producers themselves. A key feature is its commitment to confidentiality; NASS publishes only aggregated data, protecting individual farm information as mandated by law. The latest data, from the 2022 Census, encompasses over 6 million data points.",
+  "aliases": [
+    "Nass",
+    "Usda-nass",
+    "Ag Census",
+    "Quick Stats",
+    "Farm Census",
+    "Agricultural Census",
+    "Census of Agriculture",
+    "U.s. Agricultural Statistics",
+    "National Agricultural Statistics Service"
+  ],
+  "organizations": [
+    "Far",
+    "Library of Congress",
+    "U.S. Census Bureau",
+    "United States - National Agricultural Statistics Service",
+    "Wikimedia Foundation"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.nass.usda.gov/Quick_Stats/",
+  "schema_url": "https://www.nass.usda.gov/Data_and_Statistics/",
+  "documentation_url": "https://www.nass.usda.gov/AgCensus/Census_Program_Input_Form/Census-Forms/index.php",
+  "_metadata": {}
+}
