@@ -152,6 +152,7 @@ def setup_dependencies(config: Config) -> Dict[str, Any]:
     from .adapters.storage import JSONFileRepository
     from .domain.usecases import DatasetResearchUseCase
     
+    print(f"Config: {config}")
     # Create agent based on provider configuration
     if config.llm_provider == "ollama":
         agent = LangChainAgent(model_name=config.llm_model)

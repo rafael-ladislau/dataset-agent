@@ -18,7 +18,7 @@ class LangChainAgent(AgentInterface):
     Implementation of AgentInterface using LangChain with Ollama or OpenRouter.
     """
     
-    def __init__(self, model_name: str = "llama3", temperature: float = 0.6, 
+    def __init__(self, model_name: str = "gpt-oss:20b", temperature: float = 0.85, 
                  provider: str = "ollama", api_key: Optional[str] = None, 
                  base_url: Optional[str] = None):
         """
@@ -67,7 +67,7 @@ class LangChainAgent(AgentInterface):
                     base_url=self.ollama_url,
                     model=self.model_name,
                     temperature=self.temperature,
-                    top_k=20,
+                    top_k=40,
                     top_p=0.95,
                     streaming=False
                 )
@@ -130,7 +130,7 @@ class LangChainAgent(AgentInterface):
                     handle_parsing_errors=True,
                     max_iterations=5,
                     max_execution_time=120,
-                    early_stopping_method="generate"
+                    early_stopping_method="force"
                 )
                 logger.info("Agent initialized successfully")
                 
