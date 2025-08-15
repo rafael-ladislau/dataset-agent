@@ -159,3 +159,8 @@ faiss_store/
 # Project-specific
 ###############################
 .agent-os/
+
+# Data directory database files
+data/*.db
+data/*.sqlite
+data/*.sqlite3
