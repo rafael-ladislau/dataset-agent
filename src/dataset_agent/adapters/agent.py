@@ -20,7 +20,7 @@ class LangChainAgent(AgentInterface):
     
     def __init__(self, model_name: str = "gpt-oss:20b", temperature: float = 0.85, 
                  provider: str = "ollama", api_key: Optional[str] = None, 
-                 base_url: Optional[str] = None):
+                 base_url: Optional[str] = None, top_k: Optional[int] = None, top_p: Optional[float] = None):
         """
         Initialize the LangChain agent.
         
@@ -31,9 +31,8 @@ class LangChainAgent(AgentInterface):
             api_key: API key for OpenRouter
             base_url: Base URL for OpenRouter API
         """
-        # Allow environment variables to override provided values
-        # Model name for both providers
-        self.model_name = os.environ.get("DATASET_AGENT_LLM_MODEL", model_name)
+        # Model name precedence: explicit argument > env var > default
+        self.model_name = model_name or os.environ.get("DATASET_AGENT_LLM_MODEL", "gpt-oss:20b")
         self.temperature = temperature
         self.provider = provider
         self.api_key = api_key
@@ -41,6 +40,9 @@ class LangChainAgent(AgentInterface):
         self.base_url = base_url
         # Base URL for Ollama
         self.ollama_url = os.environ.get("DATASET_AGENT_URL", "http://localhost:11434")
+        # Optional sampling controls for Ollama
+        self.top_k = top_k
+        self.top_p = top_p
         self.agent_executor = None
         self._initialize_agent()
     
@@ -62,13 +64,19 @@ class LangChainAgent(AgentInterface):
                     logger.error("Ollama server is not running or not responding")
                     raise RuntimeError("Ollama server is not running or not responding")
                 
+                # Ensure correct model is loaded and others are unloaded
+                try:
+                    self._ensure_ollama_model_loaded()
+                except Exception as e:
+                    logger.warning(f"Could not ensure Ollama model state: {str(e)}")
+                
                 # Initialize Ollama LLM
                 llm = ChatOllama(
                     base_url=self.ollama_url,
                     model=self.model_name,
                     temperature=self.temperature,
-                    top_k=40,
-                    top_p=0.95,
+                    top_k=self.top_k if self.top_k is not None else 40,
+                    top_p=self.top_p if self.top_p is not None else 0.95,
                     streaming=False
                 )
                 logger.info(f"Initialized Ollama LLM with model {self.model_name}")
@@ -153,6 +161,71 @@ class LangChainAgent(AgentInterface):
         except Exception as e:
             logger.error(f"Ollama server health check failed: {str(e)}")
             return False
+
+    def _ensure_ollama_model_loaded(self) -> None:
+        """Ensure the desired model is available; if pull fails, delete all and retry, then warm-load."""
+        import requests
+        base = self.ollama_url.rstrip('/')
+
+        def _pull_model() -> Optional[int]:
+            try:
+                resp = requests.post(f"{base}/api/pull", json={"model": self.model_name}, timeout=600)
+                return resp.status_code
+            except Exception as exc:
+                logger.warning(f"Pull attempt failed for {self.model_name}: {str(exc)}")
+                return None
+
+        def _delete_all_models() -> None:
+            try:
+                tags = requests.get(f"{base}/api/tags", timeout=30)
+                if tags.status_code == 200:
+                    payload = tags.json() or {}
+                    for m in payload.get("models", []):
+                        name = m.get("name")
+                        if not name:
+                            continue
+                        # Try DELETE first
+                        try:
+                            del_resp = requests.delete(f"{base}/api/delete", json={"name": name}, timeout=60)
+                            if del_resp.status_code != 200:
+                                # Fallback to POST if DELETE not supported
+                                del_resp = requests.post(f"{base}/api/delete", json={"name": name}, timeout=60)
+                            if del_resp.status_code == 200:
+                                logger.info(f"Deleted model '{name}' from Ollama store")
+                            else:
+                                logger.warning(f"Failed to delete model '{name}': {del_resp.status_code} {del_resp.text}")
+                        except Exception as de:
+                            logger.warning(f"Exception deleting model '{name}': {str(de)}")
+                else:
+                    logger.warning(f"Failed to list models for deletion: {tags.status_code} {tags.text}")
+            except Exception as e:
+                logger.warning(f"Could not enumerate/delete models: {str(e)}")
+
+        # First try pulling the requested model
+        status = _pull_model()
+        if status not in (200, 201):
+            logger.warning(f"Initial pull of '{self.model_name}' failed (status={status}). Deleting all models and retrying pull.")
+            _delete_all_models()
+            status = _pull_model()
+            if status not in (200, 201):
+                logger.warning(f"Pull still failing for '{self.model_name}' (status={status}).")
+
+        # Warm load desired model to memory
+        try:
+            warm = requests.post(
+                f"{base}/api/generate",
+                json={
+                    "model": self.model_name,
+                    "prompt": "ping",
+                    "stream": False,
+                    "keep_alive": "30m"
+                },
+                timeout=180,
+            )
+            if warm.status_code not in (200, 201):
+                logger.warning(f"Model warm-up returned status {warm.status_code}: {warm.text}")
+        except Exception as e:
+            logger.warning(f"Could not warm-load model {self.model_name}: {str(e)}")
     
     def get_information(self, prompt: str) -> str:
         """

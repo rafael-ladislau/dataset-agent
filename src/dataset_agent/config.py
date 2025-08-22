@@ -12,7 +12,8 @@ class Config:
     
     def __init__(self, log_level: str = None, log_file: str = None, 
                  output_dir: str = None, llm_provider: str = None, llm_model: str = None,
-                 web_search_provider: str = None):
+                 web_search_provider: str = None, temperature: float = None,
+                 top_k: int = None, top_p: float = None):
         """
         Initialize configuration.
         
@@ -46,6 +47,13 @@ class Config:
             web_search_provider or 
             os.environ.get("WEB_SEARCH_PROVIDER", "tavily")
         )
+        # Sampling parameters (only applied for providers that support them, e.g., Ollama)
+        self.temperature = float(temperature) if temperature is not None else float(os.environ.get("DATASET_AGENT_TEMPERATURE", 0.85))
+        self.top_k = int(top_k) if top_k is not None else int(os.environ.get("DATASET_AGENT_TOP_K", 40))
+        try:
+            self.top_p = float(top_p) if top_p is not None else float(os.environ.get("DATASET_AGENT_TOP_P", 0.95))
+        except ValueError:
+            self.top_p = 0.95
         
         # Set web search provider in environment for other components
         os.environ["WEB_SEARCH_PROVIDER"] = self.web_search_provider
@@ -122,7 +130,8 @@ class Config:
             f"output_dir='{self.output_dir}', "
             f"llm_provider='{self.llm_provider}', "
             f"llm_model='{self.llm_model}', "
-            f"web_search_provider='{self.web_search_provider}')"
+            f"web_search_provider='{self.web_search_provider}', "
+            f"temperature={self.temperature}, top_k={self.top_k}, top_p={self.top_p})"
         )
     
     def to_dict(self) -> Dict[str, Any]:
@@ -133,7 +142,10 @@ class Config:
             "output_dir": self.output_dir,
             "llm_provider": self.llm_provider,
             "llm_model": self.llm_model,
-            "web_search_provider": self.web_search_provider
+            "web_search_provider": self.web_search_provider,
+            "temperature": self.temperature,
+            "top_k": self.top_k,
+            "top_p": self.top_p
         }
 
 
@@ -155,7 +167,12 @@ def setup_dependencies(config: Config) -> Dict[str, Any]:
     print(f"Config: {config}")
     # Create agent based on provider configuration
     if config.llm_provider == "ollama":
-        agent = LangChainAgent(model_name=config.llm_model)
+        agent = LangChainAgent(
+            model_name=config.llm_model,
+            temperature=config.temperature,
+            top_k=config.top_k,
+            top_p=config.top_p,
+        )
     elif config.llm_provider == "openrouter":
         # Verify that OpenRouter API key exists
         api_key = os.environ.get("OPENROUTER_API_KEY")
