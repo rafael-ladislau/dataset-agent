@@ -97,6 +97,47 @@ Return a Python list for '{dataset_name}':
 ["Full Name", "ACRONYM", "Alternative Name"]"""
 
 
+def refine_dataset_aliases_prompt(
+    main_dataset_name: str,
+    description: str,
+    dataset_names: list[str],
+    flag_terms: list[str],
+) -> str:
+    """Ask LLM to return dataset_names for literature search without embedding org/sponsor tokens."""
+    names_lines = "\n".join(f"  - {n!r}" for n in dataset_names[:20])
+    flags_lines = "\n".join(f"  - {f!r}" for f in flag_terms[:20])
+    if not names_lines:
+        names_lines = "  (none)"
+    if not flags_lines:
+        flags_lines = "  (none)"
+
+    return f"""You are cleaning **dataset name aliases** for academic literature string search.
+
+Primary dataset title: {main_dataset_name!r}
+
+=== DESCRIPTION (context) ===
+{description[:2000]}
+
+=== CURRENT dataset_names (may wrongly mix sponsors with product names) ===
+{names_lines}
+
+=== flag_terms (organizations — already used separately in search; do NOT repeat here) ===
+{flags_lines}
+
+=== YOUR TASK ===
+Return **only** a JSON object with one key:
+{{"dataset_names": [<strings>]}}
+
+Rules:
+- Each string must name the **dataset/product** (official title, acronym, or spelling variant), suitable to appear in paper titles/abstracts.
+- **Remove** sponsor/agency prefixes/suffixes from aliases when the canonical product name does not include them (e.g. "Bls O*net" → prefer "O*NET" and add "ONET" if useful; do not keep "Bls" in dataset_names because BLS is already in flag_terms).
+- **Do not** include any phrase that duplicates an entry in flag_terms (case-insensitive).
+- Include useful **spelling variants** when justified (e.g. O*NET vs ONET).
+- Omit junk; max ~15 items; empty list only if nothing remains after cleaning.
+
+Respond with ONLY valid JSON, no markdown fences."""
+
+
 def urls_and_access_prompt(
     dataset_name: str,
     description: str,

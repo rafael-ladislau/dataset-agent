@@ -339,6 +339,16 @@ def _terms_evaluation_prompt(
     # Summarize validation results
     if validation_details:
         valid_count = sum(1 for d in validation_details if d.get("final_score", 0) >= 5)
+        n_val = len(validation_details)
+        pct_ok = round(100.0 * valid_count / n_val, 1) if n_val else 0.0
+        mention_scores = [int(d.get("mention_score", 0) or 0) for d in validation_details]
+        context_scores = [int(d.get("context_score", 0) or 0) for d in validation_details]
+        avg_mention = round(sum(mention_scores) / len(mention_scores), 2) if mention_scores else 0.0
+        avg_context = round(sum(context_scores) / len(context_scores), 2) if context_scores else 0.0
+        metrics_line = (
+            f"Share with final_score>=5: {valid_count}/{n_val} ({pct_ok}%); "
+            f"avg mention_score={avg_mention}, avg context_score={avg_context}."
+        )
         low_context = [d for d in validation_details if d.get("context_score", 0) < 5 and d.get("mention_score", 0) >= 5]
         mentioned_terms = [
             str(d.get("mentioned_term", "")).strip()
@@ -358,9 +368,10 @@ def _terms_evaluation_prompt(
         )
     else:
         valid_count = 0
+        metrics_line = "No per-publication validation details."
         low_context_summary = "No details available"
         top_mentioned_terms = "No semantic term match details available"
-    
+
     return f"""Evaluate the effectiveness of search terms for the dataset "{dataset_name}".
 
 === DATASET INFO ===
@@ -371,7 +382,8 @@ Dataset names/aliases: {names_str}
 Organizations (flag_terms): {terms_str}
 
 === VALIDATION RESULTS ===
-Publications found with valid context: {valid_count}/{len(validation_details)}
+Publications with final_score>=5: {valid_count}/{len(validation_details)}
+{metrics_line}
 
 Publications with HIGH mention but LOW context score (likely false positives):
 {low_context_summary}
@@ -380,17 +392,31 @@ Most frequently matched semantic terms (from mention_score analysis):
 {top_mentioned_terms}
 
 === YOUR TASK ===
-Evaluate if the current terms are effective for finding relevant literature.
+Literature search uses **exact / substring string matching** on titles and abstracts. Suggested terms must be
+**real phrases that appear in papers**, not abstract domain descriptions.
+
+**Rules for suggested_dataset_names and suggested_flag_terms:**
+- Fill them **only** if there is a **concrete gap**: many high-mention/low-context false positives, terms too generic
+  for this dataset, or a **documented alternate official name / spelling** (product name, acronym variant) that is
+  missing from CURRENT TERMS and would improve recall.
+- If validation is **strong** (most publications relevant, high average scores), use **empty arrays** ``[]`` for
+  both and state in issues/reasoning that current terms are adequate. **Do not** invent "improvements" for a system
+  that already works.
+- **Do not** suggest vague conceptual paraphrases (e.g. "workforce skills database", "occupational taxonomy",
+  "labor market information") unless that exact phrase is the dataset's official name. Prefer **spelling/branding
+  variants** (e.g. alternate acronym or full title) aligned with DATASET INFO.
+- Do **not** repeat any string already listed under CURRENT TERMS (see duplicate policy below).
+
+**suggested_exclude_terms:** If validation shows clear **off-domain** false positives, propose specific phrases to
+exclude; otherwise ``[]``. Do not use ultra-generic words ("study", "data", "analysis"). Max 5 items.
 
 Do **not** repeat any name or organization already listed under CURRENT TERMS in
-``suggested_dataset_names`` or ``suggested_flag_terms``. Those fields must contain only
-**new** alternatives (or be empty arrays if you have nothing to add).
+``suggested_dataset_names`` or ``suggested_flag_terms``. Those fields must contain only **new** strings (or empty arrays).
 
 Consider:
-1. Are dataset names specific enough? (e.g., "ORS" alone is too generic)
-2. Are the organizations correct and complete?
-3. What terms would better identify this specific dataset?
-4. Using the DATASET INFO (description, domain, sponsors), infer the expected field. If validation results show clear **off-domain** false positives (e.g. agricultural dataset vs stem-cell papers), propose **suggested_exclude_terms**: specific phrases to filter out that wrong domain. Do NOT suggest ultra-generic words ("study", "data", "analysis"). Use at most 5 items; use an empty list if exclude terms are not justified.
+1. Are dataset names specific enough for string search? (e.g., a bare acronym may be too ambiguous)
+2. Are organizations/sponsors correctly represented for disambiguation?
+3. Is there evidence of **wrong-domain** hits that justify exclude phrases?
 
 Respond with ONLY a JSON object:
 {{

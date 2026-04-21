@@ -15,6 +15,7 @@ from dataset_agent.adapters.text_processing import (
     filter_aliases_by_substrings,
     normalize_access_label,
 )
+from dataset_agent.adapters.dataset_aliases import refine_dataset_names_with_llm
 from dataset_agent.adapters.literature import evaluate_terms_with_llm
 from dataset_agent.domain.models import (
     DatasetRecord,
@@ -223,7 +224,7 @@ class DatasetResearchUseCase:
         name = request.dataset_name
 
         # Step 1: Description + Home URL (combined, 1 LLM call)
-        logger.info("Step 1/4: description + home_url (LLM + web search)")
+        logger.info("Step 1/5: description + home_url (LLM + web search)")
         desc_home_raw = self._agent.get_information(
             prompts.description_and_home_url_prompt(name, None)
         )
@@ -239,7 +240,7 @@ class DatasetResearchUseCase:
         )
 
         # Step 2: All URLs + Access Type (combined, 1 LLM call)
-        logger.info("Step 2/4: URLs (data/schema/doc) + access_type (LLM + validation)")
+        logger.info("Step 2/5: URLs (data/schema/doc) + access_type (LLM + validation)")
         urls_raw = self._agent.get_information(
             prompts.urls_and_access_prompt(name, description, home_url)
         )
@@ -262,7 +263,7 @@ class DatasetResearchUseCase:
         )
 
         # Step 3: Organizations (1 LLM call, uses home_url context)
-        logger.info("Step 3/4: organizations (LLM)")
+        logger.info("Step 3/5: organizations (LLM)")
         org_raw = self._agent.get_information(
             prompts.organizations_prompt(name, description, home_url)
         )
@@ -273,7 +274,7 @@ class DatasetResearchUseCase:
         logger.info("Step 3 done: %s context terms", len(flag_terms))
 
         # Step 4: Aliases (1 LLM call, uses orgs + home_url context)
-        logger.info("Step 4/4: aliases (LLM)")
+        logger.info("Step 4/5: aliases (LLM)")
         alias_raw = self._agent.get_information(
             prompts.aliases_prompt(name, description, home_url, flag_terms)
         )
@@ -284,6 +285,23 @@ class DatasetResearchUseCase:
             aliases.append(name)
         dataset_names = _filter_alias_entries(aliases, flag_terms)
         logger.info("Step 4 done: %s names after filters", len(dataset_names))
+
+        names_before_refine = list(dataset_names)
+        logger.info("Step 5/5: refine dataset_names vs flag_terms (LLM)")
+        dataset_names = refine_dataset_names_with_llm(
+            self._agent,
+            main_dataset_name=name,
+            description=description,
+            dataset_names=dataset_names,
+            flag_terms=flag_terms,
+        )
+        if not dataset_names:
+            logger.warning(
+                "refine_dataset_names returned empty; keeping %s pre-refine names",
+                len(names_before_refine),
+            )
+            dataset_names = names_before_refine
+        logger.info("Step 5 done: %s dataset name aliases for literature", len(dataset_names))
 
         logger.info("Building DatasetRecord with config defaults")
         return build_record_from_pipeline(

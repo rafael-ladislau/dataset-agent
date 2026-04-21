@@ -10,6 +10,7 @@ from dataset_agent.adapters.literature import (
     _find_first_substring_match,
     _match_context_window,
     _pub_index_by_publication_id,
+    _terms_evaluation_prompt,
     _validate_publications_lexical,
 )
 
@@ -103,6 +104,37 @@ def test_validate_publications_lexical_sets_match_context() -> None:
     assert d0["publication_id"] == "dims.pub.1"
     assert "index" not in d0
     assert "Main Dataset" in d0["match_context"]
+
+
+def test_terms_evaluation_prompt_includes_metrics_and_recipe_rules() -> None:
+    details = [
+        {
+            "final_score": 10,
+            "mention_score": 10,
+            "context_score": 10,
+            "mentioned_term": "O*NET",
+            "title": "Paper One",
+        },
+        {
+            "final_score": 0,
+            "mention_score": 0,
+            "context_score": 5,
+            "mentioned_term": "",
+            "title": "Paper Two",
+        },
+    ]
+    p = _terms_evaluation_prompt(
+        "My Dataset",
+        "A short description.",
+        ["Alias A"],
+        ["Org X"],
+        details,
+    )
+    assert "Share with final_score>=5: 1/2" in p
+    assert "avg mention_score=" in p and "avg context_score=" in p
+    assert "string matching" in p
+    assert "workforce skills database" in p  # negative example anchored in prompt
+    assert "empty arrays" in p
 
 
 def test_drop_suggestions_removes_terms_already_in_query() -> None:
