@@ -1,3 +1,1 @@
-"""
-Domain module containing core business logic and models.
-""" 
+"""Domain models and ports."""

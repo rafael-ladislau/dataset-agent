@@ -1,0 +1,43 @@
+# Uso local:
+#   API + Ollama no Compose:
+#     docker compose --profile llm up --build
+#   Só API (Ollama no host):
+#     cp .env.example .env
+#     docker compose up --build
+#     (Ollama no contêiner API usa host.docker.internal; 127.0.0.1 no .env não vale dentro do Docker.)
+#
+#   Swagger UI: http://localhost:${DATASET_AGENT_API_PORT:-8000}/docs
+#   Hot reload: código em ./src é montado em /app/src; uvicorn --reload recarrega ao salvar.
+#   Dados: ./data no projeto → /data no contêiner (output JSON + tasks.db).
+#
+# Ollama no host (padrão): host.docker.internal (extra_hosts abaixo; Linux usa host-gateway).
+# Com --profile llm (Ollama no compose): crie docker-compose.override.yml com
+#   services.api.environment.DATASET_AGENT_OLLAMA_BASE_URL: http://ollama:11434
+
+services:
+  api:
+    build: .
+    ports:
+      - "${DATASET_AGENT_API_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app/src
+      LOG_LEVEL: DEBUG
+      # Hot reload: main_api + volume ./src; polling ajuda Docker Desktop (macOS/Windows).
+      UVICORN_RELOAD: "true"
+      UVICORN_RELOAD_DIR: /app/src
+      WATCHFILES_FORCE_POLLING: "true"
+      DATASET_AGENT_OUTPUT_DIR: /data/output
+      DATASET_AGENT_TASKS_DB: /data/tasks.db
+      # Fixo: evita que o .env (127.0.0.1) quebre o acesso ao Ollama no host. Sobrescreva com override se usar perfil llm.
+      DATASET_AGENT_OLLAMA_BASE_URL: http://host.docker.internal:11434
+    volumes:
+      - ./data:/data
+      - ./src:/app/src
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
