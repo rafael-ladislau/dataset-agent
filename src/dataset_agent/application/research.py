@@ -164,6 +164,9 @@ class DatasetResearchUseCase:
                     issues=eval_result["issues"],
                     suggested_dataset_names=eval_result["suggested_dataset_names"],
                     suggested_flag_terms=eval_result["suggested_flag_terms"],
+                    suggested_exclude_terms=list(
+                        eval_result.get("suggested_exclude_terms") or []
+                    ),
                     reasoning=eval_result["reasoning"],
                 )
                 
@@ -205,6 +208,9 @@ class DatasetResearchUseCase:
                 issues=eval_result["issues"],
                 suggested_dataset_names=eval_result["suggested_dataset_names"],
                 suggested_flag_terms=eval_result["suggested_flag_terms"],
+                suggested_exclude_terms=list(
+                    eval_result.get("suggested_exclude_terms") or []
+                ),
                 reasoning=eval_result["reasoning"],
             )
             

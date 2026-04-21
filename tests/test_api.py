@@ -186,6 +186,7 @@ def test_validate_passes_llm_batch_size_to_gate(
         "issues": [],
         "suggested_dataset_names": [],
         "suggested_flag_terms": [],
+        "suggested_exclude_terms": [],
         "reasoning": "ok",
     }
 
@@ -218,4 +219,144 @@ def test_validate_passes_llm_batch_size_to_gate(
     assert response.status_code == 200
     assert captured["sample_size"] == 1000
     assert captured["llm_batch_size"] == 77
+    api.app.dependency_overrides.clear()
+
+
+def test_validate_retry_validation_hateoas_and_exclude_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_record: dict[str, object] = {}
+
+    class _FakeGate:
+        def assess(
+            self,
+            record: DatasetRecord,
+            sample_size: int = 10,
+            llm_batch_size: int = 25,
+        ):
+            captured_record["exclude_terms"] = list(record.exclude_terms)
+            _ = sample_size, llm_batch_size
+            return types.SimpleNamespace(
+                passed=True,
+                indicator=0.8,
+                detail={"publications_total": 5, "validation_details": []},
+            )
+
+    fake_literature = types.ModuleType("dataset_agent.adapters.literature")
+    fake_literature.literature_gate_from_settings = lambda settings, agent=None: _FakeGate()
+    fake_literature.evaluate_terms_with_llm = lambda **kwargs: {
+        "is_effective": True,
+        "dataset_names_score": 8,
+        "flag_terms_score": 7,
+        "issues": [],
+        "suggested_dataset_names": ["Better Name"],
+        "suggested_flag_terms": ["Org Two"],
+        "suggested_exclude_terms": ["stem cell"],
+        "reasoning": "ok",
+    }
+
+    fake_agent_module = types.ModuleType("dataset_agent.adapters.agent_langchain")
+
+    class _FakeAgent:
+        def __init__(self, **kwargs):
+            _ = kwargs
+
+    fake_agent_module.LangChainAgent = _FakeAgent
+    monkeypatch.setitem(sys.modules, "dataset_agent.adapters.literature", fake_literature)
+    monkeypatch.setitem(sys.modules, "dataset_agent.adapters.agent_langchain", fake_agent_module)
+
+    def _settings() -> Settings:
+        return _fake_settings(tmp_path)
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    client = TestClient(api.app)
+
+    response = client.post(
+        "/validate",
+        json={
+            "main_dataset_name": "Ag Dataset",
+            "dataset_names": ["Old Name"],
+            "flag_terms": ["Org One"],
+            "exclude_terms": ["prior", "PRIOR"],
+            "sample_size": 10,
+            "llm_batch_size": 25,
+        },
+    )
+    assert response.status_code == 200
+    assert captured_record["exclude_terms"] == ["prior", "PRIOR"]
+
+    data = response.json()
+    assert data["exclude_terms"] == ["prior", "PRIOR"]
+    assert data["terms_evaluation"]["suggested_exclude_terms"] == ["stem cell"]
+
+    rv = data["retry_validation"]
+    assert rv["dataset_names"] == ["Better Name"]
+    assert rv["flag_terms"] == ["Org Two"]
+    low = [x.lower() for x in rv["exclude_terms"]]
+    assert low == ["prior", "stem cell"]
+
+    assert "/validate" in data["links"]["retry"]["href"]
+    assert data["links"]["retry"]["method"] == "POST"
+    assert data["links"]["retry"]["rel"] == "retry-validation"
+    api.app.dependency_overrides.clear()
+
+
+def test_validate_retry_keeps_body_terms_when_llm_suggests_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _FakeGate:
+        def assess(
+            self,
+            record: DatasetRecord,
+            sample_size: int = 10,
+            llm_batch_size: int = 25,
+        ):
+            _ = record, sample_size, llm_batch_size
+            return types.SimpleNamespace(
+                passed=True,
+                indicator=0.9,
+                detail={"validation_details": []},
+            )
+
+    fake_literature = types.ModuleType("dataset_agent.adapters.literature")
+    fake_literature.literature_gate_from_settings = lambda settings, agent=None: _FakeGate()
+    fake_literature.evaluate_terms_with_llm = lambda **kwargs: {
+        "is_effective": True,
+        "dataset_names_score": 8,
+        "flag_terms_score": 8,
+        "issues": [],
+        "suggested_dataset_names": [],
+        "suggested_flag_terms": [],
+        "suggested_exclude_terms": [],
+        "reasoning": "ok",
+    }
+
+    fake_agent_module = types.ModuleType("dataset_agent.adapters.agent_langchain")
+
+    class _FakeAgent:
+        def __init__(self, **kwargs):
+            _ = kwargs
+
+    fake_agent_module.LangChainAgent = _FakeAgent
+    monkeypatch.setitem(sys.modules, "dataset_agent.adapters.literature", fake_literature)
+    monkeypatch.setitem(sys.modules, "dataset_agent.adapters.agent_langchain", fake_agent_module)
+
+    def _settings() -> Settings:
+        return _fake_settings(tmp_path)
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    client = TestClient(api.app)
+
+    response = client.post(
+        "/validate",
+        json={
+            "main_dataset_name": "D",
+            "dataset_names": ["Alias A"],
+            "flag_terms": ["Org X"],
+        },
+    )
+    assert response.status_code == 200
+    rv = response.json()["retry_validation"]
+    assert rv["dataset_names"] == ["Alias A"]
+    assert rv["flag_terms"] == ["Org X"]
     api.app.dependency_overrides.clear()

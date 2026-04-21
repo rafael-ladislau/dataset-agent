@@ -41,6 +41,10 @@ class TermsEvaluation(BaseModel):
     issues: list[str] = Field(default_factory=list)
     suggested_dataset_names: list[str] = Field(default_factory=list)
     suggested_flag_terms: list[str] = Field(default_factory=list)
+    suggested_exclude_terms: list[str] = Field(
+        default_factory=list,
+        description="Terms/phrases to avoid in a follow-up literature search when off-domain noise appears",
+    )
     reasoning: str = ""
 
 
@@ -90,6 +94,10 @@ class ValidationRequest(BaseModel):
         le=1000,
         description="Maximum lexical candidates sent to LLM validation (0-1000)",
     )
+    exclude_terms: list[str] = Field(
+        default_factory=list,
+        description="Terms to exclude from Dimensions query / filtering on retry",
+    )
 
 
 class DatasetRecord(BaseModel):
@@ -117,6 +125,14 @@ class DatasetRecord(BaseModel):
     literature_validation: Optional[LiteratureValidation] = None
     terms_evaluation: Optional[TermsEvaluation] = None
     publications_total: Optional[int] = None
+    retry_validation: Optional[ValidationRequest] = Field(
+        default=None,
+        description="Suggested POST /validate body for a follow-up run (set by /validate only)",
+    )
+    links: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="HATEOAS-style links (e.g. retry -> POST /validate)",
+    )
 
     def model_dump_json_pretty(self) -> str:
         return self.model_dump_json(indent=2)

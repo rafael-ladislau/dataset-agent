@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from dataset_agent.domain.models import (
+    DatasetRecord,
     Group,
     ResearchRequest,
     ValidationRequest,
@@ -56,3 +57,32 @@ def test_validation_request_accepts_sample_size_up_to_1000() -> None:
     )
     assert req.sample_size == 1000
     assert req.llm_batch_size == 120
+
+
+def test_validation_request_exclude_terms_and_record_retry_links() -> None:
+    v = ValidationRequest(
+        main_dataset_name="Main",
+        dataset_names=["a"],
+        flag_terms=["b"],
+        exclude_terms=["noise", "Other"],
+    )
+    assert v.exclude_terms == ["noise", "Other"]
+
+    retry = ValidationRequest(
+        main_dataset_name="Main",
+        dataset_names=["new alias"],
+        flag_terms=["org"],
+        exclude_terms=["noise", "stem"],
+    )
+    rec = DatasetRecord(
+        engine="dimensions",
+        group=Group(name="g"),
+        main_dataset_name="Main",
+        years_range=YearsRange(start_year=2020, end_year=2021),
+        retry_validation=retry,
+        links={"retry": {"href": "https://api.example/validate", "method": "POST"}},
+    )
+    assert rec.retry_validation is not None
+    assert rec.retry_validation.exclude_terms == ["noise", "stem"]
+    assert rec.links is not None
+    assert rec.links["retry"]["href"].endswith("/validate")

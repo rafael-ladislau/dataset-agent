@@ -222,6 +222,7 @@ def _validate_publications_with_llm(
     details = []
     
     for i, pub in enumerate(publications):
+        publication_id = _dimensions_publication_id(pub)
         title = pub.get("title", "") or ""
         abstract = pub.get("abstract", "") or ""
         concepts_raw = pub.get("concepts_scores")
@@ -237,6 +238,7 @@ def _validate_publications_with_llm(
             logger.debug("  [%s] Skipping (no match context, abstract, or concepts): %s", i + 1, title[:60])
             final_scores.append(0)
             details.append({
+                "publication_id": publication_id,
                 "title": title[:100] + "..." if len(title) > 100 else title,
                 "mention_score": 0,
                 "context_score": 0,
@@ -302,6 +304,7 @@ def _validate_publications_with_llm(
         
         final_scores.append(final)
         details.append({
+            "publication_id": publication_id,
             "title": title[:100] + "..." if len(title) > 100 else title,
             "mention_score": scores["mention_score"],
             "context_score": scores["context_score"],
@@ -379,10 +382,15 @@ Most frequently matched semantic terms (from mention_score analysis):
 === YOUR TASK ===
 Evaluate if the current terms are effective for finding relevant literature.
 
+Do **not** repeat any name or organization already listed under CURRENT TERMS in
+``suggested_dataset_names`` or ``suggested_flag_terms``. Those fields must contain only
+**new** alternatives (or be empty arrays if you have nothing to add).
+
 Consider:
 1. Are dataset names specific enough? (e.g., "ORS" alone is too generic)
 2. Are the organizations correct and complete?
 3. What terms would better identify this specific dataset?
+4. Using the DATASET INFO (description, domain, sponsors), infer the expected field. If validation results show clear **off-domain** false positives (e.g. agricultural dataset vs stem-cell papers), propose **suggested_exclude_terms**: specific phrases to filter out that wrong domain. Do NOT suggest ultra-generic words ("study", "data", "analysis"). Use at most 5 items; use an empty list if exclude terms are not justified.
 
 Respond with ONLY a JSON object:
 {{
@@ -392,6 +400,7 @@ Respond with ONLY a JSON object:
   "issues": ["issue1", "issue2"],
   "suggested_dataset_names": ["better term 1", "better term 2"],
   "suggested_flag_terms": ["org1", "org2"],
+  "suggested_exclude_terms": ["off-domain phrase 1"],
   "reasoning": "<brief explanation, max 50 words>"
 }}"""
 
@@ -407,6 +416,7 @@ def _parse_terms_evaluation(response: str) -> dict:
         "issues": [],
         "suggested_dataset_names": [],
         "suggested_flag_terms": [],
+        "suggested_exclude_terms": [],
         "reasoning": "Could not parse LLM response",
     }
     
@@ -422,12 +432,56 @@ def _parse_terms_evaluation(response: str) -> dict:
                 "issues": list(data.get("issues", []))[:5],
                 "suggested_dataset_names": list(data.get("suggested_dataset_names", []))[:5],
                 "suggested_flag_terms": list(data.get("suggested_flag_terms", []))[:5],
+                "suggested_exclude_terms": list(data.get("suggested_exclude_terms", []))[:5],
                 "reasoning": str(data.get("reasoning", ""))[:200],
             }
     except (json.JSONDecodeError, ValueError, TypeError) as e:
         logger.warning("Failed to parse terms evaluation: %s", e)
     
     return default
+
+
+def _drop_suggestions_already_in_query(
+    suggested_names: list[str],
+    suggested_flags: list[str],
+    *,
+    main_dataset_name: str,
+    dataset_names: list[str],
+    flag_terms: list[str],
+) -> tuple[list[str], list[str]]:
+    """
+    Remove LLM suggestions that duplicate terms already used in the search (case-insensitive).
+
+    ``main_dataset_name`` is treated as already in use for dataset-name suggestions.
+    """
+    def _key_set(items: list[str], extra: str | None) -> set[str]:
+        keys = {str(x).strip().lower() for x in items if x and str(x).strip()}
+        if extra and str(extra).strip():
+            keys.add(str(extra).strip().lower())
+        return keys
+
+    name_used = _key_set(list(dataset_names or []), main_dataset_name)
+    flag_used = _key_set(list(flag_terms or []), None)
+
+    out_names: list[str] = []
+    for x in suggested_names:
+        if not isinstance(x, str):
+            continue
+        t = x.strip()
+        if not t or t.lower() in name_used:
+            continue
+        out_names.append(t)
+
+    out_flags: list[str] = []
+    for x in suggested_flags:
+        if not isinstance(x, str):
+            continue
+        t = x.strip()
+        if not t or t.lower() in flag_used:
+            continue
+        out_flags.append(t)
+
+    return out_names, out_flags
 
 
 def evaluate_terms_with_llm(
@@ -456,6 +510,15 @@ def evaluate_terms_with_llm(
     try:
         response = agent.get_information(prompt)
         result = _parse_terms_evaluation(response)
+        sn, sf = _drop_suggestions_already_in_query(
+            result.get("suggested_dataset_names") or [],
+            result.get("suggested_flag_terms") or [],
+            main_dataset_name=dataset_name,
+            dataset_names=dataset_names,
+            flag_terms=flag_terms,
+        )
+        result["suggested_dataset_names"] = sn
+        result["suggested_flag_terms"] = sf
         logger.info(
             "Terms evaluation: effective=%s names_score=%s terms_score=%s",
             result["is_effective"],
@@ -478,6 +541,7 @@ def evaluate_terms_with_llm(
             "issues": [f"Evaluation error: {str(e)[:50]}"],
             "suggested_dataset_names": [],
             "suggested_flag_terms": [],
+            "suggested_exclude_terms": [],
             "reasoning": "Could not complete evaluation",
         }
 
@@ -491,6 +555,10 @@ def _build_ordered_search_terms(
     Ordered (term, source) with source in {\"dataset\", \"flag\"}.
     Order: main name, aliases, expansions from names, then flag_terms.
     Deduplication is case-insensitive (only .lower()). No whitespace normalization.
+    Split parts (`` - ``) are only added if length >= 5 to avoid injecting very short
+    tokens (e.g. ORS) from ``Name - ORS`` that substring-match inside common words.
+    Parenthetical acronyms ``(ABC)`` are added from length 3 onward (matched with
+    word-boundary rules for short tokens in :func:`_find_first_substring_match`).
     """
     ordered: list[tuple[str, str]] = []
     seen_lower: set[str] = set()
@@ -515,11 +583,12 @@ def _build_ordered_search_terms(
         if not term:
             continue
         for ac in re.findall(r"\(([A-Z]{2,})\)", term):
-            add(ac, "dataset")
+            if len(ac) >= 3:
+                add(ac, "dataset")
         if " - " in term:
             for p in term.split(" - "):
                 p = p.strip()
-                if len(p) > 1:
+                if len(p) >= 5:
                     add(p, "dataset")
 
     for f in flag_terms or []:
@@ -533,9 +602,12 @@ def _find_first_substring_match(
     text: str,
     ordered_terms: list[tuple[str, str]],
     min_term_len: int = 3,
+    word_boundary_max_len: int = 3,
 ) -> tuple[str, str, int, int] | None:
     """
-    First hit in ordered_terms using case fold .lower() only (no whitespace collapse).
+    First hit in ordered_terms. Terms with len <= word_boundary_max_len use whole-token
+    match (``\\b...\\b``, case-insensitive) to avoid hits inside unrelated words (e.g. ORS in authors).
+    Longer terms use case-insensitive substring search via ``str.find`` on lowered text.
     Returns (matched_term, source, start, end_exclusive) in original ``text`` indices.
     """
     if not text or not ordered_terms:
@@ -543,6 +615,12 @@ def _find_first_substring_match(
     hay = text.lower()
     for term, src in ordered_terms:
         if len(term) < min_term_len:
+            continue
+        if len(term) <= word_boundary_max_len:
+            pattern = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+            m = pattern.search(text)
+            if m:
+                return (term, src, m.start(), m.end())
             continue
         needle = term.lower()
         pos = hay.find(needle)
@@ -561,15 +639,68 @@ def _match_context_window(
     return text[w0:w1]
 
 
+def _dimensions_publication_id(pub: object) -> str:
+    """Dimensions publication id from a record dict (field ``id``)."""
+    if isinstance(pub, dict):
+        pid = pub.get("id")
+        if pid is not None and str(pid).strip():
+            return str(pid).strip()
+    return ""
+
+
+def _pub_index_by_publication_id(pubs: list[dict]) -> dict[str, int]:
+    """First occurrence index per publication id (for stable ordering)."""
+    out: dict[str, int] = {}
+    for i, p in enumerate(pubs):
+        pid = _dimensions_publication_id(p)
+        if pid and pid not in out:
+            out[pid] = i
+    return out
+
+
+def _pub_by_publication_id(pubs: list[dict], publication_id: str) -> dict | None:
+    for p in pubs:
+        if _dimensions_publication_id(p) == publication_id:
+            return p
+    return None
+
+
+def _filter_publications_by_exclude_terms(
+    publications: list[dict],
+    exclude_terms: list[str] | None,
+) -> list[dict]:
+    """
+    Drop publications whose title+abstract contain any exclude phrase (case-insensitive).
+
+    Applied after the Dimensions fetch so the API query stays broad; avoids ``AND NOT``
+    in the DSL which often over-shrinks recall.
+    """
+    if not publications or not exclude_terms:
+        return publications
+    needles = [t.strip().lower() for t in exclude_terms if t and len(t.strip()) > 2]
+    if not needles:
+        return publications
+    out: list[dict] = []
+    for pub in publications:
+        title = (pub.get("title") or "").lower()
+        abstract = (pub.get("abstract") or "").lower()
+        blob = f"{title} {abstract}"
+        if any(n in blob for n in needles):
+            continue
+        out.append(pub)
+    return out
+
+
 def _validate_publications_lexical(
     publications: list[dict],
     ordered_terms: list[tuple[str, str]],
     min_term_len: int = 3,
+    word_boundary_max_len: int = 3,
     context_before: int = 500,
     context_after: int = 500,
 ) -> dict:
     """
-    Prefilter: first substring match (case: .lower() only) in title+abstract.
+    Prefilter: first term match in title+abstract (short tokens: word-boundary; long: substring).
     valid=True if any term matches. Provides match_context window for LLM.
     """
     if not publications:
@@ -583,12 +714,17 @@ def _validate_publications_lexical(
     valid_count = 0
     details: list[dict] = []
 
-    for idx, pub in enumerate(publications):
+    for pub in publications:
         title = pub.get("title", "") or ""
         abstract = pub.get("abstract", "") or ""
         text = f"{title} {abstract}"
 
-        hit = _find_first_substring_match(text, ordered_terms, min_term_len=min_term_len)
+        hit = _find_first_substring_match(
+            text,
+            ordered_terms,
+            min_term_len=min_term_len,
+            word_boundary_max_len=word_boundary_max_len,
+        )
         if hit:
             matched_term, src, start, end_excl = hit
             window = _match_context_window(
@@ -608,7 +744,7 @@ def _validate_publications_lexical(
             lexical_score = 0.0
 
         details.append({
-            "index": idx,
+            "publication_id": _dimensions_publication_id(pub),
             "title": title[:100] + "..." if len(title) > 100 else title,
             "valid": is_valid,
             "lexical_score": lexical_score,
@@ -630,34 +766,20 @@ def _validate_publications_lexical(
     }
 
 
-def _dimensions_publication_id(pub: object) -> str:
-    """Dimensions publication id from a record dict (field ``id``)."""
-    if isinstance(pub, dict):
-        pid = pub.get("id")
-        if pid is not None and str(pid).strip():
-            return str(pid).strip()
-    return ""
-
-
-def _build_string_search_matched_publications(
-    pubs: list[dict],
-    lexical_match_details: list[dict],
-) -> list[dict]:
+def _build_string_search_matched_publications(lexical_match_details: list[dict]) -> list[dict]:
     """
-    Publications that matched the substring prefilter, in sort order of lexical_match_details.
-    Each item: ``publication_id`` and ``match_snippet`` (±500 window around the hit).
+    Publications that matched the substring prefilter (each detail row must include
+    ``publication_id`` and ``match_context``). Each output item: ``publication_id`` and
+    ``match_snippet`` (same text as ``match_context``).
     """
     matched: list[dict] = []
     for d in lexical_match_details:
         if not d.get("valid"):
             continue
-        idx = int(d.get("index", -1))
-        if not (0 <= idx < len(pubs)):
-            continue
         snippet = str(d.get("match_context", "") or "")
         matched.append(
             {
-                "publication_id": _dimensions_publication_id(pubs[idx]),
+                "publication_id": str(d.get("publication_id", "") or ""),
                 "match_snippet": snippet,
             }
         )
@@ -752,22 +874,20 @@ class DimensionsLiteratureGate(LiteratureGatePort):
             
             # Build query: (dataset_name1 OR dataset_name2) AND (flag_term1 OR flag_term2)
             dataset_clause = " OR ".join(f'\\"{t}\\"' for t in dataset_terms_query)
-            
             if flag_terms_query:
                 flag_clause = " OR ".join(f'\\"{t}\\"' for t in flag_terms_query)
-                q = (
-                    'search publications in full_data for '
-                    f'"(({dataset_clause}) AND ({flag_clause}))" '
-                    "return publications[basics + abstract + concepts_scores + times_cited] "
-                    f"sort by times_cited limit {sample_size}"
-                )
+                search_inner = f"(({dataset_clause}) AND ({flag_clause}))"
             else:
-                # Fallback: only dataset names if no flag_terms
-                q = (
-                    f'search publications in full_data for "({dataset_clause})" '
-                    "return publications[basics + abstract + concepts_scores + times_cited] "
-                    f"sort by times_cited limit {sample_size}"
-                )
+                search_inner = f"({dataset_clause})"
+
+            exclude_raw = record.exclude_terms or []
+
+            q = (
+                'search publications in full_data for '
+                f'"{search_inner}" '
+                "return publications[basics + abstract + concepts_scores + times_cited] "
+                f"sort by times_cited limit {sample_size}"
+            )
             
             logger.info("Dimensions: running query: %s", q)
             
@@ -784,7 +904,16 @@ class DimensionsLiteratureGate(LiteratureGatePort):
             pubs = result.get("publications", []) if hasattr(result, "get") else []
             if not pubs and hasattr(result, "publications"):
                 pubs = result.publications or []
-            
+
+            n_before_ex = len(pubs)
+            pubs = _filter_publications_by_exclude_terms(pubs, exclude_raw)
+            if n_before_ex and len(pubs) < n_before_ex:
+                logger.info(
+                    "Dimensions: exclude_terms post-filter removed %s/%s publications",
+                    n_before_ex - len(pubs),
+                    n_before_ex,
+                )
+
             logger.info("Dimensions: %s publications analyzed (total available: %s)", len(pubs), total_count)
             
             if not pubs:
@@ -802,16 +931,21 @@ class DimensionsLiteratureGate(LiteratureGatePort):
                 ordered_terms=ordered_search_terms,
             )
             lexical_candidates = [d for d in lexical_validation["details"] if d.get("valid")]
+            pub_order = _pub_index_by_publication_id(pubs)
             lexical_candidates_sorted = sorted(
                 lexical_candidates,
-                key=lambda d: int(d.get("index", 0)),
+                key=lambda d: pub_order.get(str(d.get("publication_id", "") or ""), 10**9),
             )
             string_search_matched_publications = _build_string_search_matched_publications(
-                pubs, lexical_candidates_sorted
+                lexical_candidates_sorted
             )
             selected_details = lexical_candidates_sorted[: max(0, llm_batch_size)]
-            selected_indices = [int(d["index"]) for d in selected_details]
-            selected_pubs = [pubs[i] for i in selected_indices if 0 <= i < len(pubs)]
+            selected_pubs: list[dict] = []
+            for d in selected_details:
+                pid = str(d.get("publication_id", "") or "")
+                p = _pub_by_publication_id(pubs, pid)
+                if p is not None:
+                    selected_pubs.append(p)
             selected_match_contexts = [str(d.get("match_context", "") or "") for d in selected_details]
 
             # LLM validation: analyze lexical top-N candidates only

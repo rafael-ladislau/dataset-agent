@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from urllib.parse import urljoin
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from dataset_agent.domain.models import (
@@ -27,6 +27,24 @@ from dataset_agent.logging_setup import configure_application_logging
 from dataset_agent.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+
+def _merge_exclude_terms(body_terms: list[str], suggested: list[str]) -> list[str]:
+    """Stable union with case-insensitive deduplication (first occurrence wins)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in list(body_terms) + list(suggested):
+        if not isinstance(t, str):
+            continue
+        s = t.strip()
+        if not s:
+            continue
+        k = s.lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(s)
+    return out
 
 
 @asynccontextmanager
@@ -223,6 +241,7 @@ def _probe_ollama(base_url: str, timeout_seconds: float = 3.0) -> dict[str, Any]
 @app.post("/validate")
 def validate_terms(
     body: ValidationRequest,
+    request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DatasetRecord:
     """
@@ -233,10 +252,12 @@ def validate_terms(
     from dataset_agent.adapters.agent_langchain import LangChainAgent
     
     logger.info(
-        "Validate request: main_dataset_name=%r dataset_names=%s flag_terms=%s sample_size=%s llm_batch_size=%s",
+        "Validate request: main_dataset_name=%r dataset_names=%s flag_terms=%s "
+        "exclude_terms=%s sample_size=%s llm_batch_size=%s",
         body.main_dataset_name,
         len(body.dataset_names),
         len(body.flag_terms),
+        len(body.exclude_terms),
         body.sample_size,
         body.llm_batch_size,
     )
@@ -258,6 +279,7 @@ def validate_terms(
         official_name=body.main_dataset_name,
         relationship_type="official_name",
         official_name_reasoning="Provided via /validate endpoint",
+        exclude_terms=list(body.exclude_terms),
     )
     
     # Build agent for LLM validation
@@ -312,6 +334,15 @@ def validate_terms(
         validation_details=validation_details,
         agent=agent,
     )
+    sug_names = list(eval_result.get("suggested_dataset_names") or [])
+    sug_flags = list(eval_result.get("suggested_flag_terms") or [])
+    retry_names = sug_names if sug_names else list(body.dataset_names)
+    retry_flags = sug_flags if sug_flags else list(body.flag_terms)
+    merged_exclude = _merge_exclude_terms(
+        body.exclude_terms,
+        list(eval_result.get("suggested_exclude_terms") or []),
+    )
+
     record.terms_evaluation = TermsEvaluation(
         is_effective=eval_result["is_effective"],
         dataset_names_score=eval_result["dataset_names_score"],
@@ -319,9 +350,28 @@ def validate_terms(
         issues=eval_result["issues"],
         suggested_dataset_names=eval_result["suggested_dataset_names"],
         suggested_flag_terms=eval_result["suggested_flag_terms"],
+        suggested_exclude_terms=list(eval_result.get("suggested_exclude_terms") or []),
         reasoning=eval_result["reasoning"],
     )
-    
+
+    base = str(request.base_url).rstrip("/")
+    record.retry_validation = ValidationRequest(
+        main_dataset_name=body.main_dataset_name,
+        dataset_names=retry_names,
+        flag_terms=retry_flags,
+        description=body.description,
+        sample_size=body.sample_size,
+        llm_batch_size=body.llm_batch_size,
+        exclude_terms=merged_exclude,
+    )
+    record.links = {
+        "retry": {
+            "href": f"{base}/validate",
+            "method": "POST",
+            "rel": "retry-validation",
+        },
+    }
+
     return record
 
 
