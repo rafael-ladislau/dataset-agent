@@ -6,8 +6,10 @@ import json
 
 from dataset_agent.adapters.dataset_aliases import (
     _parse_dataset_names_json,
+    _parse_flag_terms_json,
     heuristic_strip_flags_from_dataset_names,
     refine_dataset_names_with_llm,
+    refine_flag_terms_with_llm,
 )
 
 
@@ -58,6 +60,57 @@ def test_refine_dataset_names_falls_back_when_mock_agent_fails() -> None:
     )
     assert len(out) >= 1
     assert all("bls" not in x.lower() for x in out if x)
+
+
+def test_parse_flag_terms_json_extracts_list() -> None:
+    raw = '{"flag_terms": ["DOL", "BLS"]}'
+    assert _parse_flag_terms_json(raw) == ["DOL", "BLS"]
+
+
+def test_refine_flag_terms_falls_back_to_deduped_input() -> None:
+    class _BadAgent:
+        def get_information(self, prompt: str) -> str:
+            return "not json"
+
+    inp = ["DOL", "dol", "BLS"]
+    out = refine_flag_terms_with_llm(
+        _BadAgent(),  # type: ignore[arg-type]
+        "O*NET",
+        "desc",
+        inp,
+    )
+    assert len(out) == 2
+
+
+def test_refine_flag_terms_uses_json_when_valid() -> None:
+    class _OkAgent:
+        def get_information(self, prompt: str) -> str:
+            return json.dumps(
+                {
+                    "flag_terms": [
+                        "DOL",
+                        "Department of Labor",
+                        "Bureau of Labor Statistics",
+                        "BLS",
+                    ]
+                }
+            )
+
+    noisy = [
+        "DOL",
+        "Department of Labor",
+        "ETA",
+        "Employment and Training Administration",
+        "U.S. Department of Labor",
+    ]
+    out = refine_flag_terms_with_llm(
+        _OkAgent(),  # type: ignore[arg-type]
+        "Occupational Information Network",
+        "desc",
+        noisy,
+    )
+    assert "ETA" not in out
+    assert "DOL" in out
 
 
 def test_refine_dataset_names_uses_json_when_valid() -> None:

@@ -32,7 +32,7 @@ Now do the same for '{dataset_name}':
 def organizations_prompt(dataset_name: str, description: str, home_url: str | None) -> str:
     """Find organizations related to the dataset."""
     url_hint = f"Official site: {home_url}" if home_url else "No official URL known."
-    return f"""Find organizations related to the dataset '{dataset_name}'.
+    return f"""Find organizations **directly responsible** for publishing or maintaining the dataset '{dataset_name}'.
 
 Description: {description}
 {url_hint}
@@ -46,8 +46,11 @@ For "NASS Census of Agriculture":
 
 ===RULES===
 - Return ONLY organization names, no descriptions
-- Include both full names AND acronyms as separate entries
+- Prefer the **smallest sufficient set** for literature search: agencies that **directly** sponsor, publish, or host this **specific** data product
+- Do **not** list every level of a federal hierarchy (parent department + sub-agency + office) unless each name is commonly cited in papers for this dataset. If the parent department already implies the sponsor, omit redundant sub-units unless the dataset is **uniquely** associated with that sub-unit in citations
+- Include both full names AND acronyms as separate entries when both are used in the wild
 - Split "Name (ACRONYM)" into two entries: "Name" and "ACRONYM"
+- Aim for roughly 3–10 entries, not an exhaustive org chart
 
 Use web_search: "{dataset_name} dataset creator publisher organization"
 
@@ -134,6 +137,40 @@ Rules:
 - **Do not** include any phrase that duplicates an entry in flag_terms (case-insensitive).
 - Include useful **spelling variants** when justified (e.g. O*NET vs ONET).
 - Omit junk; max ~15 items; empty list only if nothing remains after cleaning.
+
+Respond with ONLY valid JSON, no markdown fences."""
+
+
+def refine_flag_terms_prompt(
+    main_dataset_name: str,
+    description: str,
+    flag_terms: list[str],
+) -> str:
+    """Prune flag_terms to non-redundant sponsors for literature search."""
+    flags_lines = "\n".join(f"  - {f!r}" for f in flag_terms[:25])
+    if not flags_lines:
+        flags_lines = "  (none)"
+
+    return f"""You are cleaning **organization / sponsor terms** for academic literature string search.
+
+Dataset: {main_dataset_name!r}
+
+=== DESCRIPTION (context) ===
+{description[:2000]}
+
+=== CURRENT flag_terms (may include redundant parent agencies and sub-agencies) ===
+{flags_lines}
+
+=== YOUR TASK ===
+Return **only** a JSON object with one key:
+{{"flag_terms": [<strings>]}}
+
+Rules:
+- Keep organizations that **directly** identify the sponsor/publisher of this **dataset** in titles and abstracts.
+- **Drop redundant hierarchy**: if "Department of Labor" (or U.S. DOL) is already listed, you usually **do not** need a separate sub-agency (e.g. Employment and Training Administration / ETA) **unless** papers cite that sub-agency by name for this dataset more often than DOL. Prefer the fewest names that disambiguate.
+- **Drop** duplicate meaning (same branch of government under different wordings) when one fuller name plus key acronyms suffice.
+- Include acronyms that disambiguate (e.g. BLS vs DOL) when both are justified for this dataset.
+- Max ~10 items; empty list only if nothing is defensible.
 
 Respond with ONLY valid JSON, no markdown fences."""
 

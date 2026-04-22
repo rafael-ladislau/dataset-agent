@@ -15,6 +15,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _parse_flag_terms_json(raw: str) -> list[str] | None:
+    """Extract {\"flag_terms\": [...]} from LLM output."""
+    if not raw or not raw.strip():
+        return None
+    try:
+        m = re.search(r"\{[\s\S]*\}", raw)
+        if not m:
+            return None
+        data = json.loads(m.group())
+        terms = data.get("flag_terms")
+        if not isinstance(terms, list):
+            return None
+        out: list[str] = []
+        for x in terms:
+            if isinstance(x, str) and x.strip():
+                out.append(x.strip())
+        return out[:15] if out else None
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        logger.debug("flag_terms JSON parse failed: %s", e)
+        return None
+
+
 def _parse_dataset_names_json(raw: str) -> list[str] | None:
     """Extract {\"dataset_names\": [...]} from LLM output."""
     if not raw or not raw.strip():
@@ -142,3 +164,39 @@ def refine_dataset_names_with_llm(
 
     logger.warning("refine_dataset_names: could not parse JSON; using heuristic strip")
     return heuristic_strip_flags_from_dataset_names(dataset_names, flag_terms)
+
+
+def refine_flag_terms_with_llm(
+    agent: AgentPort,
+    main_dataset_name: str,
+    description: str,
+    flag_terms: list[str],
+) -> list[str]:
+    """
+    Prune flag_terms for literature search: drop redundant parent/sub-agency duplication.
+
+    On parse failure, returns a case-insensitive dedupe of the input list.
+    """
+    prompt = prompts.refine_flag_terms_prompt(
+        main_dataset_name=main_dataset_name,
+        description=description,
+        flag_terms=flag_terms,
+    )
+    try:
+        raw = agent.get_information(prompt)
+    except Exception as e:
+        logger.warning("refine_flag_terms: LLM call failed: %s", e)
+        return _dedupe_ci_preserve_order(list(flag_terms))
+
+    parsed = _parse_flag_terms_json(raw)
+    if parsed:
+        cleaned = _dedupe_ci_preserve_order(parsed)
+        logger.info(
+            "refine_flag_terms: LLM returned %s terms (was %s)",
+            len(cleaned),
+            len(flag_terms),
+        )
+        return cleaned
+
+    logger.warning("refine_flag_terms: could not parse JSON; using deduped input")
+    return _dedupe_ci_preserve_order(list(flag_terms))
