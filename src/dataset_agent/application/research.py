@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from dataset_agent.application import prompts
 from dataset_agent.adapters.llm_output_cleanup import is_llm_list_entry_junk
+from dataset_agent.adapters.tools import TOOL_DEFINITIONS
 from dataset_agent.adapters.organizations import process_organizations
 from dataset_agent.adapters.text_processing import (
     clean_description,
@@ -229,7 +230,8 @@ class DatasetResearchUseCase:
         # Step 1: Description + Home URL (combined, 1 LLM call)
         logger.info("Step 1/6: description + home_url (LLM + web search)")
         desc_home_raw = self._agent.get_information(
-            prompts.description_and_home_url_prompt(name, None)
+            prompts.description_and_home_url_prompt(name, None),
+            tools=TOOL_DEFINITIONS,
         )
         sections = self._extractor.extract_sections(desc_home_raw)
         description = clean_description(sections.get("DESCRIPTION", ""))
@@ -245,7 +247,8 @@ class DatasetResearchUseCase:
         # Step 2: All URLs + Access Type (combined, 1 LLM call)
         logger.info("Step 2/6: URLs (data/schema/doc) + access_type (LLM + validation)")
         urls_raw = self._agent.get_information(
-            prompts.urls_and_access_prompt(name, description, home_url)
+            prompts.urls_and_access_prompt(name, description, home_url),
+            tools=TOOL_DEFINITIONS,
         )
         url_sections = self._extractor.extract_sections(urls_raw)
         data_url = self._extractor.extract_url(url_sections.get("DATA_URL", ""))
@@ -268,7 +271,8 @@ class DatasetResearchUseCase:
         # Step 3: Organizations (1 LLM call, uses home_url context)
         logger.info("Step 3/6: organizations (LLM)")
         org_raw = self._agent.get_information(
-            prompts.organizations_prompt(name, description, home_url)
+            prompts.organizations_prompt(name, description, home_url),
+            tools=TOOL_DEFINITIONS,
         )
         logger.debug("Organizations raw output: %r", org_raw[:500] if org_raw else "")
         org_list = self._extractor.extract_list(org_raw)
@@ -295,7 +299,8 @@ class DatasetResearchUseCase:
         # Step 5: Aliases (1 LLM call, uses orgs + home_url context)
         logger.info("Step 5/6: aliases (LLM)")
         alias_raw = self._agent.get_information(
-            prompts.aliases_prompt(name, description, home_url, flag_terms)
+            prompts.aliases_prompt(name, description, home_url, flag_terms),
+            tools=TOOL_DEFINITIONS,
         )
         logger.debug("Aliases raw output: %r", alias_raw[:500] if alias_raw else "")
         aliases = self._extractor.extract_list(alias_raw)

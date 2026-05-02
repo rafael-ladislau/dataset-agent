@@ -12,7 +12,23 @@ if TYPE_CHECKING:
 
 class AgentPort(ABC):
     @abstractmethod
-    def get_information(self, prompt: str) -> str:
+    def get_information(self, prompt: str, *, tools: list | None = None) -> str:
+        """Run the agentic loop with optional tool override.
+
+        Pass ``tools=[]`` to disable all tools (pure reasoning).
+        Pass a list of tool dicts to use only those tools.
+        Omit (``None``) to use the adapter's default tool set.
+        """
+        pass
+
+    @abstractmethod
+    def get_structured(self, prompt: str, result_tool: dict) -> dict:
+        """Force a single structured response via tool_use.
+
+        The model is instructed to call *result_tool* exactly once.
+        The tool's ``input`` dict is returned directly, bypassing any
+        text parsing or regex extraction.
+        """
         pass
 
 

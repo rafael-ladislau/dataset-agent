@@ -68,7 +68,7 @@ app = FastAPI(
 
 
 def build_use_case(settings: Settings):
-    """Lazy wrapper so importing this module does not load LangChain."""
+    """Lazy wrapper so importing this module does not eagerly load the LLM client."""
     from dataset_agent.bootstrap import build_use_case as _bootstrap_build
 
     return _bootstrap_build(settings)
@@ -183,7 +183,12 @@ def get_task_result(
         raise HTTPException(status_code=500, detail="No result path")
     from pathlib import Path
 
-    p = Path(path)
+    allowed_root = settings.output_dir.resolve()
+    p = allowed_root / Path(path).name
+    try:
+        p.relative_to(allowed_root)
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Result path outside allowed directory")
     if not p.is_file():
         raise HTTPException(status_code=500, detail="Result file missing")
     return DatasetRecord.model_validate_json(p.read_text(encoding="utf-8"))
@@ -249,7 +254,7 @@ def validate_terms(
     Returns same JSON format as /tasks endpoint result.
     """
     from dataset_agent.adapters.literature import literature_gate_from_settings, evaluate_terms_with_llm
-    from dataset_agent.adapters.agent_langchain import LangChainAgent
+    from dataset_agent.bootstrap import _build_agent
     
     logger.info(
         "Validate request: main_dataset_name=%r dataset_names=%s flag_terms=%s "
@@ -283,22 +288,7 @@ def validate_terms(
     )
     
     # Build agent for LLM validation
-    agent = LangChainAgent(
-        provider=settings.llm_provider,
-        model_name=(
-            settings.openrouter_model
-            if settings.llm_provider == "openrouter"
-            else settings.ollama_model
-        ),
-        api_key=settings.openrouter_api_key or None,
-        base_url=(
-            settings.openrouter_base_url
-            if settings.llm_provider == "openrouter"
-            else settings.ollama_base_url
-        ),
-        max_iterations=settings.agent_max_iterations,
-        timeout_seconds=settings.agent_timeout_seconds,
-    )
+    agent = _build_agent(settings)
     
     # Run literature gate
     gate = literature_gate_from_settings(settings, agent=agent)

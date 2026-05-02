@@ -2,61 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import TYPE_CHECKING
 
 from dataset_agent.application import prompts
+from dataset_agent.adapters.tools import EMIT_DATASET_NAMES, EMIT_FLAG_TERMS
 
 if TYPE_CHECKING:
     from dataset_agent.domain.ports import AgentPort
 
 logger = logging.getLogger(__name__)
-
-
-def _parse_flag_terms_json(raw: str) -> list[str] | None:
-    """Extract {\"flag_terms\": [...]} from LLM output."""
-    if not raw or not raw.strip():
-        return None
-    try:
-        m = re.search(r"\{[\s\S]*\}", raw)
-        if not m:
-            return None
-        data = json.loads(m.group())
-        terms = data.get("flag_terms")
-        if not isinstance(terms, list):
-            return None
-        out: list[str] = []
-        for x in terms:
-            if isinstance(x, str) and x.strip():
-                out.append(x.strip())
-        return out[:15] if out else None
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        logger.debug("flag_terms JSON parse failed: %s", e)
-        return None
-
-
-def _parse_dataset_names_json(raw: str) -> list[str] | None:
-    """Extract {\"dataset_names\": [...]} from LLM output."""
-    if not raw or not raw.strip():
-        return None
-    try:
-        m = re.search(r"\{[\s\S]*\}", raw)
-        if not m:
-            return None
-        data = json.loads(m.group())
-        names = data.get("dataset_names")
-        if not isinstance(names, list):
-            return None
-        out: list[str] = []
-        for x in names:
-            if isinstance(x, str) and x.strip():
-                out.append(x.strip())
-        return out[:25] if out else None
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        logger.debug("dataset_names JSON parse failed: %s", e)
-        return None
 
 
 def _dedupe_ci_preserve_order(items: list[str]) -> list[str]:
@@ -138,7 +94,9 @@ def refine_dataset_names_with_llm(
     Ask the LLM to return dataset_names suitable for literature search: product titles
     and acronyms only, without repeating organization names already listed in flag_terms.
 
-    On parse failure, applies :func:`heuristic_strip_flags_from_dataset_names`.
+    Uses ``get_structured`` with the ``emit_dataset_names`` tool so the model is forced
+    to return valid JSON matching the schema — no regex parsing required.
+    On failure, falls back to :func:`heuristic_strip_flags_from_dataset_names`.
     """
     prompt = prompts.refine_dataset_aliases_prompt(
         main_dataset_name=main_dataset_name,
@@ -147,22 +105,24 @@ def refine_dataset_names_with_llm(
         flag_terms=flag_terms,
     )
     try:
-        raw = agent.get_information(prompt)
+        result = agent.get_structured(prompt, EMIT_DATASET_NAMES)
     except Exception as e:
         logger.warning("refine_dataset_names: LLM call failed: %s", e)
         return heuristic_strip_flags_from_dataset_names(dataset_names, flag_terms)
 
-    parsed = _parse_dataset_names_json(raw)
-    if parsed:
-        cleaned = _dedupe_ci_preserve_order(parsed)
-        logger.info(
-            "refine_dataset_names: LLM returned %s names (was %s)",
-            len(cleaned),
-            len(dataset_names),
-        )
-        return cleaned
+    names = result.get("dataset_names")
+    if isinstance(names, list):
+        parsed = [x.strip() for x in names if isinstance(x, str) and x.strip()][:25]
+        if parsed:
+            cleaned = _dedupe_ci_preserve_order(parsed)
+            logger.info(
+                "refine_dataset_names: LLM returned %s names (was %s)",
+                len(cleaned),
+                len(dataset_names),
+            )
+            return cleaned
 
-    logger.warning("refine_dataset_names: could not parse JSON; using heuristic strip")
+    logger.warning("refine_dataset_names: empty/invalid result; using heuristic strip")
     return heuristic_strip_flags_from_dataset_names(dataset_names, flag_terms)
 
 
@@ -175,7 +135,9 @@ def refine_flag_terms_with_llm(
     """
     Prune flag_terms for literature search: drop redundant parent/sub-agency duplication.
 
-    On parse failure, returns a case-insensitive dedupe of the input list.
+    Uses ``get_structured`` with the ``emit_flag_terms`` tool so the model is forced
+    to return valid JSON matching the schema — no regex parsing required.
+    On failure, returns a case-insensitive dedupe of the input list.
     """
     prompt = prompts.refine_flag_terms_prompt(
         main_dataset_name=main_dataset_name,
@@ -183,20 +145,22 @@ def refine_flag_terms_with_llm(
         flag_terms=flag_terms,
     )
     try:
-        raw = agent.get_information(prompt)
+        result = agent.get_structured(prompt, EMIT_FLAG_TERMS)
     except Exception as e:
         logger.warning("refine_flag_terms: LLM call failed: %s", e)
         return _dedupe_ci_preserve_order(list(flag_terms))
 
-    parsed = _parse_flag_terms_json(raw)
-    if parsed:
-        cleaned = _dedupe_ci_preserve_order(parsed)
-        logger.info(
-            "refine_flag_terms: LLM returned %s terms (was %s)",
-            len(cleaned),
-            len(flag_terms),
-        )
-        return cleaned
+    terms = result.get("flag_terms")
+    if isinstance(terms, list):
+        parsed = [x.strip() for x in terms if isinstance(x, str) and x.strip()][:15]
+        if parsed:
+            cleaned = _dedupe_ci_preserve_order(parsed)
+            logger.info(
+                "refine_flag_terms: LLM returned %s terms (was %s)",
+                len(cleaned),
+                len(flag_terms),
+            )
+            return cleaned
 
-    logger.warning("refine_flag_terms: could not parse JSON; using deduped input")
+    logger.warning("refine_flag_terms: empty/invalid result; using deduped input")
     return _dedupe_ci_preserve_order(list(flag_terms))

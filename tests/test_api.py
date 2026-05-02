@@ -190,15 +190,14 @@ def test_validate_passes_llm_batch_size_to_gate(
         "reasoning": "ok",
     }
 
-    fake_agent_module = types.ModuleType("dataset_agent.adapters.agent_langchain")
-
     class _FakeAgent:
         def __init__(self, **kwargs):
             _ = kwargs
 
-    fake_agent_module.LangChainAgent = _FakeAgent
+    fake_bootstrap = types.ModuleType("dataset_agent.bootstrap")
+    fake_bootstrap._build_agent = lambda settings: _FakeAgent()
     monkeypatch.setitem(sys.modules, "dataset_agent.adapters.literature", fake_literature)
-    monkeypatch.setitem(sys.modules, "dataset_agent.adapters.agent_langchain", fake_agent_module)
+    monkeypatch.setitem(sys.modules, "dataset_agent.bootstrap", fake_bootstrap)
 
     def _settings() -> Settings:
         return _fake_settings(tmp_path)
@@ -255,15 +254,14 @@ def test_validate_retry_validation_hateoas_and_exclude_merge(
         "reasoning": "ok",
     }
 
-    fake_agent_module = types.ModuleType("dataset_agent.adapters.agent_langchain")
-
     class _FakeAgent:
         def __init__(self, **kwargs):
             _ = kwargs
 
-    fake_agent_module.LangChainAgent = _FakeAgent
+    fake_bootstrap = types.ModuleType("dataset_agent.bootstrap")
+    fake_bootstrap._build_agent = lambda settings: _FakeAgent()
     monkeypatch.setitem(sys.modules, "dataset_agent.adapters.literature", fake_literature)
-    monkeypatch.setitem(sys.modules, "dataset_agent.adapters.agent_langchain", fake_agent_module)
+    monkeypatch.setitem(sys.modules, "dataset_agent.bootstrap", fake_bootstrap)
 
     def _settings() -> Settings:
         return _fake_settings(tmp_path)
@@ -331,15 +329,14 @@ def test_validate_retry_keeps_body_terms_when_llm_suggests_empty(
         "reasoning": "ok",
     }
 
-    fake_agent_module = types.ModuleType("dataset_agent.adapters.agent_langchain")
-
     class _FakeAgent:
         def __init__(self, **kwargs):
             _ = kwargs
 
-    fake_agent_module.LangChainAgent = _FakeAgent
+    fake_bootstrap = types.ModuleType("dataset_agent.bootstrap")
+    fake_bootstrap._build_agent = lambda settings: _FakeAgent()
     monkeypatch.setitem(sys.modules, "dataset_agent.adapters.literature", fake_literature)
-    monkeypatch.setitem(sys.modules, "dataset_agent.adapters.agent_langchain", fake_agent_module)
+    monkeypatch.setitem(sys.modules, "dataset_agent.bootstrap", fake_bootstrap)
 
     def _settings() -> Settings:
         return _fake_settings(tmp_path)

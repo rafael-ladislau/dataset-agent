@@ -17,12 +17,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    llm_provider: Literal["ollama", "openrouter"] = "ollama"
-    ollama_model: str = "llama3"
+    llm_provider: Literal["ollama", "lmstudio"] = "lmstudio"
+    ollama_model: str = "gemma4-31b"
     ollama_base_url: str = "http://127.0.0.1:11434"
-    openrouter_api_key: str = ""
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_model: str = "openai/gpt-4o-mini"
+    lmstudio_base_url: str = "http://127.0.0.1:1234"
+    lmstudio_model: str = "gemma-4-31b-it-mlx"
+    llm_max_tokens: int = 4096
+    llm_api_key: str = "local"
 
     agent_max_iterations: int = 5
     agent_timeout_seconds: int = 120

@@ -2,16 +2,52 @@
 
 from __future__ import annotations
 
-import json
-
 from dataset_agent.adapters.dataset_aliases import (
-    _parse_dataset_names_json,
-    _parse_flag_terms_json,
     heuristic_strip_flags_from_dataset_names,
     refine_dataset_names_with_llm,
     refine_flag_terms_with_llm,
 )
 
+
+# ---------------------------------------------------------------------------
+# Minimal stub that satisfies AgentPort for these unit tests.
+# get_structured(prompt, result_tool) -> dict  (the new structured interface)
+# ---------------------------------------------------------------------------
+
+class _EmptyAgent:
+    """Returns an empty dict — triggers fallback paths."""
+    def get_structured(self, prompt: str, result_tool: dict) -> dict:
+        return {}
+
+
+class _ErrorAgent:
+    """Raises on every call — triggers exception-fallback paths."""
+    def get_structured(self, prompt: str, result_tool: dict) -> dict:
+        raise RuntimeError("simulated failure")
+
+
+class _OkNamesAgent:
+    """Returns a valid dataset_names payload."""
+    def get_structured(self, prompt: str, result_tool: dict) -> dict:
+        return {"dataset_names": ["O*NET", "ONET", "Occupational Information Network"]}
+
+
+class _OkFlagAgent:
+    """Returns a valid flag_terms payload."""
+    def get_structured(self, prompt: str, result_tool: dict) -> dict:
+        return {
+            "flag_terms": [
+                "DOL",
+                "Department of Labor",
+                "Bureau of Labor Statistics",
+                "BLS",
+            ]
+        }
+
+
+# ---------------------------------------------------------------------------
+# Heuristic (no LLM) tests — unchanged behaviour
+# ---------------------------------------------------------------------------
 
 def test_heuristic_strips_bls_dol_tokens_from_onet_style_aliases() -> None:
     flags = [
@@ -33,26 +69,15 @@ def test_heuristic_strips_bls_dol_tokens_from_onet_style_aliases() -> None:
     assert any("O*net" in x or "O*NET" in x for x in out)
 
 
-def test_parse_dataset_names_json_extracts_list() -> None:
-    raw = """Here is the result:
-{"dataset_names": ["O*NET", "ONET"]}
-"""
-    assert _parse_dataset_names_json(raw) == ["O*NET", "ONET"]
+# ---------------------------------------------------------------------------
+# refine_dataset_names_with_llm
+# ---------------------------------------------------------------------------
 
-
-def test_parse_dataset_names_json_invalid_returns_none() -> None:
-    assert _parse_dataset_names_json("not json") is None
-
-
-def test_refine_dataset_names_falls_back_when_mock_agent_fails() -> None:
-    class _BadAgent:
-        def get_information(self, prompt: str) -> str:
-            return "not valid json {{{{"
-
+def test_refine_dataset_names_falls_back_when_agent_returns_empty() -> None:
     flags = ["BLS", "DOL"]
     names = ["Bls O*net"]
     out = refine_dataset_names_with_llm(
-        _BadAgent(),  # type: ignore[arg-type]
+        _EmptyAgent(),  # type: ignore[arg-type]
         "Occupational Information Network - O*NET",
         "desc",
         names,
@@ -62,19 +87,39 @@ def test_refine_dataset_names_falls_back_when_mock_agent_fails() -> None:
     assert all("bls" not in x.lower() for x in out if x)
 
 
-def test_parse_flag_terms_json_extracts_list() -> None:
-    raw = '{"flag_terms": ["DOL", "BLS"]}'
-    assert _parse_flag_terms_json(raw) == ["DOL", "BLS"]
+def test_refine_dataset_names_falls_back_on_exception() -> None:
+    flags = ["BLS", "DOL"]
+    names = ["Bls O*net"]
+    out = refine_dataset_names_with_llm(
+        _ErrorAgent(),  # type: ignore[arg-type]
+        "Occupational Information Network - O*NET",
+        "desc",
+        names,
+        flags,
+    )
+    assert len(out) >= 1
 
 
-def test_refine_flag_terms_falls_back_to_deduped_input() -> None:
-    class _BadAgent:
-        def get_information(self, prompt: str) -> str:
-            return "not json"
+def test_refine_dataset_names_uses_structured_result() -> None:
+    out = refine_dataset_names_with_llm(
+        _OkNamesAgent(),  # type: ignore[arg-type]
+        "X",
+        "d",
+        ["Bls O*net"],
+        ["BLS"],
+    )
+    assert "O*NET" in out
+    assert "ONET" in out
 
+
+# ---------------------------------------------------------------------------
+# refine_flag_terms_with_llm
+# ---------------------------------------------------------------------------
+
+def test_refine_flag_terms_falls_back_to_deduped_input_when_empty() -> None:
     inp = ["DOL", "dol", "BLS"]
     out = refine_flag_terms_with_llm(
-        _BadAgent(),  # type: ignore[arg-type]
+        _EmptyAgent(),  # type: ignore[arg-type]
         "O*NET",
         "desc",
         inp,
@@ -82,20 +127,18 @@ def test_refine_flag_terms_falls_back_to_deduped_input() -> None:
     assert len(out) == 2
 
 
-def test_refine_flag_terms_uses_json_when_valid() -> None:
-    class _OkAgent:
-        def get_information(self, prompt: str) -> str:
-            return json.dumps(
-                {
-                    "flag_terms": [
-                        "DOL",
-                        "Department of Labor",
-                        "Bureau of Labor Statistics",
-                        "BLS",
-                    ]
-                }
-            )
+def test_refine_flag_terms_falls_back_on_exception() -> None:
+    inp = ["DOL", "BLS"]
+    out = refine_flag_terms_with_llm(
+        _ErrorAgent(),  # type: ignore[arg-type]
+        "O*NET",
+        "desc",
+        inp,
+    )
+    assert set(out) == {"DOL", "BLS"}
 
+
+def test_refine_flag_terms_uses_structured_result() -> None:
     noisy = [
         "DOL",
         "Department of Labor",
@@ -104,28 +147,10 @@ def test_refine_flag_terms_uses_json_when_valid() -> None:
         "U.S. Department of Labor",
     ]
     out = refine_flag_terms_with_llm(
-        _OkAgent(),  # type: ignore[arg-type]
+        _OkFlagAgent(),  # type: ignore[arg-type]
         "Occupational Information Network",
         "desc",
         noisy,
     )
     assert "ETA" not in out
     assert "DOL" in out
-
-
-def test_refine_dataset_names_uses_json_when_valid() -> None:
-    class _OkAgent:
-        def get_information(self, prompt: str) -> str:
-            return json.dumps(
-                {"dataset_names": ["O*NET", "ONET", "Occupational Information Network"]}
-            )
-
-    out = refine_dataset_names_with_llm(
-        _OkAgent(),  # type: ignore[arg-type]
-        "X",
-        "d",
-        ["Bls O*net"],
-        ["BLS"],
-    )
-    assert "O*NET" in out
-    assert "ONET" in out

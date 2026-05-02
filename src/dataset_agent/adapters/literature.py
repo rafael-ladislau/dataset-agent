@@ -7,6 +7,7 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+from dataset_agent.adapters.tools import EMIT_RELEVANCE_SCORE, EMIT_TERMS_EVALUATION
 from dataset_agent.domain.ports import AgentPort, LiteratureGatePort, LiteratureGateResult
 
 if TYPE_CHECKING:
@@ -139,45 +140,17 @@ Provide TWO scores from 0-10:
    - 5: Adjacent topic; could be a false positive
    - 10: Concepts + text clearly match this dataset's purpose and sponsors
 
-Respond ONLY with JSON:
-{{"mention_score": <0-10>, "context_score": <0-10>, "mentioned_term": "<best matched alias/term or empty>", "reason": "<10 words max>"}}"""
+Call the emit_relevance_score tool with your scores."""
 
 
-def _parse_llm_scores(response: str) -> dict:
-    """Extract mention_score, context_score, mentioned_term and reason from LLM response."""
-    import json
-    
-    result = {
+def _default_scores() -> dict:
+    """Return zero-valued score dict used on parse failure."""
+    return {
         "mention_score": 0,
         "context_score": 0,
         "mentioned_term": "",
         "reason": "could not parse",
     }
-    
-    # Try to parse as JSON
-    try:
-        match = re.search(r'\{[^}]+\}', response)
-        if match:
-            data = json.loads(match.group())
-            result["mention_score"] = min(10, max(0, int(data.get("mention_score", 0))))
-            result["context_score"] = min(10, max(0, int(data.get("context_score", 0))))
-            result["mentioned_term"] = str(data.get("mentioned_term", ""))[:120]
-            result["reason"] = str(data.get("reason", ""))[:100]
-            return result
-    except (json.JSONDecodeError, ValueError, TypeError):
-        pass
-    
-    # Fallback: try to find numbers
-    numbers = re.findall(r'\b(\d+)\b', response)
-    if len(numbers) >= 2:
-        result["mention_score"] = min(10, max(0, int(numbers[0])))
-        result["context_score"] = min(10, max(0, int(numbers[1])))
-        result["reason"] = "parsed from text"
-    elif len(numbers) == 1:
-        result["mention_score"] = min(10, max(0, int(numbers[0])))
-        result["reason"] = "single score parsed"
-    
-    return result
 
 
 def _calculate_final_score(mention: int, context: int) -> float:
@@ -280,8 +253,13 @@ def _validate_publications_with_llm(
         logger.info("  [%s/%s] LLM analyzing: %s", i + 1, len(publications), title[:60])
         
         try:
-            response = agent.get_information(prompt)
-            scores = _parse_llm_scores(response)
+            raw = agent.get_structured(prompt, EMIT_RELEVANCE_SCORE)
+            scores = {
+                "mention_score": min(10, max(0, int(raw.get("mention_score", 0)))),
+                "context_score": min(10, max(0, int(raw.get("context_score", 0)))),
+                "mentioned_term": str(raw.get("mentioned_term", ""))[:120],
+                "reason": str(raw.get("reason", ""))[:100],
+            } if raw else _default_scores()
             final = _calculate_final_score(scores["mention_score"], scores["context_score"])
             logger.info(
                 "  [%s] mention=%s term=%r context=%s final=%s - %s",
@@ -294,12 +272,8 @@ def _validate_publications_with_llm(
             )
         except Exception as e:
             logger.warning("  [%s] LLM error: %s", i + 1, e)
-            scores = {
-                "mention_score": 0,
-                "context_score": 0,
-                "mentioned_term": "",
-                "reason": f"error: {str(e)[:30]}",
-            }
+            scores = _default_scores()
+            scores["reason"] = f"error: {str(e)[:30]}"
             final = 0
         
         final_scores.append(final)
@@ -418,53 +392,7 @@ Consider:
 2. Are organizations/sponsors correctly represented for disambiguation?
 3. Is there evidence of **wrong-domain** hits that justify exclude phrases?
 
-Respond with ONLY a JSON object:
-{{
-  "is_effective": <true/false>,
-  "dataset_names_score": <0-10>,
-  "flag_terms_score": <0-10>,
-  "issues": ["issue1", "issue2"],
-  "suggested_dataset_names": ["better term 1", "better term 2"],
-  "suggested_flag_terms": ["org1", "org2"],
-  "suggested_exclude_terms": ["off-domain phrase 1"],
-  "reasoning": "<brief explanation, max 50 words>"
-}}"""
-
-
-def _parse_terms_evaluation(response: str) -> dict:
-    """Parse LLM response for terms evaluation."""
-    import json
-    
-    default = {
-        "is_effective": True,
-        "dataset_names_score": 5,
-        "flag_terms_score": 5,
-        "issues": [],
-        "suggested_dataset_names": [],
-        "suggested_flag_terms": [],
-        "suggested_exclude_terms": [],
-        "reasoning": "Could not parse LLM response",
-    }
-    
-    try:
-        # Find JSON in response
-        match = re.search(r'\{[\s\S]*\}', response)
-        if match:
-            data = json.loads(match.group())
-            return {
-                "is_effective": bool(data.get("is_effective", True)),
-                "dataset_names_score": min(10, max(0, int(data.get("dataset_names_score", 5)))),
-                "flag_terms_score": min(10, max(0, int(data.get("flag_terms_score", 5)))),
-                "issues": list(data.get("issues", []))[:5],
-                "suggested_dataset_names": list(data.get("suggested_dataset_names", []))[:5],
-                "suggested_flag_terms": list(data.get("suggested_flag_terms", []))[:5],
-                "suggested_exclude_terms": list(data.get("suggested_exclude_terms", []))[:5],
-                "reasoning": str(data.get("reasoning", ""))[:200],
-            }
-    except (json.JSONDecodeError, ValueError, TypeError) as e:
-        logger.warning("Failed to parse terms evaluation: %s", e)
-    
-    return default
+Call the emit_terms_evaluation tool with your evaluation."""
 
 
 def _drop_suggestions_already_in_query(
@@ -534,8 +462,30 @@ def evaluate_terms_with_llm(
     )
     
     try:
-        response = agent.get_information(prompt)
-        result = _parse_terms_evaluation(response)
+        raw = agent.get_structured(prompt, EMIT_TERMS_EVALUATION)
+        result = (
+            {
+                "is_effective": bool(raw.get("is_effective", True)),
+                "dataset_names_score": min(10, max(0, int(raw.get("dataset_names_score", 5)))),
+                "flag_terms_score": min(10, max(0, int(raw.get("flag_terms_score", 5)))),
+                "issues": list(raw.get("issues", []))[:5],
+                "suggested_dataset_names": list(raw.get("suggested_dataset_names", []))[:5],
+                "suggested_flag_terms": list(raw.get("suggested_flag_terms", []))[:5],
+                "suggested_exclude_terms": list(raw.get("suggested_exclude_terms", []))[:5],
+                "reasoning": str(raw.get("reasoning", ""))[:200],
+            }
+            if raw
+            else {
+                "is_effective": True,
+                "dataset_names_score": 5,
+                "flag_terms_score": 5,
+                "issues": [],
+                "suggested_dataset_names": [],
+                "suggested_flag_terms": [],
+                "suggested_exclude_terms": [],
+                "reasoning": "No result from structured call",
+            }
+        )
         sn, sf = _drop_suggestions_already_in_query(
             result.get("suggested_dataset_names") or [],
             result.get("suggested_flag_terms") or [],
