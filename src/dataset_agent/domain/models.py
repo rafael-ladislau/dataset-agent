@@ -20,6 +20,9 @@ class DatasetInfo:
     data_url: Optional[str] = None
     schema_url: Optional[str] = None
     documentation_url: Optional[str] = None
+    official_name: str = ""
+    relationship_type: str = "official_name"
+    official_name_reasoning: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -39,6 +42,9 @@ class DatasetInfo:
             "data_url": self.data_url,
             "schema_url": self.schema_url,
             "documentation_url": self.documentation_url,
+            "official_name": self.official_name,
+            "relationship_type": self.relationship_type,
+            "official_name_reasoning": self.official_name_reasoning,
             "_metadata": self.metadata
         }
 
@@ -63,5 +69,8 @@ class DatasetInfo:
             data_url=data.get("data_url"),
             schema_url=data.get("schema_url"),
             documentation_url=data.get("documentation_url"),
+            official_name=data.get("official_name", ""),
+            relationship_type=data.get("relationship_type", "official_name"),
+            official_name_reasoning=data.get("official_name_reasoning", ""),
             metadata=data.get("_metadata", {})
         ) 

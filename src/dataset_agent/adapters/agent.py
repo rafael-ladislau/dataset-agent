@@ -15,7 +15,12 @@ logger = logging.getLogger(__name__)
 
 class LangChainAgent(AgentInterface):
     """
-    Implementation of AgentInterface using LangChain with Ollama or OpenRouter.
+    Implementation of AgentInterface using LangChain with Ollama, OpenRouter, or LMStudio.
+    
+    Supports three LLM providers:
+    - Ollama: Local inference with custom API
+    - OpenRouter: Cloud-based inference with OpenAI-compatible API
+    - LMStudio: Local inference with OpenAI-compatible API (https://lmstudio.ai)
     """
     
     def __init__(self, model_name: str = "gpt-oss:20b", temperature: float = 0.85, 
@@ -27,9 +32,11 @@ class LangChainAgent(AgentInterface):
         Args:
             model_name: Name of the model to use
             temperature: Temperature parameter for the model
-            provider: LLM provider (ollama or openrouter)
-            api_key: API key for OpenRouter
-            base_url: Base URL for OpenRouter API
+            provider: LLM provider (ollama, openrouter, or lmstudio)
+            api_key: API key (for OpenRouter) or placeholder (for LMStudio)
+            base_url: Base URL for API (OpenRouter or LMStudio)
+            top_k: Top-K sampling (Ollama only, LMStudio configures via UI)
+            top_p: Top-P sampling (Ollama only, LMStudio configures via UI)
         """
         # Model name precedence: explicit argument > env var > default
         self.model_name = model_name or os.environ.get("DATASET_AGENT_LLM_MODEL", "gpt-oss:20b")
@@ -52,8 +59,7 @@ class LangChainAgent(AgentInterface):
             # Import common LangChain components
             from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
             from langchain_core.tools import Tool, tool
-            from langchain.agents import create_tool_calling_agent, AgentExecutor
-            from langchain_core.prompts import PromptTemplate
+            from langgraph.prebuilt import create_react_agent
             
             # Initialize the LLM based on provider
             if self.provider == "ollama":
@@ -98,6 +104,40 @@ class LangChainAgent(AgentInterface):
                 )
                 logger.info(f"Initialized OpenRouter LLM with model {self.model_name}")
                 
+            elif self.provider == "lmstudio":
+                from langchain_openai import ChatOpenAI
+                
+                # Set base URL with default
+                lmstudio_base_url = self.base_url or "http://localhost:1234/v1"
+                
+                # Check if LMStudio is available (optional but recommended)
+                if not self._check_lmstudio_health():
+                    logger.warning(
+                        f"LMStudio server is not responding at {lmstudio_base_url}. "
+                        "Please ensure LMStudio is running with a loaded model. "
+                        "Visit https://lmstudio.ai for installation instructions."
+                    )
+                    # Continue anyway - let the first request fail with clear error
+                
+                # Initialize LMStudio LLM using OpenAI-compatible API
+                # Following best practices from https://lmstudio.ai/docs/app/api/endpoints/openai
+                llm = ChatOpenAI(
+                    model=self.model_name,
+                    temperature=self.temperature,
+                    api_key=self.api_key or "lm-studio",  # Placeholder, not validated
+                    base_url=lmstudio_base_url,
+                    streaming=False,
+                    # Parameters supported by OpenAI API:
+                    # - temperature, top_p (controlled via API)
+                    # - max_tokens, presence_penalty, frequency_penalty, etc.
+                    # Note: Some parameters like top_k are model-specific in LMStudio
+                )
+                
+                logger.info(
+                    f"Initialized LMStudio LLM with model '{self.model_name}' "
+                    f"at {lmstudio_base_url}"
+                )
+                
             else:
                 raise ValueError(f"Unsupported provider: {self.provider}")
             
@@ -107,40 +147,18 @@ class LangChainAgent(AgentInterface):
             # Create tools list
             tools = [web_search, make_request]
             
-            # Import hub modules for prompt
+            # Create the react agent using langgraph
             try:
-                from langchain import hub
-                from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+                # System prompt for the agent
+                system_prompt = "You are a helpful assistant that can use tools to answer the user's question."
                 
-                # Use the pre-built agent prompt from hub
-                try:
-                    prompt = hub.pull("hwchase17/openai-tools-agent")
-                    logger.info("Using hub prompt for agent")
-                except Exception as e:
-                    logger.warning(f"Could not load hub prompt: {str(e)}")
-                    
-                    # Create a custom prompt if hub is not available
-                    prompt = ChatPromptTemplate.from_messages([
-                        ("system", "You are a helpful assistant that can use tools to answer the user's question."),
-                        ("user", "{input}"),
-                        MessagesPlaceholder(variable_name="agent_scratchpad"),
-                    ])
-                    logger.info("Using custom prompt for agent")
-                
-                # Create the agent
-                agent = create_tool_calling_agent(llm, tools, prompt)
-                
-                # Create the agent executor
-                self.agent_executor = AgentExecutor.from_agent_and_tools(
-                    agent=agent,
+                # Create the agent using langgraph's create_react_agent
+                self.agent_executor = create_react_agent(
+                    model=llm,
                     tools=tools,
-                    verbose=True,
-                    handle_parsing_errors=True,
-                    max_iterations=5,
-                    max_execution_time=120,
-                    early_stopping_method="force"
+                    prompt=system_prompt
                 )
-                logger.info("Agent initialized successfully")
+                logger.info("Agent initialized successfully with create_react_agent")
                 
             except Exception as e:
                 logger.error(f"Error creating agent: {str(e)}")
@@ -160,6 +178,55 @@ class LangChainAgent(AgentInterface):
             return response.status_code == 200
         except Exception as e:
             logger.error(f"Ollama server health check failed: {str(e)}")
+            return False
+    
+    def _check_lmstudio_health(self) -> bool:
+        """
+        Check if LMStudio server is running and has models loaded.
+        
+        Returns:
+            bool: True if LMStudio is healthy, False otherwise
+        """
+        import requests
+        
+        try:
+            base = self.base_url or "http://localhost:1234/v1"
+            models_url = f"{base.rstrip('/')}/models"
+            
+            # Try to get list of loaded models
+            response = requests.get(models_url, timeout=5)
+            
+            if response.status_code == 200:
+                data = response.json()
+                models = data.get("data", [])
+                
+                if models:
+                    model_names = [m.get("id", "unknown") for m in models]
+                    logger.info(
+                        f"LMStudio is running with {len(models)} model(s) loaded: "
+                        f"{', '.join(model_names)}"
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        "LMStudio server is running but no models are loaded. "
+                        "Please load a model in LMStudio before using the agent."
+                    )
+                    return False
+            else:
+                logger.warning(
+                    f"LMStudio server returned unexpected status: {response.status_code}"
+                )
+                return False
+                
+        except requests.exceptions.ConnectionError:
+            logger.error(
+                f"Cannot connect to LMStudio at {base}. "
+                "Ensure LMStudio is running and the server is enabled."
+            )
+            return False
+        except Exception as e:
+            logger.error(f"LMStudio health check failed: {str(e)}")
             return False
 
     def _ensure_ollama_model_loaded(self) -> None:
@@ -247,13 +314,25 @@ class LangChainAgent(AgentInterface):
         start_time = time.time()
         
         try:
-            # Invoke the agent
-            response = self.agent_executor.invoke({"input": prompt})
+            from langchain_core.messages import HumanMessage
+            
+            # Invoke the agent using langgraph format (messages-based)
+            response = self.agent_executor.invoke(
+                {"messages": [HumanMessage(content=prompt)]},
+                config={"recursion_limit": 10}
+            )
             execution_time = time.time() - start_time
             logger.info(f"Agent response received in {execution_time:.2f} seconds")
             
-            # Extract the output
-            output = response.get("output", "")
+            # Extract the output from the last message
+            messages = response.get("messages", [])
+            if messages:
+                # Get the last AI message content
+                last_message = messages[-1]
+                output = getattr(last_message, 'content', str(last_message))
+            else:
+                output = ""
+                
             if not output:
                 logger.warning("Empty response from agent, using fallback message")
                 output = "No detailed information could be found for this request."

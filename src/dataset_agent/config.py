@@ -13,7 +13,7 @@ class Config:
     def __init__(self, log_level: str = None, log_file: str = None, 
                  output_dir: str = None, llm_provider: str = None, llm_model: str = None,
                  web_search_provider: str = None, temperature: float = None,
-                 top_k: int = None, top_p: float = None):
+                 top_k: int = None, top_p: float = None, lmstudio_base_url: str = None):
         """
         Initialize configuration.
         
@@ -24,9 +24,13 @@ class Config:
             log_level: Logging level (default: "INFO")
             log_file: Path to log file (default: "dataset_agent.log")
             output_dir: Directory to store output files (default: current working directory)
-            llm_provider: LLM provider (default: "ollama")
+            llm_provider: LLM provider - "ollama", "openrouter", or "lmstudio" (default: "ollama")
             llm_model: LLM model to use (default: "qwen3:32b")
             web_search_provider: Web search provider (default: "tavily")
+            temperature: Temperature for LLM sampling (default: 0.85)
+            top_k: Top-K for sampling (Ollama only, default: 40)
+            top_p: Top-P for sampling (Ollama only, default: 0.95)
+            lmstudio_base_url: Base URL for LMStudio API (default: "http://localhost:1234/v1")
         """
         # Load environment variables from .env file if it exists
         self._load_env_file()
@@ -54,6 +58,12 @@ class Config:
             self.top_p = float(top_p) if top_p is not None else float(os.environ.get("DATASET_AGENT_TOP_P", 0.95))
         except ValueError:
             self.top_p = 0.95
+        
+        # LMStudio configuration
+        self.lmstudio_base_url = (
+            lmstudio_base_url or 
+            os.environ.get("LMSTUDIO_BASE_URL", "http://localhost:1234/v1")
+        )
         
         # Set web search provider in environment for other components
         os.environ["WEB_SEARCH_PROVIDER"] = self.web_search_provider
@@ -184,10 +194,21 @@ def setup_dependencies(config: Config) -> Dict[str, Any]:
             model_name=config.llm_model,
             provider="openrouter",
             api_key=api_key,
-            base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+            base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+            temperature=config.temperature
+        )
+    elif config.llm_provider == "lmstudio":
+        # Create agent with LMStudio configuration
+        # Following best practices from: https://lmstudio.ai/docs/app/api/endpoints/openai
+        agent = LangChainAgent(
+            model_name=config.llm_model,
+            provider="lmstudio",
+            api_key=os.environ.get("LMSTUDIO_API_KEY", "lm-studio"),  # Placeholder key
+            base_url=config.lmstudio_base_url,
+            temperature=config.temperature
         )
     else:
-        raise ValueError(f"Unsupported LLM provider: {config.llm_provider}")
+        raise ValueError(f"Unsupported LLM provider: {config.llm_provider}. Supported providers: ollama, openrouter, lmstudio")
     
     # Create other dependencies
     extractor = LLMOutputExtractor()

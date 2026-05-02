@@ -105,6 +105,7 @@ ehthumbs.db
 ###############################
 logs/
 *.log
+*.log.*
 
 ###############################
 # Databases / caches
@@ -159,6 +160,7 @@ faiss_store/
 # Project-specific
 ###############################
 .agent-os/
+.claude/
 
 # Data directory database files
 data/*.db

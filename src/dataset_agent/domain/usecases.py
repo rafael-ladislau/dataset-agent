@@ -149,6 +149,12 @@ class DatasetResearchUseCase:
         documentation_url = self._get_url("documentation", dataset_name, description, dataset_url)
         dataset_info.documentation_url = documentation_url
         
+        # Get official name information
+        official_name, relationship_type, reasoning = self._get_official_name_info(dataset_name, description, dataset_url)
+        dataset_info.official_name = official_name
+        dataset_info.relationship_type = relationship_type
+        dataset_info.official_name_reasoning = reasoning
+        
         # Save to repository
         self.repository.save(dataset_info)
         
@@ -458,4 +464,72 @@ Return ONLY the URL with no additional text or explanation.
         # Apply the substring filtering logic using the new function
         result = filter_aliases_by_substrings(processed_aliases)
         
-        return result 
+        return result
+    
+    def _get_official_name_info(self, dataset_name: str, description: str, dataset_url: Optional[str]) -> tuple[str, str, str]:
+        """
+        Determine the official name for the dataset catalog.
+        
+        Returns:
+            tuple: (official_name, relationship_type, reasoning)
+        """
+        prompt = f"""Analyze the dataset named '{dataset_name}' and determine its official catalog name.
+
+Dataset description: {description}
+If a URL was provided for reference, it is: {dataset_url if dataset_url else 'None'}
+
+Your task is to determine:
+1. What should be the OFFICIAL NAME for this dataset in a catalog?
+2. What is the RELATIONSHIP TYPE between the provided name and the official name?
+3. Provide clear REASONING for your determination.
+
+RELATIONSHIP TYPES (choose ONE):
+- "official_name": The provided name IS the official dataset name
+- "subset_of": The provided name is a subset within a larger dataset
+- "table_within": The provided name refers to a specific table within a larger dataset
+- "component_of": The provided name is a component or part of a larger dataset
+
+INSTRUCTIONS:
+1. Use the web_search tool to research this dataset thoroughly
+2. Search for the official dataset name, homepage, and documentation
+3. Determine if the provided name '{dataset_name}' is:
+   - The actual official name of the dataset
+   - A subset, table, or component within a larger parent dataset
+4. If it's a subset/table/component, identify the parent dataset's official name
+5. Provide clear reasoning based on your research
+
+Return your answer in EXACTLY this format (no additional text):
+OFFICIAL_NAME: [The official catalog name]
+RELATIONSHIP_TYPE: [one of: official_name, subset_of, table_within, component_of]
+REASONING: [Your detailed reasoning explaining why this is the official name and the relationship type]
+
+Example response format:
+OFFICIAL_NAME: Norwegian Mother and Child Cohort Study
+RELATIONSHIP_TYPE: official_name
+REASONING: Research shows that 'Norwegian Mother and Child Cohort Study (MoBa)' is the official name of this dataset maintained by the Norwegian Institute of Public Health. The name appears consistently across academic literature and official documentation.
+"""
+
+        response = self.agent.get_information(prompt)
+        
+        # Parse the response
+        official_name = ""
+        relationship_type = "official_name"
+        reasoning = ""
+        
+        lines = response.strip().split('\n')
+        for line in lines:
+            if line.startswith('OFFICIAL_NAME:'):
+                official_name = line.replace('OFFICIAL_NAME:', '').strip()
+            elif line.startswith('RELATIONSHIP_TYPE:'):
+                rel_type = line.replace('RELATIONSHIP_TYPE:', '').strip().lower()
+                if rel_type in ['official_name', 'subset_of', 'table_within', 'component_of']:
+                    relationship_type = rel_type
+            elif line.startswith('REASONING:'):
+                reasoning = line.replace('REASONING:', '').strip()
+        
+        # If official_name is empty, fallback to dataset_name
+        if not official_name:
+            official_name = dataset_name
+            reasoning = "Could not determine official name from research; using provided name as fallback."
+        
+        return official_name, relationship_type, reasoning 

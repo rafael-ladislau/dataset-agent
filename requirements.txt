@@ -4,10 +4,12 @@ uvicorn>=0.27.0
 pydantic>=2.5.3
 
 # LangChain Dependencies
-langchain>=0.0.335
-langchain-core>=0.1.5
-langchain-ollama>=0.0.3
-langchain-openai>=0.0.2
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-ollama>=0.2.0
+langchain-openai>=0.2.0
+langgraph>=0.2.50
+langgraph-prebuilt>=0.1.0
 
 # Web Search Dependencies
 duckduckgo-search>=3.9.0
