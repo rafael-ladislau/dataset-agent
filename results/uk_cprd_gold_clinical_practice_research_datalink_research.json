@@ -1,0 +1,26 @@
+{
+  "dataset_name": "UK-CPRD GOLD (Clinical Practice Research Datalink)",
+  "home_url": null,
+  "description": "UK\u2011CPRD GOLD (Clinical Practice Research Datalink \u2013 Gold) The CPRD GOLD dataset is a longitudinal, anonymised electronic\u2011health\u2011record (EHR) resource that captures routine primary\u2011care data from UK general\u2011practice surgeries using the Vision clinical\u2011software system. It contains demographic details, coded diagnoses and symptoms (Read codes), drug prescriptions, vaccination history, laboratory test results, referrals, consultations and linked mortality information from the Office for National Statistics (ONS) \u30104\u2020L1-L8\u3011. Established in 1987, the database now holds records for >21 million historical patients and \u22483 million currently active patients across England, Scotland, Wales and Northern Ireland \u30104\u2020L21-L27\u3011. The dataset is created and maintained by the Clinical Practice Research Datalink, a research\u2011service operated by the UK Medicines and Healthcare products Regulatory Agency (MHRA) with support from the National Institute for Health Research (NIHR) \u30102\u2020L1-L6\u3011. Its primary purpose is to provide real\u2011world evidence for pharmaco\u2011epidemiology, drug\u2011safety surveillance, disease\u2011burden estimation and health\u2011service evaluation \u30102\u2020L1-L5\u3011. Key features that set CPRD GOLD apart are: (1) a nationally representative cohort with up to 30 years of follow\u2011up, (2) systematic linkage to external datasets (hospital episode statistics, cancer registries and death records), (3) rigorous data\u2011quality checks and validation that have underpinned > 3,000 peer\u2011reviewed publications, and (4) a structured Read\u2011code taxonomy that facilitates detailed clinical phenotyping. These attributes make CPRD GOLD a cornerstone resource for UK\u2011based public\u2011health, academic and industry research.",
+  "aliases": [
+    "Uk-cprd Gold",
+    "clinical Practice Research Datalink",
+    "CPRD GOLD"
+  ],
+  "organizations": [
+    "ONS",
+    "Office for National Statistics",
+    "MHRA",
+    "UK Medicines and Healthcare products Regulatory Agency",
+    "NIHR",
+    "National Institute for Health Research"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.cprd.com/doi/cprd-gold-august-2024-dataset",
+  "schema_url": null,
+  "documentation_url": "https://www.cprd.com/sites/default/files/2022-02/CPRD%20GOLD%20Full%20Data%20Specification%20v2.5.pdf",
+  "official_name": "UK-CPRD GOLD (Clinical Practice Research Datalink)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

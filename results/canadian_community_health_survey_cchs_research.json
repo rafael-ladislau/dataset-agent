@@ -1,0 +1,19 @@
+{
+  "dataset_name": "Canadian Community Health Survey (CCHS)",
+  "home_url": "https://www.statcan.gc.ca/en/survey/household/3226",
+  "description": "Canadian Community Health Survey (CCHS) The Canadian Community Health Survey is a cross\u2011sectional, annually administered household survey that captures detailed information on the health status, health\u2011care utilization, and determinants of health for Canadians aged 12 years and older. It records self\u2011reported physical and mental health, chronic conditions, health\u2011service use, lifestyle behaviours (e.g., smoking, alcohol, physical activity, diet), and a wide range of sociodemographic variables. The survey also includes optional modules on nutrition, mental health, and rapid\u2011response items for emerging issues such as COVID\u201119 vaccine willingness. The CCHS is produced by Statistics Canada, the national statistical agency, in partnership with provincial and territorial health ministries. Its primary purpose is to provide a robust evidence base for health surveillance, policy development, and program evaluation at the national, provincial/territorial, and regional (health\u2011region) levels. Researchers, public\u2011health officials, NGOs, and media use the data for population\u2011health research, trend monitoring, and health\u2011equity assessments. Key features that distinguish the CCHS include: * A large, nationally representative sample (\u2248 65 000 respondents per year since 2007) enabling reliable estimates at the health\u2011region level every two years. * A modular design that combines a core annual component with optional and occasional focused modules, allowing flexibility to address emerging health topics. * Public\u2011use microdata files (annual and two\u2011year combined) that support detailed multivariate analyses while preserving confidentiality. Overall, the CCHS is a cornerstone resource for monitoring Canadians\u2019 health and informing evidence\u2011based decision making.",
+  "aliases": [
+    "Canadian Community Health Survey",
+    "CCHS"
+  ],
+  "organizations": ["Statistics Canada",
+                "Health Canada", "Public Health Agency of Canada", "Canadian Institute for Health Information", "CIHI"],
+  "access_type": "Restricted",
+  "data_url": "https://www150.statcan.gc.ca/n1/en/catalogue/82M0013X",
+  "schema_url": "https://www.statcan.gc.ca/en/survey/household/3226",
+  "documentation_url": "https://www.statcan.gc.ca/en/survey/household/3226",
+  "official_name": "Canadian Community Health Survey (CCHS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "The Statistics Canada catalogue lists the dataset under the exact title \u201cCanadian Community Health Survey (CCHS)\u201d. The survey is a stand\u2011alone, nationally representative household questionnaire administered annually; it is not described as a component or subset of any broader dataset. Official documentation, the Statistics Canada metadata portal, and the survey\u2019s home page all use this exact phrasing as the formal catalog title. Consequently, the provided name matches the official dataset name directly, indicating an \u201cofficial_name\u201d relationship.",
+  "_metadata": {}
+}

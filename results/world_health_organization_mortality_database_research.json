@@ -1,0 +1,18 @@
+{
+  "dataset_name": "World Health Organization Mortality Database",
+  "home_url": null,
+  "description": "World Health Organization (WHO) Mortality Database \u2013 Overview The WHO Mortality Database is a global collection of cause\u2011of\u2011death statistics compiled annually from the civil\u2011registration and vital\u2011statistics systems of WHO Member States. It records the number of deaths and age\u2011standardised death rates broken down by country (or sub\u2011national area), year, sex, five\u2011year age group and International Classification of Diseases (ICD) code \u2013 typically at the four\u2011digit ICD\u201110 level. The dataset spans more than seven decades, with data available from 1950 to the most recent year for every country that meets a minimum 65 % completeness threshold and provides fully coded cause\u2011of\u2011death information. The database is produced by the World Health Organization and is intended to support comparative epidemiological research, monitor mortality trends, evaluate public\u2011health interventions, and inform national and international health\u2011policy planning. Users range from academic investigators studying disease burden to ministries of health tracking progress toward Sustainable Development Goal 3 targets. Key features that distinguish the WHO Mortality Database include: (1) worldwide coverage of over 190 countries and territories; (2) long\u2011term continuity allowing cross\u2011generational analyses; (3) granular cause\u2011of\u2011death detail linked to ICD\u201110 codes; (4) an interactive portal with visualisation tools and bulk download of ASCII\u2011formatted files for integration into statistical software; and (5) documented data\u2011quality checks that flag incomplete or inconsistent registrations.",
+  "aliases": [
+    "World Health Organization Mortality Database",
+    "WHO Mortality Database"
+  ],
+  "organizations": ["WHO", "World Health Organization"],
+  "access_type": "Unknown",
+  "data_url": "https://www.who.int/data/data-collection-tools/who-mortality-database",
+  "schema_url": "https://data.wpro.who.int/dataset/mortality-database/resource/4e04e3f0-33b7-456a-b146-1fe56a1a9548",
+  "documentation_url": "https://www.who.int/data/data-collection-tools/who-mortality-database",
+  "official_name": "WHO Mortality Database",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "The dataset is published and described on WHO\u2019s own portal as the \u201cWHO Mortality Database.\u201d All official WHO documentation, data\u2011download pages, and citation guidelines refer to the resource using this exact title. The provided name \u201cWorld Health Organization Mortality Database\u201d is simply a word\u2011by\u2011word expansion of the same title (World Health Organization = WHO). No evidence was found that the described dataset is a subset, table, or component of a larger collection; it is the primary, stand\u2011alone dataset maintained by WHO. Therefore the official catalog name is \u201cWHO Mortality Database,\u201d and the supplied name refers directly to this official dataset.",
+  "_metadata": {}
+}

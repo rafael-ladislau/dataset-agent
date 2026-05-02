@@ -1,0 +1,24 @@
+{
+  "dataset_name": "GTEx (Genotype-Tissue Expression) database",
+  "home_url": null,
+  "description": "GTEx (Genotype\u2011Tissue Expression) Database \u2013 Overview The GTEx project is a NIH Common Fund\u2013funded, multi\u2011institution consortium (Broad Institute, Columbia University, NY Genome Center and others) that has assembled a public reference atlas of human gene regulation. It contains paired whole\u2011genome\u2011sequencing (WGS) and bulk RNA\u2011seq data from \u2248 900\u20131,000 post\u2011mortem donors, covering 54 non\u2011diseased tissue sites (including 11 brain regions, heart, lung, liver, whole blood and two transformed cell lines). In its final release (v8), GTEx provides \u2248 17,000 RNA\u2011seq samples and genotype data for each donor, together with expression quantitative trait loci (eQTL), splicing QTL, allele\u2011specific expression, and a single\u2011nucleus RNA\u2011seq atlas of \u2248 209 k nuclei across eight tissues. Purpose & Use Cases GTEx was created to map how inherited genetic variation influences transcript abundance and splicing in a tissue\u2011specific manner, thereby furnishing a mechanistic bridge between genome\u2011wide association studies and molecular phenotypes. Researchers use GTEx to: - Prioritize causal variants from GWAS; - Investigate tissue\u2011specific regulatory mechanisms; - Model genotype\u2011by\u2011environment interactions; - Develop statistical methods for eQTL and transcriptomic analysis; - Benchmark new computational pipelines. Key Features & Unique Aspects - Largest multi\u2011tissue human genotype\u2013expression resource; - Uniformly processed WGS, RNA\u2011seq, and QTL pipelines with detailed metadata (age, cause of death, ancestry). - Public portal (gtexportal.org) offering searchable gene\u2011level expression, eQTL browsers, single\u2011cell atlases, and API access. - Integrated biobank of residual tissues for downstream functional studies.",
+  "aliases": [
+    "Gtex",
+    "Genotype-Tissue Expression"
+  ],
+  "organizations": [
+    "NIH",
+    "National Institutes of Health",
+    "Broad Institute",
+    "Columbia University",
+    "NY Genome Center"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://gtexportal.org/home/openAccessData",
+  "schema_url": null,
+  "documentation_url": "https://gtexportal.org/home/documentationPage",
+  "official_name": "GTEx (Genotype\u2011Tissue Expression) database",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

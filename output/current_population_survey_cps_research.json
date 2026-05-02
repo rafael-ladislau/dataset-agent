@@ -1,0 +1,31 @@
+{
+  "dataset_name": "Current Population Survey (CPS)",
+  "home_url": "https://www.census.gov/programs-surveys/cps.html",
+  "description": "Current Population Survey (CPS) The Current Population Survey is a monthly, multistage‑stratified survey of roughly 60,000 occupied households (about 72,000 housing units) that captures detailed information on the civilian non‑institutionalized population aged 15 and older. The core questionnaire records labor‑force status, employment‐type, hours worked, wages, and basic demographic characteristics; the Annual Social and Economic Supplement (ASEC) adds income, poverty‑status, health‑insurance coverage, and other socioeconomic variables. The CPS is jointly sponsored by the U.S. Census Bureau (the collection agent) and the U.S. Bureau of Labor Statistics – a partnership that has administered the survey in its present form since 1948. Its primary purpose is to serve as the nation’s principal source of labor‑force statistics, providing the official unemployment rate and a suite of related indicators (employment‑to‑population ratios, work‑hours, earnings, industry/occupation composition). Researchers, policymakers, and business analysts use the CPS for macro‑economic monitoring, labor‑market research, poverty‑measurement, and program‑evaluation (e.g., the impact of policy changes on employment or income). Key features that set CPS apart include its rotating panel design—each household is interviewed for four consecutive months, then again in the same months a year later—allowing month‑to‑month and year‑over‑year comparisons while minimizing respondent burden. The survey’s long historical series (dating back to the 1930s) and its public‑use micro‑data files (basic monthly files, ASEC annual files, and detailed supplements) make it a uniquely rich resource for longitudinal labor‑market analysis.",
+  "aliases": [
+    "CPS",
+    "Current Population Survey"
+  ],
+  "organizations": [
+    "U.S. Census Bureau",
+    "United States Census Bureau",
+    "Census Bureau",
+    "U.S. Bureau of Labor Statistics",
+    "Bureau of Labor Statistics",
+    "BLS",
+    "U.S. Department of Labor",
+    "Department of Labor",
+    "U.S. Department of Commerce",
+    "IPUMS",
+    "NBER",
+    "National Bureau of Economic Research"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.census.gov/programs-surveys/cps/data/datasets.html",
+  "schema_url": "https://www2.census.gov/programs-surveys/cps/datasets/2025/march/asec2025_ddl_pub_full.pdf",
+  "documentation_url": "https://www.census.gov/programs-surveys/cps/technical-documentation.html",
+  "official_name": "Current Population Survey (CPS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

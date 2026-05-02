@@ -1,0 +1,31 @@
+{
+  "dataset_name": "Asthma Emergency Department Visits and Hospitalizations Among Children and Adults",
+  "home_url": "https://www.cdc.gov/asthma/healthcare-use/2020/table_a.html",
+  "description": "The \"Asthma Emergency Department Visits and Hospitalizations Among Children and Adults\" dataset is a CDC produced table (Table A) that reports the annual number and rate of emergency department (ED) visits and inpatient short stay hospitalizations where asthma is listed as the primary diagnosis. Data are expressed per 10,000 U.S. residents and broken down by key demographic and geographic characteristics age groups (children vs. adults), sex, race/ethnicity, metropolitan statistical area status, and Census region of the patient's residence or hospital location. The dataset is compiled by the Centers for Disease Control and Prevention (CDC), specifically the National Center for Health Statistics, using national surveillance sources such as the Healthcare Cost and Utilization Project (HCUP) and CDC WONDER. Its primary purpose is to monitor asthma related healthcare utilization trends, support public health planning, evaluate disparities, and guide resource allocation for asthma prevention and management programs. Key features include : weighted counts and standardized rates that enable comparison across populations; annual updates (e.g., 2020 version); and detailed stratifications that allow researchers, policymakers, clinicians, and health equity analysts to assess the burden of asthma on emergency services and hospital care at both national and regional levels.",
+  "aliases": [
+    "Asthma_ed_hosp_2020",
+    "Cdc Nchs Asthma Ed Visits and Hospitalizations",
+    "Asthma Ed Visits and Hospitalizations",
+    "Asthma Emergency Department Visits and Hospitalizations Among Children and Adults",
+    "Asthma related Emergency Department Visits and Hospitalizations"
+  ],
+  "organizations": [
+    "AHRQ",
+    "Agency for Healthcare Research and Quality",
+    "CDC",
+    "Centers for Disease Control and Prevention",
+    "Department of Health and Human Services",
+    "HCUP",
+    "HHS",
+    "Health and Human Services",
+    "Healthcare Cost and Utilization Project",
+    "NCHS",
+    "National Center for Health Statistics",
+    "U.S. Department of Health and Human Services"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.cdc.gov/asthma/healthcare-use/2020/table_a.html",
+  "schema_url": "https://www.cdc.gov/asthma/national-surveillance-data/healthcare-use.htm",
+  "documentation_url": "https://www.cdc.gov/asthma/healthcare-use/2020/table_a.html",
+  "_metadata": {}
+}

@@ -1,0 +1,35 @@
+{
+  "dataset_name": "National Survey of Children's Health (NSCH)",
+  "home_url": "https://www.childhealthdata.org/",
+  "description": "The National Survey of Children's Health (NSCH) is a large scale, annual household survey that captures detailed information on the health and well being of U.S. children ages 0-17. Funded and directed by the Health Resources and Services Administration's Maternal and Child Health Bureau (HRSA-MCHB) and administered each year by the U.S. Census Bureau, the NSCH gathers data from parents or guardians on physical and mental health, special health care needs, access to and quality of medical services, family dynamics, parental health, school and after school experiences, and neighborhood characteristics. Its primary purpose is to provide national and state level estimates that support public health monitoring, policy development (e.g., Healthy People 2030 objectives), program planning, and scientific research on child health disparities. Unique aspects of the dataset include its integration since 2016 of the former NSCH and the National Survey of Children with Special Health Care Needs (NS-CSHCN) into a single instrument, yielding a comprehensive view of both general and special needs populations. The survey's publicly available data files, weighting documentation, and interactive query tools enable researchers, policymakers, and health agencies to track trends over time, assess interventions, and address the social determinants influencing child health across diverse communities.",
+  "aliases": [
+    "Nsch",
+    "Ns-cshcn",
+    "National Survey of Child Health",
+    "National Survey of Children's Health",
+    "National Survey of Children's Health - Cdc",
+    "National Survey of Children and Youth Health",
+    "National Survey of Children's Health - Hrsa-mchb",
+    "National Survey of Children and Adolescents' Health",
+    "National Survey of Children's Health - Healthy People Data Source"
+  ],
+  "organizations": [
+    "CAHMI",
+    "CDC",
+    "Census Bureau",
+    "Centers for Disease Control and Prevention",
+    "Child and Adolescent Health Measurement Initiative",
+    "HRSA",
+    "Health Resources and Services Administration",
+    "MCHB",
+    "Maternal and Child Health Bureau",
+    "NCHS",
+    "National Center for Health Statistics",
+    "U.S. Census Bureau"
+  ],
+  "access_type": "Open",
+  "data_url": "https://mchb.hrsa.gov/data-research/national-survey-childrens-health/nsch-questionnaires-datasets-supporting-documents",
+  "schema_url": "https://www.childhealthdata.org/learn-about-the-nsch/nsch-codebooks",
+  "documentation_url": "https://mchb.hrsa.gov/data-research/national-survey-childrens-health",
+  "_metadata": {}
+}

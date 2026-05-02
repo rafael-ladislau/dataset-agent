@@ -1,0 +1,22 @@
+{
+  "dataset_name": "Community Wellbeing Index (CWB)",
+  "home_url": null,
+  "description": "Community Well\u2011Being (CWB) Index \u2013 Dataset Overview The Community Well\u2011Being (CWB) Index is a publicly available dataset that assigns each Canadian community \u2013 including First Nations, Inuit and non\u2011Indigenous census subdivisions \u2013 a socio\u2011economic \u201cwell\u2011being score.\u201d The scores are compiled from four core components \u2014 education, labour\u2011force activity, income and housing \u2014 all drawn from Statistics Canada\u2019s Census of Population. For each community the dataset provides an overall CWB score (0\u2011100) and, where data permit, component scores. The index was created and is maintained by Indigenous Services Canada (ISC), formerly Aboriginal Affairs and Northern Development Canada. It was launched in the early 1980s to give policymakers, researchers and Indigenous partners a consistent metric for tracking community welfare over time. Purpose & use cases - Benchmarking Indigenous versus non\u2011Indigenous community outcomes. - Monitoring trends across the 40\u2011year series (1981\u20112021). - Guiding federal, provincial and municipal program design and resource allocation. - Academic research on socio\u2011economic disparities and policy effectiveness. Key features / unique aspects - Four\u2011component, census\u2011based methodology that is transparent and repeatable. - Longitudinal coverage (four decades) enabling trend analysis. - Open\u2011government portal and interactive map that publish scores while suppressing component data for very small communities to protect privacy. - Allows direct comparison of individual community scores and aggregate averages for First Nations, Inuit and non\u2011Indigenous groups. These characteristics make the CWB dataset a cornerstone tool for assessing and addressing socio\u2011economic well\u2011being across Canada\u2019s diverse communities.",
+  "aliases": [
+    "Community Wellbeing Index",
+    "CWB"
+  ],
+  "organizations": [
+    "ISC",
+    "Indigenous Services Canada",
+    "Aboriginal Affairs and Northern Development Canada"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://open.canada.ca/data/en/dataset/56578f58-a775-44ea-9cc5-9bf7c78410e6",
+  "schema_url": "https://open.canada.ca/data/en/dataset/56578f58-a775-44ea-9cc5-9bf7c78410e6",
+  "documentation_url": "https://www.sac-isc.gc.ca/eng/1100100016579/1557319653695",
+  "official_name": "Community Wellbeing Index (CWB)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

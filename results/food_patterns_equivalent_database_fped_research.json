@@ -1,0 +1,27 @@
+{
+  "dataset_name": "Food Patterns Equivalent Database (FPED)",
+  "home_url": "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fped-overview/",
+  "description": "The Food Patterns Equivalents Database (FPED) converts the foods and beverages in the Food and Nutrient Database for Dietary Studies to the 37 USDA Food Patterns components. The FPED serves as a unique research tool to evaluate food and beverage intakes of Americans with respect to the Dietary Guidelines for Americans recommendations. The FPED release includes the Food Patterns Equivalents Ingredient Database (FPID) and listings of gram weights for one cup equivalent of fruit, vegetables, dairy, and legumes.",
+  "aliases": [
+    "Food Patterns Equivalent Database",
+    "FPED",
+    "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fped-overview/"
+  ],
+  "organizations": [
+    "USDA",
+    "U.S. Department of Agriculture",
+    "Agricultural Research Service",
+    "ARS",
+    "https://www.ars.usda.gov/",
+    "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fped-overview/",
+    "Food Surveys Research Group: Beltsville, MD"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fped-overview/",
+  "schema_url": "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fped-overview/",
+  "documentation_url": "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fped-overview/",
+  "official_name": "Food Patterns Equivalent Database (FPED)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

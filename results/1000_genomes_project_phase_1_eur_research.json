@@ -1,0 +1,21 @@
+{
+  "dataset_name": "1000 Genomes Project",
+  "home_url": null,
+  "description": "Whole‑genome sequence reference panel used for LD estimation.",
+  "aliases": [
+    "1000 Genomes Project",
+    "1000GENOMES:phase_1:EUR"
+  ],
+  "organizations": [
+    "IGSR",
+    "International Genome Sample Resource"
+  ],
+  "access_type": "Unknown",
+  "data_url": null,
+  "schema_url": null,
+  "documentation_url": null,
+  "official_name": "1000GENOMES:phase_1:EUR",
+  "relationship_type": "component_of",
+  "official_name_reasoning": "The International Genome Sample Resource (IGSR) catalogs the 1000\u202fGenomes Project data using a hierarchical naming scheme. The full Phase\u202f1 release is recorded as \u201c1000GENOMES:phase_1\u201d, and each population group within that release is given a colon\u2011separated suffix. The European ancestry subset of Phase\u202f1 is therefore officially named \u201c1000GENOMES:phase_1:EUR\u201d. The provided name \u201c1000 Genomes Project (Phase\u202f1, EUR)\u201d describes this European component of the larger Phase\u202f1 dataset, making it a component (population subset) of the overall Phase\u202f1 catalog entry.",
+  "_metadata": {}
+}

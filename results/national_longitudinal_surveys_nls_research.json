@@ -1,0 +1,22 @@
+{
+  "dataset_name": "National Longitudinal Surveys (NLS)",
+  "home_url": "https://www.bls.gov/nls/",
+  "description": "National Longitudinal Surveys (NLS) The National Longitudinal Surveys are a family of publicly\u2011available, nationally\u2011representative panel datasets that follow cohorts of U.S. individuals and families over decades. Created and maintained by the U.S. Bureau of Labor Statistics (BLS), the NLS program began in 1966 and now includes five core surveys\u2014NLSY79, NLSY97, Young Adult (YA), Youth\u20112009, and Youth\u20112012\u2014plus supplemental cohorts such as the NLSY79 Children and Young Adult Cohorts. Purpose & typical use cases The surveys were designed to support research on labor\u2011market dynamics, educational attainment, family formation, health, and demographic change. Scholars, policymakers, and program evaluators use the data to study employment trajectories, wage differentials, skill formation, intergenerational mobility, retirement behavior, and the impact of public policies (e.g., training programs, welfare reforms). Key features / unique aspects | Feature | Detail | |---------|--------| | Long\u2011term panel design \u2013 respondents are interviewed every 1\u20132 years, providing up to 50 years of continuous history. | | Multiple cohorts \u2013 original NLSY79 (born 1957\u201164), NLSY97 (born 1980\u201184), and youth cohorts starting in 1997, 2009, 2012 allow cross\u2011cohort comparisons. | | Rich content \u2013 employment, earnings, industry/occupation, education, training, health, fertility, immigration, attitudes, and detailed time\u2011use diaries. | | Family linkage \u2013 children of NLSY79 respondents are followed as a separate cohort, enabling intergenerational analyses. | | Public\u2011use microdata \u2013 downloadable via the BLS website with detailed codebooks; weights are provided for representative inference. | | Geographic identifiers \u2013 limited state/metro\u2011area data enable regional labor\u2011market studies while protecting confidentiality. | Overall, the NLS series is a cornerstone resource for longitudinal research on how individuals\u2019 work, education, health, and family lives evolve across the life\u2011course.",
+  "aliases": [
+    "National Longitudinal Surveys",
+    "NLS",
+    "https://www.bls.gov/nls"
+  ],
+  "organizations": [
+    "BLS",
+    "Bureau of Labor Statistics"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.bls.gov/nls/",
+  "schema_url": "https://www.bls.gov/nls/",
+  "documentation_url": "https://www.bls.gov/nls/",
+  "official_name": "National Longitudinal Surveys (NLS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "The U.S. Bureau of Labor Statistics (BLS) consistently refers to the entire family of panel datasets as the \u201cNational Longitudinal Surveys (NLS)\u201d on its official website, documentation, and data\u2011download portals. The program title appears verbatim in the BLS NLS homepage (https://www.bls.gov/nls/), in the BLS \u201cNLS User Guide,\u201d and in major data catalogs (e.g., ICPSR, Data.gov) where the series is listed under that exact name. No larger parent dataset encompassing a different official title was identified; the NLS itself is the top\u2011level product. Therefore, the supplied name \u201cNational Longitudinal Surveys (NLS)\u201d is the official catalog name of the dataset series.",
+  "_metadata": {}
+}

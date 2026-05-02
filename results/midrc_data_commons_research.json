@@ -5,25 +5,14 @@
   "aliases": [
     "Midrc",
     "Midrc-dc",
-    "Midrc Commons",
-    "Midrc Data Commons",
-    "Gen3 Data Ecosystem",
-    "Data Commons By Midrc",
-    "Midrc Data Repository",
     "Medical Imaging Data Commons",
-    "Nibib-funded Midrc Data Commons",
-    "Arpa-h-funded Midrc Data Commons",
-    "Medical Imaging and Data Resource Center Data Commons",
-    "Advanced Research Projects Agency for Health Data Initiative",
-    "National Institute of Biomedical Imaging and Bioengineering Data Resource"
+    "Medical Imaging and Data Resource Center Data Commons"
   ],
   "organizations": [
     "ACR",
     "ARPA-H",
     "Advanced Research Projects Agency for Health",
     "American College of Radiology",
-    "MIDRC",
-    "Medical Imaging and Data Resource Center",
     "NIBIB",
     "National Institute of Biomedical Imaging and Bioengineering",
     "RSNA",

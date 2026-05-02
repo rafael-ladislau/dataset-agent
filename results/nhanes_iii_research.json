@@ -1,0 +1,28 @@
+{
+  "dataset_name": "NHANES III",
+  "home_url": null,
+  "description": "NHANES III (National Health and Nutrition Examination Survey, Phase III) The NHANES III dataset is the third wave of the U.S. National Health and Nutrition Examination Survey, conducted by the National Center for Health Statistics (NCHS) of the Centers for Disease Control and Prevention (CDC) from 1988\u20111994. It comprises a nationally representative probability sample of 39,695 individuals (\u2265 2 months old) who underwent household interviews, standardized physical examinations, and extensive laboratory testing. Variables span demographics, dietary intake, health\u2011behaviour questionnaires, clinical measurements (e.g., blood pressure, anthropometry), biochemical markers (lipids, glucose, heavy metals), environmental exposures, and biospecimen inventories. The survey\u2019s purpose is to monitor the health and nutritional status of the civilian, non\u2011institutionalized U.S. population, providing a baseline for trend analysis and informing public\u2011health policy. Researchers use NHANES III to estimate disease prevalence (obesity, diabetes, hypertension), evaluate risk\u2011factor associations, validate clinical instruments, and develop predictive models. Key features that set NHANES III apart include its two\u2011phase design (1988\u20111991 & 1991\u20111994), a high examination response rate (~78 %), extensive laboratory and biospecimen collections (allowing later genetic and exposome studies), and thorough documentation with SAS/DAT files and a detailed data dictionary. These attributes make NHANES III a cornerstone resource for epidemiology, health\u2011services research, and methodological development.",
+  "aliases": [
+    "Nhanes 3",
+    "Nhanes Iii",
+    "Icpsr 2231",
+    "Icpsr 4010",
+    "Public Use Data File Documentation Number 76200",
+    "National Health and Nutrition Examination Survey Iii",
+    "Third National Health and Nutrition Examination Survey"
+  ],
+  "organizations": [
+    "NCHS",
+    "National Center for Health Statistics",
+    "CDC",
+    "Centers for Disease Control and Prevention"
+  ],
+  "access_type": "Open",
+  "data_url": "https://wwwn.cdc.gov/nchs/nhanes/nhanes3/datafiles.aspx",
+  "schema_url": "https://wwwn.cdc.gov/nchs/nhanes/nhanes3/datafiles.aspx",
+  "documentation_url": "https://wwwn.cdc.gov/nchs/nhanes/nhanes3/default.aspx",
+  "official_name": "NHANES III",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

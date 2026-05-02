@@ -1,0 +1,38 @@
+{
+  "dataset_name": "BRFSS Asthma Call-back Survey",
+  "home_url": "https://www.cdc.gov/brfss/acbs/index.htm",
+  "description": "The BRFSS Asthma Call-back Survey (ACBS) is a supplemental, in-depth questionnaire administered to respondents of the Behavioral Risk Factor Surveillance System (BRFSS) who report ever having been diagnosed with asthma. It captures detailed information on asthma prevalence, severity, control, medication use, health care utilization (hospitalizations, emergency visits), environmental and occupational triggers, comorbid conditions, quality of life impacts, and demographic characteristics for both adults and children. The survey is created and funded by the CDC's National Center for Environmental Health specifically the Asthma and Community Health Branch and has been conducted annually since its pilot in 2005, with most U.S. states participating each year. Its primary purpose is to provide state level, granular asthma surveillance data that supplement the core BRFSS estimates, enabling public health officials, researchers, and policymakers to monitor trends, evaluate asthma programs, identify high risk populations, and guide resource allocation for prevention and management. Key features include a call-back design (a follow-up telephone interview after the initial BRFSS survey), separate adult and child modules, a large variable set (over 1,000 variables per year) that integrates both ACBS and core BRFSS data, and annual public release files in SAS format for easy analysis. This unique follow-up approach yields richer, clinically relevant insights not available from the standard BRFSS alone.",
+  "aliases": [
+    "Acbs",
+    "Cdc Asthma Call-back Survey",
+    "Nceh Asthma Call-back Survey",
+    "Brfss Asthma Call-back Survey",
+    "Brfss Asthma Call-back Survey",
+    "National Center for Environmental Health Asthma Call-back Survey",
+    "Behavioral Risk Factor Surveillance System Asthma Call-back Survey"
+  ],
+  "organizations": [
+    "ACHB",
+    "APRHB",
+    "Air Pollution and Respiratory Health Branch",
+    "Asthma and Community Health Branch",
+    "CDC",
+    "Centers for Disease Control and Prevention",
+    "DEHSP",
+    "DHHS",
+    "Division of Environmental Health Science and Practice",
+    "ICPSR",
+    "Inter-university Consortium for Political and Social Research",
+    "NACP",
+    "NCEH",
+    "National Asthma Control Program",
+    "National Center for Environmental Health",
+    "Public Health Surveillance Program Office",
+    "United States Department of Health and Human Services"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.cdc.gov/brfss/annual_data/annual_data.htm",
+  "schema_url": "https://www.cdc.gov/brfss/acbs/index.htm",
+  "documentation_url": "https://www.cdc.gov/brfss/acbs/2022_documentation.html",
+  "_metadata": {}
+}

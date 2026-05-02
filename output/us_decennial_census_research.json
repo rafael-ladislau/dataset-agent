@@ -1,0 +1,29 @@
+{
+  "dataset_name": "U.S. Decennial Census",
+  "home_url": "https://www.census.gov/programs-surveys/decennial-census.html",
+  "description": "U.S. Decennial Census Dataset (150 words) The U.S. Decennial Census – officially the Decennial Census of Population and Housing – is a comprehensive, nation‑wide enumeration conducted every ten years on April 1. It records the total resident population and a core set of housing characteristics for every household, producing counts by age, sex, race/ethnicity, family‑household composition, housing tenure, and unit type. The dataset is created and administered by the U.S. Census Bureau, a federal agency under the Department of Commerce, as mandated by Article I of the Constitution and Title 13 of the U.S. Code. Its primary purpose is to provide the legal basis for apportioning seats in the U.S. House of Representatives and for redrawing congressional and state legislative districts. Beyond representation, the data drive the allocation of billions of dollars in federal funding to states, counties, and localities, support urban‑planning, public‑health research, market analysis, and academic demographic studies. Key features include (1) complete‑population (100 percent) “short‑form” questions on basic demographics and housing, (2) a supplemental sample (“long‑form”) that captures detailed socioeconomic variables, (3) granular geographies down to Census blocks and block groups, and (4) publicly‑available microdata (Public Use Microdata Sample – PUMS) and summary tables via the Census API, enabling flexible analysis across decades.",
+  "aliases": [
+    "U.S. Decennial Census",
+    "Decennial Census",
+    "Census of Population and Housing"
+  ],
+  "organizations": [
+    "U.S. Census Bureau",
+    "United States Census Bureau",
+    "Census Bureau",
+    "Bureau of the Census",
+    "U.S. Department of Commerce",
+    "Department of Commerce",
+    "IPUMS",
+    "Minnesota Population Center",
+    "University of Minnesota"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.census.gov/data/developers/data-sets/decennial-census.html",
+  "schema_url": "https://www.census.gov/data/developers/data-sets/decennial-census.html",
+  "documentation_url": "https://www.census.gov/programs-surveys/decennial-census/technical-documentation/complete-technical-documents.html",
+  "official_name": "Decennial Census of Population and Housing",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Searches of the U.S. Census Bureau and data.gov reveal that the federal program conducting the nation‑wide enumeration every ten years is formally titled **“Decennial Census of Population and Housing.”** This exact phrase appears on the Census Bureau’s official website (https://www.census.gov/programs-surveys/decennial-census.html) and in the metadata of catalog entries such as “Decennial Census: Demographic and Housing Characteristics.” The description supplied by the user matches this program’s purpose, scope, and legal basis. Although the user referred to it as “U.S. Decennial Census,” that wording is merely a shorthand; the official catalog name is the longer, precise title above. Therefore the provided name corresponds directly to the same dataset, making the relationship type **official_name**.",
+  "_metadata": {}
+}

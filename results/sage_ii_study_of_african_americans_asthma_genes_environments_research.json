@@ -1,0 +1,27 @@
+{
+  "dataset_name": "SAGE II (Study of African Americans, Asthma, Genes & Environments)",
+  "home_url": null,
+  "description": "SAGE II (Study of African Americans, Asthma, Genes & Environments) SAGE II is a NIH\u2011funded, case\u2011control cohort of 1,227 African\u2011American youths (8\u201121 years) recruited at the University of California, San Francisco. The dataset combines high\u2011resolution genomic data (GWAS and whole\u2011genome sequencing), detailed phenotypes (physician\u2011diagnosed asthma status, bronchodilator response, spirometry, body\u2011mass index), and a rich set of environmental measures (local air quality, second\u2011hand smoke exposure, socioeconomic status, experiences of discrimination, diet, and medication use). The study was designed and coordinated by the Asthma Collaboratory at UCSF, with principal investigators L. Burchard and M. White and major support from the NHLBI, the Sandler Family Foundation, and the TOPMed program. Its primary purpose is to uncover gene\u2011environment interactions that drive asthma susceptibility, severity, and drug response in African\u2011American children\u2014populations historically under\u2011represented in respiratory genetics research. Key features that set SAGE II apart include: (1) the largest gene\u2011environment investigation of asthma in African\u2011American youth; (2) comprehensive ancestry admixture estimates enabling fine\u2011scale genetic analyses; (3) paired pharmacogenomic data on bronchodilator responsiveness; and (4) publicly available raw and processed data through dbGaP/TOPMed, making it a valuable resource for studies of health disparities, precision medicine, and environmental genomics.",
+  "aliases": [
+    "Sage Ii",
+    "study of African Americans, Asthma, Genes & Environments"
+  ],
+  "organizations": [
+    "NIH",
+    "National Institutes of Health",
+    "University of California",
+    "UCSF",
+    "NHLBI",
+    "National Heart, Lung, and Blood Institute",
+    "Sandler Family Foundation",
+    "TOPMed"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.ncbi.nlm.nih.gov/projects/gap/cgi-bin/study.cgi?study_id=phs000921.v5.p2",
+  "schema_url": null,
+  "documentation_url": "https://sb-biodatacatalyst.readme.io/docs/study-of-african-americans-asthma-genes-and-environment-sage",
+  "official_name": "SAGE II (Study of African Americans, Asthma, Genes & Environments)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

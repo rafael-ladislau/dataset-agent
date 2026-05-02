@@ -1,0 +1,23 @@
+{
+  "dataset_name": "American Community Survey (ACS)",
+  "home_url": "https://www.census.gov/programs-surveys/acs.html",
+  "description": "American Community Survey (ACS) The American Community Survey is an ongoing, nationwide statistical survey conducted by the U.S. Census Bureau. It collects detailed demographic, social, economic, and housing information from a continuous sample of about 3.5 million households each year. Unlike the decennial census, ACS provides annual estimates for a wide range of characteristics\u2014age, sex, race, education, employment, income, commuting patterns, health insurance coverage, housing tenure, and characteristics of the built environment\u2014down to the block\u2011group level. The primary purpose of ACS is to supply up\u2011to\u2011date data that governments, researchers, businesses, and nonprofit organizations use for policy planning, program administration, market analysis, and academic research. It feeds into federal, state, and local funding formulas, supports community\u2011needs assessments, and informs decisions on everything from school placement to infrastructure investment. Key features that set ACS apart include: - Continuous data collection (monthly sampling) providing year\u2011over\u2011year trends. - Geographic granularity, delivering estimates for states, counties, metropolitan areas, Census tracts and even block groups. - Broad topical coverage, encompassing over 200 variables across social, economic and housing domains. - Public\u2011use microdata files (PUMS) that allow custom tabulations while protecting confidentiality. Together, these attributes make ACS the most comprehensive, timely source of U.S. community\u2011level statistics available today.",
+  "aliases": [
+    "Acs",
+    "American Community Survey",
+    "https://www.census.gov/programs-surveys/acs.html"
+  ],
+  "organizations": [
+    "Census Bureau",
+    "data.census.gov",
+    "https://www.census.gov/programs-surveys/acs.html"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.census.gov/programs-surveys/acs/data.html",
+  "schema_url": "https://www.census.gov/programs-surveys/acs.html",
+  "documentation_url": "https://www.census.gov/programs-surveys/acs.html",
+  "official_name": "American Community Survey (ACS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

@@ -1,0 +1,27 @@
+{
+  "dataset_name": "Food and Nutrient Database for Dietary Studies (FNDDS)",
+  "home_url": "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fndds/",
+  "description": "FNDDS is a database that provides the nutrient values for foods and beverages reported in What We Eat in America, the dietary intake component of the National Health and Nutrition Examination Survey.",
+  "aliases": [
+    "Food and Nutrient Database for Dietary Studies",
+    "FNDDS",
+    "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fndds/"
+  ],
+  "organizations": [
+    "USDA",
+    "U.S. Department of Agriculture",
+    "Agricultural Research Service",
+    "ARS",
+    "https://www.ars.usda.gov/",
+    "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fndds/",
+    "Food Surveys Research Group: Beltsville, MD"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fndds/",
+  "schema_url": "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fndds/",
+  "documentation_url": "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fndds/",
+  "official_name": "Food and Nutrient Database for Dietary Studies (FNDDS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

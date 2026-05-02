@@ -1,0 +1,20 @@
+{
+  "dataset_name": "University of Michigan Health and Retirement Study (HRS)",
+  "home_url": "https://hrs.isr.umich.edu/about",
+  "description": "University of Michigan Health and Retirement Study (HRS) The Health and Retirement Study is a longitudinal panel survey that follows a nationally representative sample of roughly 20,000 Americans aged 50 + (and their spouses) every two years. It captures a breadth of information on economic status (income, wealth, pensions, employment), health and functional status (self\u2011reported conditions, chronic diseases, biomarkers, genomics, cognitive tests), health\u2011care use and costs, family composition, housing, and psychosocial factors. The study was initiated in 1992 by the Institute for Social Research (ISR) at the University of Michigan, with funding and oversight from the National Institute on Aging (NIA) and the Social Security Administration. It is administered by the Survey Research Center and guided by an interdisciplinary steering committee of academic, government, and policy experts. The primary purpose is to provide a rich, multidisciplinary data resource for research on the economic, health\u2011care, and policy implications of population aging in the United States. Researchers use HRS to evaluate retirement behavior, health\u2011care utilization, wealth accumulation and depletion, intergenerational transfers, the effects of public programs (Social Security, Medicare), and emerging topics such as genetics and epigenetics. Key features include its biennial wave design, extensive linkage to administrative records (e.g., Medicare/SSA), a growing genetic\u2011biomarker component, and harmonization with sister studies in other countries, making HRS a benchmark for comparative aging research.",
+  "aliases": [
+    "University of Michigan Health and Retirement Study",
+    "HRS",
+    "Health and Retirement Study",
+    "hrs.isr.umich.edu"
+  ],
+  "organizations": ["University of Michigan", "UMICH"],
+  "access_type": "Restricted",
+  "data_url": "https://hrs.isr.umich.edu/about",
+  "schema_url": "https://hrs.isr.umich.edu/about",
+  "documentation_url": "https://hrs.isr.umich.edu/about",
+  "official_name": "Health and Retirement Study (HRS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "The primary source\u202f\u2014\u202fthe study\u2019s own website (https://hrs.isr.umich.edu/about) and the Wikipedia entry\u202f\u2014\u202flists the dataset\u2019s official title as \u201cHealth and Retirement Study (HRS)\u201d. The University of Michigan is the administering institution, but it is not part of the formal dataset title; rather, it appears in descriptive text (e.g., \u201cThe University of Michigan Health and Retirement Study\u201d). Consequently, the supplied name \u201cUniversity of Michigan Health and Retirement Study (HRS)\u201d is simply a descriptive variant of the same dataset, not a distinct subset, table, or component. Therefore, the relationship between the provided name and the official catalog name is that they refer to the same dataset.",
+  "_metadata": {}
+}
