@@ -7,7 +7,7 @@ Requires LM Studio running on http://localhost:1234 with a model loaded.
 import anthropic
 
 BASE_URL = "http://localhost:1234"
-MODEL = "gemma-4-31b-it"
+MODEL = "gemma-4-31b-it-mlx"
 API_KEY = "lm-studio"
 
 client = anthropic.Anthropic(
