@@ -1,0 +1,22 @@
+{
+  "dataset_name": "Occupational Employment and Wage Statistics (OEWS)",
+  "home_url": "https://www.bls.gov/oes/",
+  "description": "Occupational Employment and Wage Statistics (OEWS) The Occupational Employment and Wage Statistics (OEWS) program, administered by the U.S. Bureau of Labor Statistics (BLS), produces the nation\u2019s most comprehensive set of employment\u2011and\u2011wage estimates by occupation. Each annual release contains employment totals, average hourly and annual wages, and detailed industry\u2011breakdowns for more than 1,000 detailed occupations coded to the Standard Occupational Classification (SOC) system. The data are compiled from a combination of the Current Population Survey, the Quarterly Census of Employment and Wages, and administrative payroll records, yielding statistically reliable estimates for national, state, and Metropolitan Statistical Area (MSA) levels. The primary purpose of OEWS is to track labor\u2011market trends, support workforce planning, and inform public\u2011policy decisions. Researchers, economists, educators, and private\u2011sector HR analysts use the dataset to: * analyze occupational demand and wage growth; * compare regional labor\u2011market conditions; * project future skill needs for education and training programs; * benchmark compensation practices. Key features that set OEWS apart include: annual release on a consistent schedule, national\u2011to\u2011local geographic coverage, occupational detail down to the 6\u2011digit SOC level, hourly and annual wage statistics, and industry\u2011specific employment counts. Because the data are publicly available on the BLS website (https://www.bls.gov/oes/), they serve as a standard reference for labor\u2011economics research, workforce development, and compensation studies.",
+  "aliases": [
+    "Occupational Employment and Wage Statistics",
+    "OEWS",
+    "https://www.bls.gov/oes/"
+  ],
+  "organizations": [
+    "Bureau of Labor Statistics",
+    "BLS"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.bls.gov/oes/",
+  "schema_url": "https://www.bls.gov/oes/",
+  "documentation_url": "https://www.bls.gov/oes/",
+  "official_name": "Occupational Employment and Wage Statistics (OEWS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "The U.S. Bureau of Labor Statistics (BLS) publishes the dataset under the title \u201cOccupational Employment and Wage Statistics (OEWS)\u201d on its official website (https://www.bls.gov/oes/). All BLS documentation, data files, and release notes refer to the program and its data series by this exact name. There is no larger encompassing dataset that includes OEWS as a component; instead, OEWS is a standalone statistical program that provides its own national, state, and metropolitan\u2011area tables. Consequently, the provided name \u201cOccupational Employment and Wage Statistics (OEWS)\u201d matches the official catalog name of the dataset.",
+  "_metadata": {}
+}

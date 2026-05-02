@@ -1,0 +1,20 @@
+{
+  "dataset_name": "Revelio Labs data",
+  "home_url": null,
+  "description": "Revelio Labs Dataset Overview The Revelio Labs dataset, created by Revelio Labs, is a comprehensive workforce intelligence platform aggregating public employment records, job postings, individual profiles, and company data. It contains global workforce dynamics spanning over 19 million companies, 1.1 billion professional profiles, and 5.25 million firms, with coverage of employee movements, demographics (gender, ethnicity), skills, compensation, and layoff notices. Key datasets include COSMOS, the largest job posting database (3.3 billion postings from 350K+ company websites and job boards), and individual-level data on roles, education, and career trajectories. The dataset\u2019s purpose is to enable workforce trend analysis for investors, HR teams, academics, and policymakers. Use cases include tracking talent shifts, market competition, AI\u2019s impact on jobs, and strategic business decisions. Unique features include proprietary algorithms for standardizing unstructured data, a hierarchical skills taxonomy, and real-time updates (daily for individual data, monthly for layoffs). Revelio\u2019s company mapping model links subsidiaries and parent companies, simplifying organizational analysis. Data is accessible via API, customizable datasets (through Data Builder), and aggregated statistics at multiple geographic and occupational levels. With 3.4K+ indexed skills and 20M+ mapped entities, it offers unmatched granularity for workforce research and business intelligence.",
+  "aliases": [
+    "Revelio Labs Data",
+    "Revelio Labs Dataset",
+    "Revelio Labs Position Data",
+    "Revelio Labs Workforce Database",
+    "Revelio Labs Company Reference File"
+  ],
+  "organizations": [
+    "Revelio Labs"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://www.data-dictionary.reveliolabs.com/data.html",
+  "schema_url": "https://www.reveliolabs.com/data-dictionary",
+  "documentation_url": "https://www.data-dictionary.reveliolabs.com/",
+  "_metadata": {}
+}

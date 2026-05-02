@@ -1,0 +1,14 @@
+{
+  "dataset_name": "NASS Census of Agriculture",
+  "home_url": "",
+  "description": "Agent stopped due to max iterations.",
+  "aliases": [
+    "Nass Census of Agriculture"
+  ],
+  "organizations": [],
+  "access_type": "Unknown",
+  "data_url": "https://agcensus.usda.gov/",
+  "schema_url": null,
+  "documentation_url": "https://www.nass.usda.gov/AgCensus/",
+  "_metadata": {}
+}

@@ -1,0 +1,27 @@
+{
+  "dataset_name": "Integrated Public Use Microdata Series Current Population Survey (IPUMS CPS)",
+  "home_url": "https://cps.ipums.org/cps/",
+  "description": "Integrated Public\u2011Use Microdata Series \u2013 Current Population Survey (IPUMS\u2011CPS) The IPUMS\u2011CPS is a harmonized micro\u2011data product that compiles individual\u2011level records from the U.S. Current Population Survey (CPS), a monthly household survey jointly administered by the Census Bureau and the Bureau of Labor Statistics. The database spans 1962 to the present, covering every Annual Social and Economic Supplement (ASEC) and all supplemental modules thereafter. The series is produced by the Minnesota Population Center (University of Minnesota) in partnership with Unicon Research Corporation, and is funded principally by the Eunice Kennedy Shriver National Institute of Child Health & Human Development, the NSF Social Science Infrastructure program, and the Robert Wood Johnson Foundation. Purpose & use cases \u2013 IPUMS\u2011CPS provides a consistent, longitudinal platform for researchers, policymakers, and analysts to study labor\u2011force dynamics, demographic change, income distribution, health insurance coverage, program participation, and a host of supplemental topics (e.g., fertility, internet use, food security, tobacco use). It underpins academic work in economics, sociology, demography, public health, and labor\u2011market policy evaluation, as well as the federal calculation of official unemployment rates. Key features / unique aspects - Person\u2011 and household\u2011level records with fully documented, time\u2011consistent variable coding. - Integrated supplemental modules (e.g., welfare program participation, union membership, hourly wages, health insurance, tax liability, computer\u2011 and internet\u2011use). - Robust metadata, codebooks, and an online extraction system that lets users select variables, years, and sub\u2011populations, ensuring FAIR (findable, accessible, interoperable, reusable) data. - Over 50 years of continuous coverage, enabling cross\u2011time analyses of labor market and socioeconomic trends. These characteristics make IPUMS\u2011CPS a premier, interoperable resource for longitudinal social\u2011science research and evidence\u2011based policy analysis.",
+  "aliases": [
+    "Integrated Public Use Microdata Series Current Population Survey (ipums Cps)",
+    "ipums cps",
+    "ipums-cps",
+    "https://cps.ipums.org/cps/"
+  ],
+  "organizations": [
+    "Minnesota Population Center",
+    "University of Minnesota",
+    "Unicon Research Corporation",
+    "Eunice Kennedy Shriver National Institute of Child Health and Human Development",
+    "NSF Social Science Infrastructure program",
+    "Robert Wood Johnson Foundation"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://cps.ipums.org/cps/data.shtml",
+  "schema_url": "https://cps.ipums.org/cps/resources/codebooks/cpsmar24.pdf",
+  "documentation_url": "https://cps.ipums.org/cps/technical_documents.shtml",
+  "official_name": "Integrated Public Use Microdata Series, Current Population Survey (IPUMS CPS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "The IPUMS website and the formal citation page list the dataset\u2019s title as \u201cIntegrated Public Use Microdata Series, Current Population Survey: Version\u202fX.X [dataset]\u201d (e.g., Version\u202f13.0, 2025). This exact wording appears on the official IPUMS\u2011CPS citation page and in the metadata files provided for download. The name supplied by the user \u2013 \u201cIntegrated Public Use Microdata Series Current Population Survey (IPUMS CPS)\u201d \u2013 matches this official title verbatim, confirming that it is the dataset\u2019s canonical catalog name rather than a subset, table, or component of a larger collection. Consequently, the relationship between the provided name and the official catalog entry is that they are identical.",
+  "_metadata": {}
+}

@@ -1,0 +1,28 @@
+{
+  "dataset_name": "Survey of Federal Funds for Research and Development",
+  "home_url": null,
+  "description": "The Survey of Federal Funds for Research and Development (FFR&D) is an annual census conducted by the U.S. National Science Foundation\u2019s National Center for Science and Engineering Statistics (NCSES). It serves as the primary source of data on federal funding for research and development (R&D) in the United States. The dataset tracks financial obligations and outlays by federal agencies (e.g., NIH, DOE, DOD) for R&D programs, detailing expenditures by agency, performer (e.g., universities, federal labs), purpose (e.g., basic research, applied R&D), and fiscal year. Its purpose is to provide comprehensive, standardized data to inform policy decisions, track R&D investment trends, and support economic and scientific analyses. Use cases include academic research, budget planning, and evaluating federal R&D priorities. Key features include its comprehensive coverage of all major federal R&D funders, granular breakdowns of funding allocations, and historical consistency, with data collected annually since 1948. The survey distinguishes between actual data (for completed fiscal years) and estimates (for ongoing years), ensuring up-to-date insights. Unique aspects include its role as a census (covering all relevant agencies) and integration with tools like the NSF\u2019s interactive data explorer, enabling customizable analyses. The dataset is critical for understanding federal R&D investment patterns and their impact on innovation and economic growth.",
+  "aliases": [
+    "Ffr&d Survey",
+    "Federal R&d Funding Survey",
+    "Survey of Federal R&d Funds",
+    "Federal Funds for R&d Survey",
+    "U.s. Federal R&d Funds Survey",
+    "Survey of Federal Funds for R&d",
+    "Survey of Federal Funds for Research and Development"
+  ],
+  "organizations": [
+    "NCSES",
+    "NSF",
+    "National Science Foundation",
+    "National Science Foundation\u2019s National Center for Science and Engineering Statistics",
+    "U.S. Government",
+    "United States Government",
+    "data.gov"
+  ],
+  "access_type": "Open",
+  "data_url": "https://catalog.data.gov/dataset/survey-of-federal-funds-for-research-and-development-2022-2023",
+  "schema_url": "https://www.nsf.gov/ncses/ffrd/data.cfm",
+  "documentation_url": "https://ncses.nsf.gov/surveys/federal-funds-research-development/2023-2024",
+  "_metadata": {}
+}

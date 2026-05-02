@@ -1,0 +1,20 @@
+{
+  "dataset_name": "Women, Minorities, and Persons with Disabilities",
+  "home_url": null,
+  "description": "The Women, Minorities, and Persons with Disabilities in Science and Engineering dataset is an annual statistical report produced by the National Center for Science and Engineering Statistics (NCSES) under the U.S. National Science Foundation (NSF). It tracks the participation of these groups in science, technology, engineering, and mathematics (STEM) education and employment. The dataset includes data on enrollment in STEM fields, degree attainment, employment status, occupational distribution, and academic career progression, providing insights into demographic representation and trends over time. Its primary purpose is to serve as a policy-neutral statistical resource to inform discussions on diversity and inclusion in STEM. Key features include granular breakdowns by gender, race/ethnicity, disability status, and geographic region, enabling analysis of disparities and progress. The dataset draws from surveys like the National Science and Engineering Talent Pool and integrates data from federal agencies such as the U.S. Census Bureau. It is widely used by researchers, policymakers, and educators to assess workforce diversity, design equity initiatives, and monitor compliance with federal mandates. The report is publicly accessible via the NSF\u2019s National Center for Science and Engineering Statistics (NCSES) and the U.S. government\u2019s data portal. Unique aspects include its longitudinal scope and alignment with national goals like the NSF\u2019s Broader Impacts criterion, which emphasizes inclusivity in STEM. (Word count: 198)",
+  "aliases": [
+    "Women, Minorities, and Persons With Disabilities"
+  ],
+  "organizations": [
+    "NCSES",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Science Foundation",
+    "U.S. Census Bureau"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.nsf.gov/reports/statistics/diversity-stem-women-minorities-persons-disabilities-2023",
+  "schema_url": "https://www.nsf.gov/ncses/wmpd/",
+  "documentation_url": "https://www.nsf.gov/reports/statistics/diversity-stem-women-minorities-persons-disabilities-2023",
+  "_metadata": {}
+}

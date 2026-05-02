@@ -1,0 +1,27 @@
+{
+  "dataset_name": "Survey of Science and Engineering Research Facilities",
+  "home_url": null,
+  "description": "The Survey of Science and Engineering Research Facilities (SERF) is a congressionally mandated, biennial dataset created by the National Center for Science and Engineering Statistics (NCSES) under the U.S. National Science Foundation (NSF). It collects detailed data on the physical and financial aspects of research infrastructure at U.S. colleges and universities that expend at least $1 million annually on research and development (R&D). The dataset includes institution-level information on the amount, condition, construction, repair, renovation, and funding of science and engineering research facilities. Key metrics encompass square footage of research space, R&D expenditures, funding sources (e.g., federal, state, institutional), and facility utilization across disciplines. Its primary purpose is to inform policymakers and stakeholders about the state of national research infrastructure, supporting decisions on funding priorities, capacity-building, and facility maintenance. Use cases include analyzing trends in R&D investment, assessing facility obsolescence, and evaluating the alignment of resources with scientific priorities. Unique aspects of SERF include its comprehensive coverage (a census of eligible institutions) and granular data structure, which allows analysis at both institutional and aggregate levels. Data is publicly accessible via the NSF\u2019s NCSES platform, with records dating back to 2003. The survey\u2019s biennial frequency ensures up-to-date insights while maintaining long-term trend visibility. (Source: NSF NCSES documentation and survey descriptions)",
+  "aliases": [
+    "Serf",
+    "Science and Engineering Research Facilities Survey",
+    "Survey of Science & Engineering Research Facilities",
+    "Survey of Science and Engineering Research Facilities",
+    "Census of Science and Engineering Research Facilities"
+  ],
+  "organizations": [
+    "NCSES",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Science Foundation",
+    "U.S. Congress",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "United States Department of Agriculture"
+  ],
+  "access_type": "Open",
+  "data_url": "https://data.nsf.gov/dataset/survey-science-and-engineering-research-facilities-serf",
+  "schema_url": "https://www.nsf.gov/ncses/surf/data.cfm",
+  "documentation_url": "https://ncses.nsf.gov/823/assets/0/files/2021-facilities-puf-user-guide.pdf",
+  "_metadata": {}
+}

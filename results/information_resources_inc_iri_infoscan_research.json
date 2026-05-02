@@ -1,0 +1,25 @@
+{
+  "dataset_name": "Information Resources, Inc. (IRI) InfoScan",
+  "home_url": null,
+  "description": "The IRI InfoScan dataset, created by Information Resources, Inc. (IRI)\u2014a market research company later merged with NPD Group to form Circana\u2014contains detailed retail sales data for food and consumer goods. It captures transaction-level data from thousands of U.S. retail outlets, including grocery stores, mass merchandisers, convenience stores, and drugstores, at the Universal Product Code (UPC) level. The dataset includes metrics such as sales volume, revenue, pricing, and product-level transactions, enabling analysis of consumer behavior and market trends. Its primary purpose is to provide market intelligence for industries like consumer packaged goods (CPG), retail, and healthcare. Use cases include tracking sales performance, evaluating marketing campaigns, and benchmarking against competitors. Researchers and government agencies (e.g., USDA) also use it to study food expenditures and price trends, often comparing it with survey data for validation. Key features include its broad retail coverage (over 2,700 outlets at peak), granular UPC-level detail, and weekly updates, making it a dynamic tool for real-time market analysis. The dataset\u2019s proprietary nature and historical depth (dating back decades) further distinguish it, though access is restricted to authorized clients. Post-2022, it operates under Circana\u2019s OmniMarket Core Outlets branding, retaining its role as a critical resource for retail and economic research. (Source: IRI company history, USDA ERS documentation, and Circana product updates)",
+  "aliases": [
+    "Iri Infoscan",
+    "Iri Academic Data Set",
+    "Circana Omnimarket Core Outlets Dataset",
+    "Information Resources, Inc. (iri) Infoscan"
+  ],
+  "organizations": [
+    "Circana",
+    "IRI",
+    "Information Resources, Inc.",
+    "NPD Group",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "United States Department of Agriculture"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://www.ers.usda.gov/data-products/weekly-retail-food-sales/documentation",
+  "schema_url": "https://www.mathematica.org/-/media/internet/projects/consumer-food-data-system/iri_infoscan_patrick_3.pdf",
+  "documentation_url": "https://www.ers.usda.gov/data-products/weekly-retail-food-sales/documentation",
+  "_metadata": {}
+}

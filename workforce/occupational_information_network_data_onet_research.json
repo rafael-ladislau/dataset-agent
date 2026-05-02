@@ -1,0 +1,25 @@
+{
+  "dataset_name": "Occupational Information Network data - O*NET",
+  "home_url": null,
+  "description": "The ONET (Occupational Information Network) dataset, created by the U.S. Department of Labor\u2019s Bureau of Labor Statistics (BLS) and maintained by the National Center for ONET Development, is a comprehensive resource detailing occupational requirements and workforce skills. It contains data on 900+ occupations, covering knowledge, skills, abilities, work activities, context, styles, and tasks, collected through surveys of randomly sampled workers and businesses. Its primary purpose is to support career exploration, workforce development, education alignment, and job analysis. Use cases include helping job seekers identify career paths, enabling HR professionals to design job descriptions, and guiding researchers in labor market analysis. The dataset also aids in mapping skills to occupations and understanding industry interconnections. Key features include worker-centric data collection, alignment with U.S. Standard Occupational Codes (SOCs), and a hierarchical framework of generalized (GWAs) and detailed work activities (DWAs) to describe occupational tasks. Unique aspects are its annual updates, skill ranking by relevance to occupations, and integration with tools like career pathway visualizations. O*NET OnLine (https://www.onetonline.org/) provides public access to these data, serving job seekers, educators, policymakers, and developers with actionable labor market insights.",
+  "aliases": [
+    "Onet",
+    "O*net",
+    "Occupational Information Network",
+    "Www.onetonline.org"
+  ],
+  "organizations": [
+    "BLS",
+    "Bureau of Labor Statistics",
+    "ETA",
+    "Employment and Training Administration",
+    "National Center for O*NET Development",
+    "U.S. Department of Labor",
+    "USDOL"
+  ],
+  "access_type": "Open",
+  "data_url": "https://catalog.data.gov/dataset/occupational-information-network-onet-production-database-data-87f52",
+  "schema_url": "https://www.onetcenter.org/onet_data_dictionary.html",
+  "documentation_url": "https://www.onetonline.org/documentation/",
+  "_metadata": {}
+}

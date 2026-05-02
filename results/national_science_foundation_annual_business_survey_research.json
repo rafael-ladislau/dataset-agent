@@ -1,0 +1,23 @@
+{
+  "dataset_name": "National Science Foundation Annual Business Survey",
+  "home_url": null,
+  "description": "The National Science Foundation Annual Business Survey (ABS) is a collaborative effort between the U.S. Census Bureau and the National Center for Science and Engineering Statistics (NCSES) within the National Science Foundation (NSF). This dataset primarily tracks research and development (R&D) expenditures, innovation, technology adoption, intellectual property, and business owner characteristics for nonfarm, for-profit businesses in the U.S., with a focus on small firms (1\u20139 employees). It also includes rotating topics such as globalization and business resilience. The ABS serves as the primary source for understanding R&D investment trends among small businesses and provides insights into innovation drivers and challenges. Its unique features include detailed demographic data on business owners (e.g., sex, ethnicity, veteran status) and disaggregated information on Asian-owned businesses. The survey\u2019s rotating content allows it to adapt to emerging economic and technological issues. Key use cases include informing science and innovation policy, analyzing business dynamics, and supporting research on entrepreneurship and economic growth. Data is collected via tax filings (941, 944, or 1120 forms) and disseminated through the NSF and Census Bureau, offering a critical resource for understanding the U.S. innovation ecosystem.",
+  "aliases": [
+    "Abs",
+    "Nsf Annual Business Survey",
+    "Ncses Annual Business Survey",
+    "National Science Foundation Annual Business Survey"
+  ],
+  "organizations": [
+    "NCSES",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Science Foundation",
+    "U.S. Census Bureau"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.nsf.gov/abs",
+  "schema_url": "https://www.nsf.gov/abs/data-dictionary",
+  "documentation_url": "https://www.census.gov/programs-surveys/abs/technical-documentation.html",
+  "_metadata": {}
+}

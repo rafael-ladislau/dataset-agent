@@ -1,0 +1,23 @@
+{
+  "dataset_name": "Nurses' Health Study II",
+  "home_url": null,
+  "description": "Nurses\u2019 Health Study II (NHS II) The Nurses\u2019 Health Study II is a prospective cohort dataset that follows \u2248 116,000 U.S. registered nurses (ages 25\u201142 at enrollment in 1989) through biennial questionnaires, biospecimen collections, and linked health\u2011record data. It was initiated by Dr. Walter Willett and colleagues at Harvard T.H. Chan School of Public Health (principal investigator) with NIH funding \u30101\u2020L1-L4\u3011. The primary purpose is to investigate how diet, oral\u2011contraceptive use, hormonal factors, lifestyle, and environmental exposures influence the long\u2011term risk of chronic diseases (cancer, cardiovascular disease, diabetes, osteoporosis, neurodegeneration) and healthy aging among women \u30101\u2020L5-L7\u3011. Researchers use the dataset to test etiologic hypotheses, develop risk\u2011prediction models, and explore gene\u2011environment interactions; it also underpins the Growing Up Today Study (GUTS), a second\u2011generation cohort that links offspring data to maternal exposures \u30101\u2020L9-L12\u3011. Key features that distinguish NHS II include: * Large, well\u2011characterized female nursing cohort with >85 % follow\u2011up response rates every two years. * Extensive longitudinal data on diet, medication (especially oral contraceptives), reproductive history, physical activity, psychosocial factors, and biologic specimens (blood, urine). * Integration with national health registries and the ability to conduct inter\u2011generational analyses through GUTS. These attributes make NHS II one of the world\u2019s richest resources for epidemiologic research on women\u2019s health and chronic\u2011disease prevention.",
+  "aliases": [
+    "Nurses' Health Study Ii",
+    "NHS II",
+    "Nurses Health Study II"
+  ],
+  "organizations": [
+    "Harvard T.H. Chan School of Public Health",
+    "NIH",
+    "National Institutes of Health"
+  ],
+  "access_type": "Restricted",
+  "data_url": null,
+  "schema_url": null,
+  "documentation_url": null,
+  "official_name": "Nurses' Health Study II",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

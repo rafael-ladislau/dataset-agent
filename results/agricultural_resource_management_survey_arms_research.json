@@ -1,0 +1,27 @@
+{
+  "dataset_name": "Agricultural Resource Management Survey (ARMS)",
+  "home_url": null,
+  "description": "The Agricultural Resource Management Survey (ARMS) is a dataset created by the U.S. Department of Agriculture (USDA), jointly administered by the Economic Research Service (ERS) and the National Agricultural Statistics Service (NASS). It serves as the primary source of information on farm production practices, resource use, financial conditions, and the economic well-being of U.S. farm households. The dataset collects detailed, farm-level data through annual surveys, covering topics such as crop production, input costs, income, and sustainability practices. Its purpose is to inform USDA, Congress, and industry stakeholders about agricultural trends, enabling evidence-based policy and program decisions. For example, ARMS data supports evaluations of farm subsidies, environmental programs, and market dynamics. Key features include its comprehensive scope, combining financial and operational metrics, and its representative sampling of U.S. farms and ranches. Unique aspects include the use of advanced statistical methods like the delete-a-group jackknife for variance estimation and the availability of data via an API and bulk files for researchers. ARMS is also critical for developing models like unit process data for crop production, enhancing agricultural research and sustainability studies. (Word count: 198)",
+  "aliases": [
+    "Arms",
+    "Agricultural Resource Management Survey (arms)"
+  ],
+  "organizations": [
+    "ERS",
+    "Economic Research Service",
+    "NAL",
+    "NASS",
+    "National Agricultural Library",
+    "National Agricultural Statistics Service",
+    "RDG",
+    "Research Data Gov",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "United States Department of Agriculture"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.ers.usda.gov/developer/data-apis/arms-data-api",
+  "schema_url": "https://www.ers.usda.gov/data-products/agricultural-resource-management-survey-arms/#data-dictionary",
+  "documentation_url": "https://www.ers.usda.gov/data-products/agricultural-resource-management-survey-arms/",
+  "_metadata": {}
+}

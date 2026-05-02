@@ -1,0 +1,29 @@
+{
+  "dataset_name": "Survey of State Government Research and Development",
+  "home_url": null,
+  "description": "The Survey of State Government Research and Development (SGRD) is a collaborative effort between the U.S. Census Bureau and the National Center for Science and Engineering Statistics (NCSES) at the National Science Foundation (NSF). This dataset compiles comprehensive statistics on research and development (R&D) activities performed or funded by state governments across all 50 U.S. states, the District of Columbia, and Puerto Rico. It captures details such as R&D expenditures, funding sources, performers (e.g., state agencies, universities), and fields of study. The survey\u2019s primary purpose is to measure state-level contributions to scientific and technological advancement, enabling uniform comparisons of R&D investments. It supports policymakers, researchers, and stakeholders in analyzing regional innovation trends, allocating resources, and informing national R&D policy. Key features include standardized definitions aligned with federal R&D reporting frameworks, ensuring data consistency, and its role in aggregating national R&D totals by combining state and federal data. Unique aspects include mandatory reporting under OMB approval (OMB 0607-0933) and detailed breakdowns of expenditures by funding source (state vs. federal) and performance type. The dataset is publicly accessible via the Census Bureau and NSF, with historical data tracing back to the 1970s, making it a critical tool for longitudinal analysis of state R&D trends.",
+  "aliases": [
+    "Sgrd",
+    "Omb 0607-0933",
+    "Survey of State R&d",
+    "Federal-state R&d Survey",
+    "State Government R&d Survey",
+    "Census Bureau Survey of State Government R&d",
+    "Survey of State Government Research and Development"
+  ],
+  "organizations": [
+    "Census Bureau",
+    "NCSES",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Science Foundation",
+    "OMB",
+    "Office of Management and Budget",
+    "U.S. Census Bureau"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.census.gov/programs-surveys/sgrd/data.html",
+  "schema_url": "https://www.census.gov/programs-surveys/sgrd/data.html",
+  "documentation_url": "https://ncsesdata.nsf.gov/sgrd/2018/sgrd18-tech-notes.pdf",
+  "_metadata": {}
+}

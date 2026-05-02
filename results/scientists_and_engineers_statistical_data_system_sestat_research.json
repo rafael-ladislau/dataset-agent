@@ -1,0 +1,18 @@
+{
+  "dataset_name": "Scientists and Engineers Statistical Data System (SESTAT)",
+  "home_url": null,
+  "description": "The Scientists and Engineers Statistical Data System (SESTAT) is a longitudinal dataset created by the National Center for Science and Engineering Statistics (NCSES) within the U.S. National Science Foundation (NSF). Established in 1993, it integrates data from three biennial surveys: the National Survey of College Graduates (NSCG), the Survey of Doctorate Recipients (SDR), and the discontinued National Survey of Recent College Graduates (NSRCG). SESTAT contains detailed demographic, educational, employment, and earnings data on individuals with college degrees in science, engineering, or related fields. Its primary purpose is to provide insights into the education-to-employment pathways of STEM professionals, supporting research on workforce trends, education outcomes, and labor market dynamics. Key features include longitudinal tracking (enabling analysis of career trajectories over time), integration of multiple surveys (enhancing data comprehensiveness), and microdata accessibility for granular analysis. Unique aspects also include its role in informing federal and state policies on STEM education and workforce development, as well as its use by researchers and institutions to study trends in scientific and technical professions. SESTAT\u2019s data spans surveys conducted from 1993 to 2013, offering a historical perspective on STEM workforce evolution.",
+  "aliases": [
+    "Sestat",
+    "Scientists and Engineers Statistical Data System"
+  ],
+  "organizations": [
+    "IPUMS Higher Ed",
+    "Mathematica"
+  ],
+  "access_type": "Open",
+  "data_url": "https://ncses.nsf.gov/data-collections/sestat",
+  "schema_url": "https://ncsesdata.nsf.gov/metadataexplorer/",
+  "documentation_url": "https://www.nsf.gov/ncses/hest/statistical-standard-data-systems/sestat",
+  "_metadata": {}
+}

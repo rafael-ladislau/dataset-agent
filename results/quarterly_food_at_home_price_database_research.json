@@ -1,0 +1,26 @@
+{
+  "dataset_name": "quarterly food at home price database",
+  "home_url": null,
+  "description": "The Quarterly Food-at-Home Price Database (QFAHPD), created by the U.S. Department of Agriculture\u2019s Economic Research Service (ERS), provides quarterly retail price data for 52\u201354 food groups (e.g., fruits, vegetables, meats) across U.S. metropolitan and rural areas. It was designed to support research on how economic factors influence food consumption, diet quality, and health outcomes. The dataset draws from retail scanner data, including both packaged (UPC-coded) and bulk (random-weight) food purchases, ensuring comprehensive price tracking. Initially covering 1999\u20132010, the QFAHPD was later superseded by the Food-at-Home Monthly Area Prices (F-MAP) in 2024, which expanded to monthly updates, 90 food groups, and 15 geographic areas. Key features of the original QFAHPD include its granular classification of foods (aligned with ERS Food Purchase Groups) and methodological transparency, detailed in ERS reports. Its unique value lies in enabling longitudinal analysis of price trends and regional disparities, critical for policy and public health studies. Though archived, historical QFAHPD data remain accessible for research, with F-MAP offering updated, extended coverage. Word count: 150",
+  "aliases": [
+    "Qfahpd",
+    "Quarterly Food At Home Price Database",
+    "Ers Quarterly Food-at-home Price Database",
+    "Usda Quarterly Food-at-home Price Database",
+    "Usda Nal Quarterly Food-at-home Price Database",
+    "Quarterly Food-at-home Price Database, Usda Ers",
+    "Economic Research Service Quarterly Food-at-home Price Database"
+  ],
+  "organizations": [
+    "ERS",
+    "Economic Research Service",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "United States Department of Agriculture"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.ers.usda.gov/data-products/quarterly-food-at-home-price-database/",
+  "schema_url": "https://ers.usda.gov/data-products/quarterly-food-at-home-price-database/#data-dictionary",
+  "documentation_url": "https://www.ers.usda.gov/data-products/quarterly-food-at-home-price-database/",
+  "_metadata": {}
+}

@@ -1,0 +1,22 @@
+{
+  "dataset_name": "Norwegian Prescription Database",
+  "home_url": null,
+  "description": "Norwegian Prescription Database (NorPD) The Norwegian Prescription Database is a nationwide register that records every prescription drug dispensed by community pharmacies in Norway \u2014 including prescriptions for individuals, institutions (hospitals, nursing homes) and even veterinary use \u2014 from 1 January 2004 onward\u30103\u2020L1-L5\u3011\u30104\u2020L1-L4\u3011. It captures the patient\u2019s unique identifier, age, sex, geographic region, dispensing date, drug name, ATC code, strength, quantity and prescriber information. The database was established and is maintained by the Norwegian Institute of Public Health (Folkehelseinstituttet, FHI), which operates it under national health\u2011register legislation\u30102\u2020L1-L4\u3011. Purpose & typical use cases NorPD was created to monitor national drug utilisation, support pharmaco\u2011epidemiological research, evaluate prescribing quality and safety, and inform public\u2011health policy. Researchers have used it to study drug adherence, opioid misuse, disease risk (e.g., Parkinson\u2019s disease), and the impact of policy changes on medication use. Key features / unique aspects - Near\u2011complete coverage: ~5.8 million individuals (\u2248 99 % of the population) and >620 million dispensed medication records have been captured to date\u30102\u2020L1-L3\u3011. - Individual\u2011level linkage: each record can be stratified by sex, age, and geography, enabling fine\u2011grained analyses. - Inclusion of institutional dispensing (hospitals, nursing homes) and veterinary prescriptions, which many other national drug registers lack. - Open\u2011access statistical extracts are available through the Norwegian data portal, while detailed individual\u2011level data require approved research applications. Overall, NorPD is a unique, high\u2011resolution resource for drug\u2011utilisation surveillance and health\u2011services research in Norway.",
+  "aliases": [
+    "Norwegian Prescription Database",
+    "NorPD"
+  ],
+  "organizations": [
+    "FHI",
+    "Norwegian Institute of Public Health",
+    "Folkehelseinstituttet"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://data.norge.no/en/datasets/88ab846a-d994-3a87-ad22-8d24f127dcc5/norwegian-prescription-database-norpd",
+  "schema_url": null,
+  "documentation_url": "https://www.norpd.no/",
+  "official_name": "Norwegian Prescription Database",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

@@ -1,0 +1,26 @@
+{
+  "dataset_name": "Business R&D and Innovation Survey",
+  "home_url": null,
+  "description": "The Business R&D and Innovation Survey (BRDIS) is a dataset created by the U.S. Census Bureau to provide detailed statistics on research and development (R&D) activities of U.S.-based companies. It tracks global and domestic R&D expenditures, the R&D workforce, intellectual property (IP) generation, technology transfer activities, and innovation trends. The survey serves as a critical resource for policymakers, researchers, and businesses to analyze investment in innovation, inform economic policies, and benchmark industry practices. Key features include granular data on R&D spending by industry, company size, and geographic location, as well as insights into collaboration between firms and academic institutions. The dataset replaced the older Survey of Industrial Research and Development (SIRD) in 2008, offering expanded scope and improved methodology. It is mandated under Title 13 of the U.S. Code, ensuring legal authority for data collection. Unique aspects of BRDIS include its focus on both manufacturing and nonmanufacturing sectors, detailed workforce metrics (e.g., R&D employee counts), and coverage of IP outputs like patents. Its predecessors, such as the Business Research and Development Survey (BRDS), were merged into the BERD framework, making it the primary source for understanding R&D dynamics in U.S. nonfarm businesses. The dataset supports academic research, industry strategy, and federal initiatives aimed at fostering innovation-driven economic growth.",
+  "aliases": [
+    "Brdis",
+    "Nsf 18-313",
+    "Business R&d and Innovation Survey",
+    "Business Research and Development and Innovation Survey"
+  ],
+  "organizations": [
+    "Census Bureau",
+    "NCSSES",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Science Foundation",
+    "U.S. Census Bureau",
+    "USDOC",
+    "United States Department of Commerce"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.census.gov/programs-surveys/brds.html",
+  "schema_url": "https://catalog.data.gov/dataset/nsf-business-research-and-development-and-innovation-survey",
+  "documentation_url": "https://www2.census.gov/programs-surveys/brdis/technical-documentation/questionnaires/brdis_m_16.pdf",
+  "_metadata": {}
+}

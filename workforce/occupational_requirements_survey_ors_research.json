@@ -1,0 +1,30 @@
+{
+  "dataset_name": "Occupational Requirements Survey - ORS",
+  "home_url": null,
+  "description": "The Occupational Requirements Survey (ORS) is a dataset created by the U.S. Bureau of Labor Statistics (BLS) under a funding agreement with the Social Security Administration (SSA). Its primary purpose is to collect detailed information on occupational requirements to support SSA\u2019s disability insurance programs (SSDI and SSI), replacing older Dictionary of Occupational Titles (DOT) classifications. The dataset provides insights into physical demands, environmental conditions, education/training, cognitive requirements, licenses/certifications, and job hazards for occupations classified under the Standard Occupational Classification (SOC) system. Key features include: - Coverage: Private sector, state/local government jobs, and selected public sector roles (excluding federal agencies, military, agriculture workers, and self-employed individuals). - Data Scope: Aggregated at the occupational level (not individual worker level), with annual updates and reference years spanning multi-year periods (e.g., 2018, 2023). - Unique Aspects: Focuses on \"critical job functions\" as typically performed without accommodations, emphasizing objective job requirements over worker characteristics. The ORS serves diverse users, including policymakers, employers, and jobseekers, by offering a standardized framework to assess occupational demands. Its data informs disability determinations, workforce training, and occupational analysis, making it a vital resource for understanding labor market needs.",
+  "aliases": [
+    "Ors",
+    "Bls/ncs/ors",
+    "Omb 1220-0189",
+    "Www.bls.gov/ors",
+    "Occupational Requirements Survey"
+  ],
+  "organizations": [
+    "BLS",
+    "Bureau of Labor Statistics",
+    "DOC",
+    "Department of Commerce",
+    "ICPSR",
+    "Inter-university Consortium for Political and Social Research",
+    "NCS",
+    "National Compensation Survey",
+    "SSA",
+    "Social Security Administration",
+    "United States Department of Commerce"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.bls.gov/ors/data.htm",
+  "schema_url": "https://www.bls.gov/ors/",
+  "documentation_url": "https://www.bls.gov/ors/",
+  "_metadata": {}
+}

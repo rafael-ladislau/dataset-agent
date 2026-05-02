@@ -1,0 +1,22 @@
+{
+  "dataset_name": "Project Viva",
+  "home_url": null,
+  "description": "Project Viva Cohort \u2013 Overview (\u2248170 words) The Project Viva cohort is a prospective, pre\u2011birth longitudinal study that enrolled 2,128 pregnant women (and their offspring) at routine prenatal visits in eastern Massachusetts between 1999 and 2002. Initiated by Dr. Matthew W. Gillman and colleagues at Harvard T.H. Chan School of Public Health (with NIH funding), the cohort was designed to investigate how maternal diet, environmental exposures (e.g., air pollution, chemicals), and psychosocial factors influence health trajectories from gestation through adulthood. Participants underwent in\u2011person examinations during early and late pregnancy, at delivery, and repeatedly throughout childhood (infancy, early\u2011childhood, mid\u2011childhood, adolescence) and now into young adulthood. The dataset includes detailed questionnaires, dietary recalls, medical\u2011record abstraction, anthropometry, neurodevelopmental testing, and a rich biorepository (maternal/infant blood, urine, placenta, nasal epithelium). Project Viva serves as a platform for studying developmental origins of obesity, cardiometabolic disease, asthma/atopy, neurocognitive outcomes, and intergenerational health. Its strengths lie in the pre\u2011birth enrollment, comprehensive exposure assessment, multi\u2011time\u2011point phenotyping, and integration with the larger NIH ECHO network, making it a valuable resource for epidemiologists, clinicians, and policy\u2011makers exploring early\u2011life determinants of health.",
+  "aliases": [
+    "Project Viva"
+  ],
+  "organizations": [
+    "Harvard Pilgrim Health Care Institute",
+    "Harvard T.H. Chan School of Public Health",
+    "NIH",
+    "National Institutes of Health"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://www.projectviva.org/for-investigators",
+  "schema_url": "https://www.projectviva.org/for-investigators",
+  "documentation_url": "https://www.projectviva.org/",
+  "official_name": "Project Viva",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "The primary publications and the cohort\u2019s own website consistently refer to the dataset as \u201cProject Viva\u201d (e.g., the cohort\u2011profile paper is titled *Cohort Profile: Project\u202fViva*). In the Environmental Influences on Child Health Outcomes (ECHO) program, the cohort is listed under the name \u201cProject Viva\u201d. No alternative parent dataset or broader collection is identified; the term \u201cProject Viva cohort\u201d simply describes the same study. Therefore, the provided name refers directly to the official catalog name of the dataset.",
+  "_metadata": {}
+}

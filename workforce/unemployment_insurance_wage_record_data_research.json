@@ -1,0 +1,36 @@
+{
+  "dataset_name": "Unemployment Insurance wage record data",
+  "home_url": null,
+  "description": "The Unemployment Insurance (UI) wage record data is a federal-state administrative dataset compiled primarily by the U.S. Bureau of Labor Statistics (BLS) in collaboration with state unemployment insurance programs. It contains detailed records of wages, employment durations, and employer information for workers covered under state and federal UI laws. Key features include longitudinal tracking of individual earnings, employer liability assessments for unemployment taxes, and, in some states, enhanced data like job titles, hours worked, and workplace locations. The dataset\u2019s primary purpose is to administer UI programs, ensuring accurate tax revenue collection and benefit distribution. Beyond this core function, it serves as a critical resource for labor market analysis, enabling studies on employment trends, wage growth, job quality, and the economic impact of workforce programs. For example, it has been used to evaluate outcomes for participants in job training initiatives. Unique aspects include its near-universal coverage (capturing ~96% of civilian wage and salary data) and its dual role as both an operational tool and a statistical resource. The BLS\u2019s Wage Records Program standardizes and aggregates these records, while states may add supplementary fields. This dataset underpins reports like the Quarterly Census of Employment and Wages (QCEW) and supports policy decisions by providing granular insights into labor market dynamics.",
+  "aliases": [
+    "Ui Wage Records",
+    "Unemployment Insurance Wage Data",
+    "Bls Wage Records Data Application",
+    "Multi-state Longitudinal Database",
+    "Bls Wage Records Data Sharing Program",
+    "Bls Longitudinal Wage Records Database",
+    "Unemployment Insurance Wage Record Data",
+    "Bls Unemployment Insurance Wage Records",
+    "Bureau of Labor Statistics Wage Records Program Dataset"
+  ],
+  "organizations": [
+    "BLS",
+    "CEBP",
+    "Commission on Enhancing the Use of Administrative Data for Evidence Building",
+    "DOL",
+    "Department of Labor",
+    "SSA",
+    "Social Security Administration",
+    "State Unemployment Insurance Programs",
+    "State Workforce Agencies",
+    "U.S. Bureau of Labor Statistics",
+    "U.S. Department of Labor",
+    "Urban Institute",
+    "WorkforceGPS"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.bls.gov/cew/download_data.htm",
+  "schema_url": null,
+  "documentation_url": "https://oui.doleta.gov/unemploy/DataDownloads.asp",
+  "_metadata": {}
+}

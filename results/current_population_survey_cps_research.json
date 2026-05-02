@@ -1,0 +1,36 @@
+{
+  "dataset_name": "Current Population Survey (CPS)",
+  "home_url": "https://www.census.gov/programs-surveys/cps.html",
+  "description": "The Current Population Survey (CPS) is a monthly household survey that gathers detailed information on the labor market and demographic characteristics of the U.S. civilian non\u2011institutional population. Each month the survey interviews about 60,000 households (\u2248 115,000 individuals), producing cross\u2011sectional estimates of employment status, hours worked, earnings, occupation, industry, school enrollment, and a wide range of demographic variables (age, sex, race/ethnicity, marital status, nativity, etc.). In addition to the core labor\u2011force module, several quarterly supplements capture data on poverty status, health insurance coverage, disability, and family composition. The CPS is a joint effort of the U.S. Census Bureau (which designs and conducts the survey) and the Bureau of Labor Statistics, which processes the data for official labor\u2011market statistics. Its primary purpose is to provide the nation\u2019s benchmark measures of employment, unemployment, labor\u2011force participation, and related characteristics; these figures are the basis for the monthly U.S. unemployment rate released by the BLS. Researchers, policymakers, and businesses use CPS data for economic forecasting, program evaluation, poverty\u2011and\u2011welfare research, demographic analysis, and educational\u2011outcome studies. Unique features include its large, nationally representative sample, a rotating panel design that allows short\u2011term longitudinal analysis, and quarterly supplements (e.g., the ASEC supplement) that furnish detailed income\u2011and\u2011poverty information unavailable in many other surveys.",
+  "aliases": [
+    "Cps",
+    "Cps-asec",
+    "Current Pop. Survey",
+    "Current Population Survey",
+    "https://www.census.gov/programs-surveys/cps.html"
+  ],
+  "organizations": [
+    "BLS",
+    "Bureau of Labor Statistics",
+    "DOC",
+    "DOL",
+    "Department of Commerce",
+    "Department of Labor",
+    "IPUMS",
+    "Integrated Public Use Microdata Series",
+    "Minnesota Population Center",
+    "NCHS",
+    "National Center for Health Statistics",
+    "Census Bureau",
+    "University of Minnesota Institute for Social Research",
+    "https://www.census.gov/programs-surveys/cps.html"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.census.gov/programs-surveys/cps/data.html",
+  "schema_url": "https://www.census.gov/programs-surveys/cps/technical-documentation.html",
+  "documentation_url": "https://www.census.gov/programs-surveys/cps/technical-documentation.html",
+  "official_name": "Current Population Survey (CPS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "The Census Bureau\u2019s program page (https://www.census.gov/programs-surveys/cps.html) identifies the dataset with the exact title \u201cCurrent Population Survey (CPS).\u201d Both the U.S. Census Bureau and the BLS consistently refer to the dataset in publications, metadata catalogs, and API documentation using this name. No evidence was found that \u201cCurrent Population Survey (CPS)\u201d is a subset, table, or component of a larger dataset; rather it is the primary name under which all CPS files, supplements (e.g., ASEC), and annual releases are published. Therefore the provided name is the official catalog name of the dataset.",
+  "_metadata": {}
+}

@@ -1,0 +1,22 @@
+{
+  "dataset_name": "Pregnancy Risk Assessment Monitoring System (PRAMS)",
+  "home_url": "https://www.cdc.gov/prams/index.html",
+  "description": "Agent stopped due to max iterations.",
+  "aliases": [
+    "Pregnancy Risk Assessment Monitoring System",
+    "PRAMS",
+    "https://www.cdc.gov/prams"
+  ],
+  "organizations": [
+    "Centers for Disease Control and Prevention",
+    "CDC"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://www.cdc.gov/prams/php/data-research/index.html",
+  "schema_url": "https://www.cdc.gov/prams/php/data-research/index.html",
+  "documentation_url": "https://www.cdc.gov/prams/index.html",
+  "official_name": "Pregnancy Risk Assessment Monitoring System (PRAMS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

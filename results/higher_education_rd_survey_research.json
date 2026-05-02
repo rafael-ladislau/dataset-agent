@@ -1,0 +1,16 @@
+{
+  "dataset_name": "Higher Education R&D Survey",
+  "home_url": null,
+  "description": "The Higher Education Research and Development (HERD) Survey is a dataset created by the U.S. National Center for Science and Engineering Statistics (NCSES), part of the National Science Foundation (NSF). It serves as the primary source for tracking research and development (R&D) expenditures at U.S. colleges and universities. The dataset collects detailed information on R&D spending by field of research, funding sources (e.g., federal, state, industry), types of research (basic, applied), and R&D personnel. Its purpose is to provide insights into academic R&D trends, supporting policy-making and resource allocation decisions. Key use cases include analyzing federal funding impacts, institutional research capacity, and workforce development in science and engineering. The survey covers institutions expending at least $150,000 in separately accounted R&D annually, ensuring comprehensive coverage of major research institutions. Unique aspects include its annual census design, granular breakdowns by discipline (e.g., computer sciences, biology), and historical tracking of long-term trends, such as the 11.2% increase in total higher education R&D expenditures reported for FY 2023 ($108 billion). Data are widely used for strategic planning in academia, government, and industry.",
+  "aliases": [
+    "Herd Survey",
+    "Higher Education R&d Survey",
+    "Higher Education Research and Development Survey"
+  ],
+  "organizations": [],
+  "access_type": "Open",
+  "data_url": "https://ncsesdata.nsf.gov/HERD/",
+  "schema_url": "https://ncsesdata.nsf.gov/HERD/Documentation.aspx",
+  "documentation_url": "https://www.nsf.gov/statistics/herd/documentation",
+  "_metadata": {}
+}

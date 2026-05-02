@@ -1,0 +1,24 @@
+{
+  "dataset_name": "Early Career Doctorates Survey",
+  "home_url": null,
+  "description": "The Early Career Doctorates Survey (ECDS) is a dataset created by the National Center for Science and Engineering Statistics (NCSES) under the U.S. National Science Foundation (NSF). It tracks individuals who earned their first doctoral degree (PhD, MD, EdD, or equivalent) within the past 10 years and are employed in U.S. academic institutions or federally funded research and development centers (FFRDCs). The survey captures detailed information on demographics, career trajectories, labor market experiences, job roles (e.g., postdocs, faculty, staff), and the importance of postdoctoral training in career development. Its primary purpose is to provide insights into the evolving careers of early-stage doctorates, supporting policy decisions, academic planning, and workforce analysis. Unique aspects include its focus on all doctoral fields\u2014regardless of degree origin\u2014and its inclusion of both research and professional doctorates. The dataset highlights trends such as the prevalence of postdoctoral positions (44% of respondents have held at least one) and their perceived value in career advancement. Key use cases involve analyzing labor market dynamics, assessing the impact of postdocs on career progression, and informing strategies to support early-career researchers. The ECDS is conducted periodically, with notable iterations like the 2017 survey, and operates under federal guidelines (OMB control number 3145-0235). Its comprehensive scope and focus on recent graduates make it a critical resource for understanding the academic and research workforce landscape. (Source: NSF, RTI International, and NCSES survey documentation)",
+  "aliases": [
+    "Ecds",
+    "Nsf21323",
+    "Nsf942688",
+    "Omb 3145-0235",
+    "Early Career Doctorates Survey"
+  ],
+  "organizations": [
+    "NCSES",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Science Foundation",
+    "RTI International"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://ncses.nsf.gov/surveys/early-career-doctorates/2017",
+  "schema_url": "https://ncses.nsf.gov/pubs/nsf21323/surveypage/table/3839",
+  "documentation_url": "https://ncses.nsf.gov/surveys/ecds",
+  "_metadata": {}
+}

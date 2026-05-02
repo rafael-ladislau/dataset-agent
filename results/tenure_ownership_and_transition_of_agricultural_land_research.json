@@ -1,0 +1,25 @@
+{
+  "dataset_name": "Tenure, ownership, and transition of agricultural land",
+  "home_url": null,
+  "description": "The Tenure, Ownership, and Transition of Agricultural Land (TOTAL) Survey is a comprehensive dataset created by the U.S. Department of Agriculture\u2019s National Agricultural Statistics Service (NASS) and Economic Research Service (ERS). It focuses on agricultural land rental dynamics, capturing data on land owned and operated by farmers, as well as land rented from non-operator landlords. The dataset includes detailed information on landlord and tenant characteristics, rental agreements, land values, income, expenses, debt, assets, and plans for land transition or inheritance. The primary purpose of the TOTAL Survey is to analyze trends in farmland ownership, rental markets, and intergenerational land transfers, supporting policymakers, researchers, and stakeholders in addressing challenges like land access, sustainability, and rural economic development. Key features include its granular breakdown of operator vs. non-operator landlordships, insights into tenant-landlord relationships, and longitudinal data for tracking changes over time. The 2014 survey remains a foundational resource, with updates like the 2024 iteration expanding coverage. Its unique focus on non-operator landlords\u2014a group often overlooked in agricultural surveys\u2014sets it apart as a critical tool for understanding the evolving U.S. agricultural landscape.",
+  "aliases": [
+    "Total",
+    "Tenure, Ownership, and Transition of Agricultural Land",
+    "Tenure Ownership and Transition of Agricultural Land Survey"
+  ],
+  "organizations": [
+    "Census of Agriculture",
+    "ERS",
+    "Economic Research Service",
+    "NASS",
+    "National Agricultural Statistics Service",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "United States Department of Agriculture"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.nass.usda.gov/Surveys/Guide_to_NASS_Surveys/TOTAL/",
+  "schema_url": "https://www.ers.usda.gov/data-products/tenure-ownership-and-transition-of-agricultural-land-survey-total-survey/",
+  "documentation_url": "https://www.ers.usda.gov/data-products/tenure-ownership-and-transition-of-agricultural-land-total-survey/",
+  "_metadata": {}
+}

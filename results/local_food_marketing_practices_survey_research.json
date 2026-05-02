@@ -1,0 +1,30 @@
+{
+  "dataset_name": "local food marketing practices survey",
+  "home_url": null,
+  "description": "The Local Food Marketing Practices Survey (LFMPS) is a dataset created by the U.S. Department of Agriculture's National Agricultural Statistics Service (NASS) to track marketing practices of farms selling locally or regionally produced agricultural food products. First conducted in 2015 and updated in 2020 as part of the Census of Agriculture, it provides benchmark data on direct-to-consumer and direct-to-intermediate-market sales, including revenue, channels (e.g., farmers' markets, CSAs, on-farm sales), and operational characteristics. Key features include exclusion of farms not engaged in local sales, detailed breakdowns of sales by state (e.g., California accounted for the largest share of direct sales in 2020), and insights into trends like the dominance of direct-to-consumer marketing (77% of operations in 2020). The dataset supports policy development, academic research, and industry analysis by quantifying the economic impact of local food systems. For example, in 2020, 147,307 operations generated $9.0 billion through direct marketing. Unique aspects include its focus on branded regional products and granular data on sales distribution (e.g., direct-to-consumer sales constituted 33% of total direct sales despite being the most common channel). Data is accessible via the NASS Quick Stats database.",
+  "aliases": [
+    "Lfmps",
+    "Local Food Marketing Practices Survey",
+    "Local Food Marketing Practices Survey,",
+    "Local Foods Marketing Practices Survey",
+    "Census of Agriculture Local Foods Survey",
+    "Nass Quick Stats Local Food Marketing Practices Dataset"
+  ],
+  "organizations": [
+    "AMS",
+    "Census of Agriculture",
+    "Cornell University",
+    "Farmers Market Coalition",
+    "NASS",
+    "National Agricultural Statistics Service",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "USDA Agricultural Marketing Service",
+    "United States Department of Agriculture"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.nass.usda.gov/Publications/AgCensus/2017/Online_Resources/Local_Food/index.php",
+  "schema_url": "https://quickstats.nass.usda.gov/",
+  "documentation_url": "https://quickstats.nass.usda.gov/",
+  "_metadata": {}
+}

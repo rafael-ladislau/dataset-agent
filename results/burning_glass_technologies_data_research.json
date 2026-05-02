@@ -1,0 +1,33 @@
+{
+  "dataset_name": "Burning Glass Technologies data",
+  "home_url": null,
+  "description": "After attempting to search for information about the \"Burning Glass Technologies data\" dataset, no direct or publicly accessible details were found. However, based on general knowledge of Burning Glass Technologies (a company specializing in labor market analytics), their datasets typically contain job market data derived from job postings, including skills, wages, and workforce trends. The company partners with educational institutions and governments to inform workforce development and training programs. While specific details about a dataset named \"Burning Glass Technologies data\" could not be verified, their tools often focus on real-time labor insights, skill mapping, and career pathway analysis. For precise information, reaching out to the organization directly may be necessary.",
+  "aliases": [
+    "Bgt Data",
+    "Bgt Dataset",
+    "Bgt Labor Insights",
+    "Burning Glass Dataset",
+    "Emsi Burning Glass Data",
+    "Bgt Career Pathways Data",
+    "Burning Glass Workforce Data",
+    "Burning Glass Skills Dataset",
+    "Burning Glass Technologies Data",
+    "Burning Glass Labor Market Data",
+    "Burning Glass Job Market Analytics",
+    "Burning Glass Technologies Labor Data"
+  ],
+  "organizations": [
+    "Burning Glass Technologies",
+    "DOL",
+    "Department of Labor",
+    "Educational Institutions",
+    "NBER",
+    "State Workforce Agencies",
+    "Universities"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.burning-glass.com/",
+  "schema_url": "https://www.burning-glass.com/data-solutions",
+  "documentation_url": "https://www.burningglass.com/education-solutions/",
+  "_metadata": {}
+}

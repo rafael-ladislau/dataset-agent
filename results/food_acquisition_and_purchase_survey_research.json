@@ -1,0 +1,25 @@
+{
+  "dataset_name": "food acquisition and purchase survey",
+  "home_url": null,
+  "description": "The FoodAPS National Household Food Acquisition and Purchase Survey is a comprehensive dataset created by the U.S. Department of Agriculture (USDA), specifically through its Economic Research Service (ERS) and Food and Nutrition Service (FNS). It is the first nationally representative survey of U.S. households to capture detailed data on food purchases and acquisitions, including both at-home and away-from-home consumption. The dataset includes information on food sources (e.g., stores, restaurants, food assistance programs), quantities, expenditures, eating occasions, and household characteristics (income, program participation, health status). Its primary purpose is to address critical gaps in food consumption data, supporting research on health, obesity, nutrition assistance policies, and food insecurity. Unique features include seven-day recall of food acquisitions, integration of nutritional data, and linkage to geographic and socioeconomic factors. The dataset is used by researchers to analyze dietary patterns, evaluate food assistance programs, and inform public health policies. Access is available through the USDA ERS, with privacy protections for respondents. For more details, visit the USDA ERS FoodAPS page.",
+  "aliases": [
+    "Foodaps",
+    "Usda-ers-00050",
+    "Food Acquisition and Purchase Survey"
+  ],
+  "organizations": [
+    "ERS",
+    "Economic Research Service",
+    "FNS",
+    "Food and Nutrition Service",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "United States Department of Agriculture",
+    "University of Kentucky Center for Poverty Research"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.ers.usda.gov/data-products/food-acquisition-and-purchase-survey-foodaps/",
+  "schema_url": "https://www.ers.usda.gov/data-products/food-acquisition-and-purchase-survey-foodaps/",
+  "documentation_url": "https://www.ers.usda.gov/data-products/food-acquisition-and-purchase-survey-foodaps/",
+  "_metadata": {}
+}

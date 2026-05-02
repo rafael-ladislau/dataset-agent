@@ -1,0 +1,23 @@
+{
+  "dataset_name": "FFRDC Research and Development Survey",
+  "home_url": null,
+  "description": "The FFRDC Research and Development Survey is a dataset tracking R&D expenditures at U.S. Federally Funded Research and Development Centers (FFRDCs). Created by the National Science Foundation\u2019s National Center for Science and Engineering Statistics (NCSES), it serves as the primary source for understanding funding and research trends at these specialized institutions. The dataset includes annual reports on R&D activities, broken down by funding sources (e.g., federal agencies, non-federal entities), research types (basic, applied, developmental), and institutional expenses. Surveys have been conducted since 1953 for university-administered FFRDCs and all FFRDCs since 2001, with data available from FY 1979 to FY 2023. Key features include granular microdata on expenditures, historical continuity, and public accessibility via platforms like the NSF and data.gov. It supports policy analysis, funding allocation decisions, and academic research on federal R&D investment patterns. Its unique value lies in its comprehensive, long-term tracking of R&D activities specific to FFRDCs, which are critical to national science and technology initiatives.",
+  "aliases": [
+    "Ffrdc R&d Survey",
+    "Ffrdc Expenditure Survey",
+    "Ffrdc Research and Development Survey"
+  ],
+  "organizations": [
+    "NCSES",
+    "NSF",
+    "National Center for Science and Engineering Statistics",
+    "National Science Foundation",
+    "U.S. Government",
+    "data.gov"
+  ],
+  "access_type": "Open",
+  "data_url": "https://data.gov/dataset/ffrdc-research-and-development-survey",
+  "schema_url": "https://ncses.nsf.gov/explore-data/microdata/ffrdc-research-development",
+  "documentation_url": "https://ncses.nsf.gov/819/assets/0/files/fy-2023-ffrdc-dug.pdf",
+  "_metadata": {}
+}

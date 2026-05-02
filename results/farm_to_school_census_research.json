@@ -1,0 +1,26 @@
+{
+  "dataset_name": "Farm to School Census",
+  "home_url": null,
+  "description": "The Farm to School Census is a dataset created by the USDA Food and Nutrition Service (FNS) to track farm-to-school initiatives nationwide. Launched in 2013 under the Healthy, Hunger-Free Kids Act of 2010, it surveys school food authorities (SFAs)\u2014entities managing school meal programs\u2014to assess their participation in farm-to-school activities. The dataset includes responses from over 11,800 SFAs across all 50 states and U.S. territories, detailing local food purchasing practices, types of activities (e.g., school gardens, farm partnerships, direct purchases), and challenges/opportunities faced. Its primary purpose is to monitor program growth, inform policy, and support efforts to increase local food access in schools. Key features include its comprehensive geographic coverage, quadrennial updates (with datasets available from 2013, 2015, 2019, and 2023), and interactive tools for exploring trends in local food procurement and program participation. Unique aspects include its role as the sole national data source on farm-to-school efforts and the availability of downloadable data for analysis. The census serves researchers, policymakers, and stakeholders aiming to strengthen school food systems and local agriculture economies.",
+  "aliases": [
+    "Farm To School Census"
+  ],
+  "organizations": [
+    "Data.gov",
+    "FNS",
+    "NAL",
+    "NSLP",
+    "National Agricultural Library",
+    "National School Lunch Program",
+    "U.S. Congress",
+    "U.S. Department of Agriculture",
+    "USDA",
+    "USDA Food and Nutrition Service",
+    "United States Department of Agriculture"
+  ],
+  "access_type": "Open",
+  "data_url": "https://catalog.data.gov/dataset/farm-to-school-census-explorer-tool",
+  "schema_url": "https://www.fns.usda.gov/farm-to-school/data",
+  "documentation_url": "https://www.fns.usda.gov/farm-to-school",
+  "_metadata": {}
+}
