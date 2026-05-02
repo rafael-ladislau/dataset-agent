@@ -1,0 +1,27 @@
+{
+  "dataset_name": "HCUP National (Nationwide) Emergency Department Sample (NEDS)",
+  "home_url": null,
+  "description": "The HCUP Nationwide Emergency Department Sample (NEDS) is the largest all payer, hospital based emergency department database in the United States. It contains a stratified 20 % sample of ED visits from roughly 950 hospitals each year about 30 million unweighted records that, when weighted, represent over 130 million national ED encounters. For every visit it captures patient demographics (age, sex, race/ethnicity, insurance), geographic and hospital characteristics, clinical details (up to 100 diagnosis and procedure codes, including ICD-9-CM or ICD-10-CM/PCS), discharge disposition (treat and release, admission, transfer), length of stay, charges, and resource use. The dataset is created and maintained by the Healthcare Cost and Utilization Project (HCUP), a federal-state-industry partnership sponsored by the Agency for Healthcare Research and Quality (AHRQ). Its purpose is to enable researchers, public health officials, health system administrators, policymakers, and clinicians to analyze nationwide ED utilization patterns, assess quality of care, evaluate costs, study rare conditions or procedures, and inform policy decisions. Key features that set NEDS apart include its national coverage across all payer types, the ability to link ED visits with subsequent inpatient admissions (via the State Inpatient Databases), extensive clinical coding, built in sampling weights for producing reliable regional and national estimates, and comprehensive documentation and load programs for SAS, SPSS, Stata, or R.",
+  "aliases": [
+    "Neds",
+    "Hcup-neds",
+    "Hcup Ned Sample",
+    "Hcup National Emergency Department Sample",
+    "Hcup National (nationwide) Emergency Department Sample (neds)"
+  ],
+  "organizations": [
+    "AHRQ",
+    "Agency for Healthcare Research and Quality",
+    "Department of Health and Human Services",
+    "HCUP",
+    "HHS",
+    "Health and Human Services",
+    "Healthcare Cost and Utilization Project",
+    "U.S. Department of Health and Human Services"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://catalog.data.gov/dataset/hcup-nationwide-emergency-department-database-neds",
+  "schema_url": null,
+  "documentation_url": null,
+  "_metadata": {}
+}

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 import uvicorn
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 # Add parent directory to sys.path for running from project root
 if __name__ == "__main__":
@@ -95,12 +95,8 @@ def load_environment() -> Dict[str, Any]:
         Dict[str, Any]: Environment configuration
     """
     # Load .env file
-    env_file = os.environ.get('ENV_FILE', '.env')
-    if os.path.exists(env_file):
-        load_dotenv(env_file)
-        logger = logging.getLogger(__name__)
-        logger.info(f"Loaded environment variables from {env_file}")
-    
+    load_dotenv(find_dotenv())
+
     # Extract configuration from environment variables
     return {
         'host': os.environ.get('API_HOST', '0.0.0.0'),

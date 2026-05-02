@@ -1,0 +1,34 @@
+{
+  "dataset_name": "HCUP National (Nationwide) Inpatient Sample (NIS)",
+  "home_url": null,
+  "description": "The HCUP National (Nationwide) Inpatient Sample (NIS) is a publicly available, all payer database of U.S. hospital inpatient stays. It draws from the State Inpatient Databases (SID) and includes roughly 7 million discharges each year covering about 98 % of the U.S. population and 97 % of community hospital admissions. The dataset contains detailed discharge information such as patient demographics, diagnoses (ICD-9-CM/ICD-10-CM), procedures (ICD-9-PCS/ICD-10-PCS), payer type, length of stay, charges, and hospital characteristics. The NIS is produced by the Healthcare Cost and Utilization Project (HCUP), a program sponsored by the Agency for Healthcare Research and Quality (AHRQ). Its purpose is to enable researchers, policymakers, and health care analysts to generate national and regional estimates of utilization, cost, quality, and outcomes. Because of its large sample size, the NIS supports analyses of rare conditions, uncommon treatments, special populations, and trends over time (data available from 1988 - 2022). Key features include: - All payer coverage (public, private, self pay) without restriction to a single insurer. - Standardized coding across years, with recent additions of Elixhauser comorbidity scores and Clinical Classification Software for ICD-10. - Redesign in 2012 to sample discharges rather than hospitals, improving representativeness. - Rich clinical and resource use variables, making it a cornerstone for health services research, policy evaluation, and cost effectiveness studies.",
+  "aliases": [
+    "Hcup Nis",
+    "Hcup-nis",
+    "Hcup National Inpatient Sample",
+    "National Inpatient Sample",
+    "Hcup Nationwide Inpatient Sample",
+    "Nationwide Inpatient Sample",
+    "Hcup National (nationwide) Inpatient Sample (nis)"
+  ],
+  "organizations": [
+    "AHRQ",
+    "Agency for Healthcare Research and Quality",
+    "Department of Health and Human Services",
+    "Federal-State-Industry Partnership",
+    "HCUP",
+    "HCUP Central Distributor",
+    "HCUP Technical Support",
+    "HHS",
+    "Health and Human Services",
+    "Healthcare Cost and Utilization Project",
+    "National Center for Health Statistics",
+    "State Health Departments",
+    "United States Government"
+  ],
+  "access_type": "Restricted",
+  "data_url": null,
+  "schema_url": null,
+  "documentation_url": null,
+  "_metadata": {}
+}

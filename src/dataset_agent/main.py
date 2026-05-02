@@ -33,7 +33,7 @@ def parse_arguments() -> argparse.Namespace:
                         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
     parser.add_argument("--log-file", help="Path to log file", default="dataset_agent.log")
     parser.add_argument("--llm-provider", help="LLM provider to use", default="ollama",
-                        choices=["ollama", "openrouter"])
+                        choices=["ollama", "openrouter", "lmstudio"])
     parser.add_argument("--llm-model", help="LLM model to use", default="llama3")
     parser.add_argument("--web-search-provider", help="Web search provider to use", default="duckduckgo",
                         choices=["duckduckgo", "tavily"])

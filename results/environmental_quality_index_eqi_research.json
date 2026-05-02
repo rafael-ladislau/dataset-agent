@@ -1,0 +1,31 @@
+{
+  "dataset_name": "Environmental Quality Index (EQI)",
+  "home_url": "https://catalog.data.gov/dataset/environmental-quality-index",
+  "description": "Environmental Quality Index (EQI) - Overview The Environmental Quality Index (EQI) is a county level composite indicator that quantifies ambient environmental conditions across the United States for the period 2000-2005. It integrates data from five distinct domains air, water, land, built environment, and socio-demographic factors using publicly available sources such as EPA monitoring networks, Census data, and GIS layers. The index was developed by the U.S. Environmental Protection Agency (EPA), Office of Research and Development (ORD) under the leadership of Danelle Lobdell. Purpose & Use Cases: The EQI serves as a reproducible environmental metric for human health research, enabling investigators to assess cumulative exposure effects on outcomes such as cancer incidence, respiratory disease, or socioeconomic health disparities. Policymakers and public health agencies also employ the index to identify geographic areas with poor environmental quality, guide resource allocation, and evaluate the impact of environmental interventions. Key Features & Unique Aspects: - Multi-domain integration: Combines air, water, land, built, and socio-demographic data into a single score. - Principal Components Analysis (PCA): Reduces hundreds of variables to domain-specific indices and an overall EQI, preserving statistical rigor. - Rural-urban continuum classification: Adjusts scores for urban versus rural contexts using RUCC codes, ensuring comparability across diverse county types. - Publicly accessible data & metadata: Hosted on EPA's Environmental Dataset Gateway with accompanying technical reports and interactive maps. Overall, the EQI provides a standardized, scalable tool for linking environmental quality to health outcomes and informing environmental policy at the county level.",
+  "aliases": [
+    "Eqi",
+    "Epa/600/r-14/304",
+    "Environmental Quality Index"
+  ],
+  "organizations": [
+    "Data.gov",
+    "EPA",
+    "Environmental Protection Agency",
+    "NHEERL",
+    "National Health and Environmental Effects Research Laboratory",
+    "ORD",
+    "ORISE",
+    "Oak Ridge Institute for Science and Education",
+    "Office of Research and Development",
+    "U.S. Environmental Protection Agency",
+    "UIC",
+    "USCB",
+    "United States Census Bureau",
+    "University of Illinois at Chicago"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.epa.gov/healthresearch/environmental-quality-index-eqi",
+  "schema_url": "https://www.epa.gov/healthresearch/environmental-quality-index-eqi",
+  "documentation_url": "https://edg.epa.gov/data/public/ORD/NHEERL/EQI/EQI%20Overview%20Report__Final.pdf",
+  "_metadata": {}
+}

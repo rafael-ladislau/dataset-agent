@@ -1,0 +1,36 @@
+{
+  "dataset_name": "National Health and Nutrition Examination Survey (NHANES)",
+  "home_url": "https://wwwn.cdc.gov/nchs/nhanes/default.aspx",
+  "description": "The National Health and Nutrition Examination Survey (NHANES) is a continuous, cross sectional program that gathers detailed health, nutrition, and lifestyle data from a nationally representative sample of about 5,000 U.S. adults and children each year. Conducted by the National Center for Health Statistics (NCHS) a division of the Centers for Disease Control and Prevention (CDC) the survey combines in home interviews with physical examinations performed in mobile examination centers, plus laboratory tests on blood, urine, and other specimens. NHANES's primary purpose is to monitor the health and nutritional status of the non institutionalized civilian population, track trends over time, and provide a scientific basis for public health policy, clinical guidelines, and disease surveillance. Its data are widely used in epidemiologic research, risk factor assessment, development of national standards (e.g., BMI, blood pressure), and evaluation of nutrition programs. Key features that set NHANES apart include its dual component design (self reported questionnaire plus objective medical/biochemical measurements), a complex multistage sampling strategy ensuring representativeness across age, ethnicity, and socioeconomic groups, and the longitudinal continuity of data collections since the 1960s allowing trend analyses across decades. The dataset is publicly available (with documentation) for researchers, policymakers, and health professionals worldwide.",
+  "aliases": [
+    "Nhanes",
+    "National Health Examination Survey",
+    "National Health & Nutrition Examination Survey",
+    "National Health and Nutrition Examination Survey"
+  ],
+  "organizations": [
+    "ARS",
+    "Agricultural Research Service",
+    "CDC",
+    "Centers for Disease Control and Prevention",
+    "Department of Health and Human Services",
+    "ERS",
+    "Economic Research Service",
+    "HHS",
+    "Health and Human Services",
+    "NCHS",
+    "NIH",
+    "National Center for Health Statistics",
+    "National Institutes of Health",
+    "U.S. Department of Agriculture",
+    "U.S. Department of Health and Human Services",
+    "U.S. Government",
+    "USDA",
+    "United States Department of Agriculture"
+  ],
+  "access_type": "Open",
+  "data_url": "https://wwwn.cdc.gov/nchs/nhanes/tutorials/datasets.aspx",
+  "schema_url": "https://wwwn.cdc.gov/nchs/nhanes/tutorials/datasets.aspx",
+  "documentation_url": "https://wwwn.cdc.gov/nchs/nhanes/default.aspx",
+  "_metadata": {}
+}

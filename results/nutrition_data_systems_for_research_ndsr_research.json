@@ -1,0 +1,20 @@
+{
+  "dataset_name": "Nutrition Data Systems for Research (NDSR)",
+  "home_url": "https://www.ncc.umn.edu/",
+  "description": "Nutrition Data System for Research (NDSR) is a Windows-based dietary analysis program designed for the collection and analyses of 24-hour dietary recalls, food records, menus, and recipes. Calculation of nutrients occurs immediately providing data per ingredient, food, meal, and day in report and analysis file formats. The software includes a dietary supplement assessment module so that nutrient intake from both food and supplemental sources may be captured and quantified.",
+  "aliases": [
+    "Nutrition Data Systems for Research",
+    "NDSR",
+    "https://www.ncc.umn.edu/products",
+    "NDS-R"
+  ],
+  "organizations": ["Nutrition Coordinating Center", "NCC", "University of Minnesota", "UMN"],
+  "access_type": "Unknown",
+  "data_url": "https://www.ncc.umn.edu/",
+  "schema_url": "https://www.ncc.umn.edu/",
+  "documentation_url": "https://www.ncc.umn.edu/",
+  "official_name": "Nutrition Data Systems for Research (NDSR)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

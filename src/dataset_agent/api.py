@@ -5,18 +5,18 @@ FastAPI application for dataset research agent API.
 import logging
 import os
 import uuid
+import traceback
+import uvicorn
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .auth import APIKeyAuth
 from .database import Database
 from .main import run_research
-from .domain.models import DatasetInfo
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -26,6 +26,11 @@ class ResearchRequest(BaseModel):
     """Model for dataset research request."""
     dataset_name: str = Field(..., description="Name of the dataset to research")
     dataset_url: Optional[str] = Field(None, description="Optional URL for the dataset")
+    # Optional per-request overrides
+    model: Optional[str] = Field(None, description="LLM model to use for this request")
+    temperature: Optional[float] = Field(None, description="Sampling temperature")
+    top_k: Optional[int] = Field(None, description="Top-K sampling parameter (Ollama)")
+    top_p: Optional[float] = Field(None, description="Top-P nucleus sampling parameter (Ollama)")
 
 class ResearchTask(BaseModel):
     """Model for research task information."""
@@ -107,7 +112,9 @@ async def verify_api_key(x_api_key: str = Header(...)):
         )
     return x_api_key
 
-def process_research_task(task_id: str, dataset_name: str, dataset_url: Optional[str], client_id: str, db: Database):
+def process_research_task(task_id: str, dataset_name: str, dataset_url: Optional[str], client_id: str, db: Database,
+                          model: Optional[str] = None, temperature: Optional[float] = None,
+                          top_k: Optional[int] = None, top_p: Optional[float] = None):
     """
     Process a research task in the background.
     
@@ -125,7 +132,20 @@ def process_research_task(task_id: str, dataset_name: str, dataset_url: Optional
         db.update_task_status(task_id, 'processing')
         
         # Run the research process
-        result = run_research(dataset_name, dataset_url)
+        # Apply per-request overrides by constructing a Config
+        from .config import Config
+        cfg_kwargs = {}
+        if model is not None:
+            cfg_kwargs["llm_model"] = model
+        if temperature is not None:
+            cfg_kwargs["temperature"] = temperature
+        if top_k is not None:
+            cfg_kwargs["top_k"] = top_k
+        if top_p is not None:
+            cfg_kwargs["top_p"] = top_p
+        cfg = Config(**cfg_kwargs) if cfg_kwargs else None
+
+        result = run_research(dataset_name, dataset_url, cfg)
         
         # Store the result
         db.store_result(task_id, result.to_dict())
@@ -135,6 +155,7 @@ def process_research_task(task_id: str, dataset_name: str, dataset_url: Optional
         # Update task status to 'failed'
         db.update_task_status(task_id, 'failed')
         logger.error(f"Task {task_id} failed: {str(e)}", exc_info=True)
+        logger.error(traceback.format_exc())
 
 @app.post(
     "/api/research", 
@@ -175,7 +196,12 @@ async def create_research_task(
             request.dataset_name,
             request.dataset_url,
             client_id,
-            db
+            db,
+            # Per-request overrides
+            request.model,
+            request.temperature,
+            request.top_k,
+            request.top_p,
         )
         
         # Get the task data to return
@@ -189,10 +215,12 @@ async def create_research_task(
         )
     except Exception as e:
         logger.error(f"Error creating research task: {str(e)}", exc_info=True)
+        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=500,
             detail=f"Error creating research task: {str(e)}"
         )
+
 
 @app.get(
     "/api/research/{task_id}", 
@@ -315,4 +343,7 @@ async def health_check():
     Returns:
         dict: Health status
     """
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()} 
+    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8884)

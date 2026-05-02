@@ -1,0 +1,52 @@
+services:
+  ollama:
+    volumes:
+      - "/mnt/volume/ollama/data:/root/.ollama"
+    container_name: ollama
+    pull_policy: always
+    tty: true
+    restart: unless-stopped
+    image: docker.io/ollama/ollama:latest
+      #    ports:
+      # - "7869:11434"
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_MODEL=qwen3:32b
+      - OLLAMA_NUM_PARALLEL=2
+      - OLLAMA_MAX_LOADED_MODELS=2
+    networks:
+      - dataset
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+
+  api:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    ports:
+      - "8888:8888"
+    volumes:
+#      - "/Users/leandroferreira/Projects/ladis/dataset-agent/data:/app/data"
+      - "/mnt/volume/sqlite/data:/app/data"
+    networks:
+      - dataset
+        #extra_hosts:
+        #- host.docker.internal:host-gateway
+    command:
+      - python
+      - -m
+      - src.dataset_agent.api
+    depends_on:
+      - ollama
+
+networks:
+  dataset:
+    driver: bridge
+

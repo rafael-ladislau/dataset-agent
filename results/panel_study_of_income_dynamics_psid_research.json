@@ -1,0 +1,24 @@
+{
+  "dataset_name": "Panel Study of Income Dynamics (PSID)",
+  "home_url": "https://psidonline.isr.umich.edu/",
+  "description": "Agent stopped due to max iterations.",
+  "aliases": [
+    "Panel Study of Income Dynamics",
+    "PSID",
+    "https://psidonline.isr.umich.edu/"
+  ],
+  "organizations": [
+    "Survey Research Center",
+    "University of Michigan",
+    "https://www.isr.umich.edu/",
+    "https://psidonline.isr.umich.edu/"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://psidonline.isr.umich.edu/",
+  "schema_url": "https://psidonline.isr.umich.edu/",
+  "documentation_url": "https://psidonline.isr.umich.edu/",
+  "official_name": "Panel Study of Income Dynamics (PSID)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

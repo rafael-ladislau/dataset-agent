@@ -4,7 +4,7 @@ A tool for automatically researching and gathering information about datasets us
 
 ## Overview
 
-The Dataset Research Agent is designed to automate the process of gathering information about datasets. It leverages large language models (LLMs) via Ollama or OpenRouter and the LangChain framework to efficiently gather the following information about datasets:
+The Dataset Research Agent is designed to automate the process of gathering information about datasets. It leverages large language models (LLMs) via Ollama, OpenRouter, or LMStudio and the LangChain framework to efficiently gather the following information about datasets:
 
 - Comprehensive descriptions
 - Alternative names and identifiers (aliases)
@@ -27,11 +27,16 @@ This tool is particularly useful for data cataloging, metadata enrichment, and d
 ## Prerequisites
 
 - Python 3.8+
-- For Ollama (default):
-  - [Ollama](https://ollama.com/) installed and running
-  - LLM model pulled in Ollama (e.g., llama3)
-- For OpenRouter:
-  - OpenRouter API key (set in .env file)
+- **Choose one LLM provider:**
+  - **For Ollama (default):**
+    - [Ollama](https://ollama.com/) installed and running
+    - LLM model pulled in Ollama (e.g., llama3)
+  - **For OpenRouter:**
+    - OpenRouter API key (set in .env file)
+  - **For LMStudio:**
+    - [LMStudio](https://lmstudio.ai) installed and running
+    - LMStudio server enabled on port 1234
+    - A compatible model loaded in LMStudio (e.g., gpt-oss-120b)
 
 ## Installation
 
@@ -49,7 +54,7 @@ This tool is particularly useful for data cataloging, metadata enrichment, and d
 3. Set up your LLM provider:
    
    **For Ollama (default):**
-   ```
+   ```bash
    # Install Ollama (on macOS or Linux)
    curl -fsSL https://ollama.com/install.sh | sh
    
@@ -63,9 +68,26 @@ This tool is particularly useful for data cataloging, metadata enrichment, and d
    **For OpenRouter:**
    
    Create a `.env` file in the root directory with your OpenRouter API key:
-   ```
+   ```bash
    OPENROUTER_API_KEY=your_api_key_here
    ```
+
+   **For LMStudio:**
+   
+   1. Download and install [LMStudio](https://lmstudio.ai)
+   2. Open LMStudio and download a model (e.g., gpt-oss-120b)
+   3. Load the model by clicking the ↔ icon
+   4. Start the local server:
+      - Go to **Developer** → **Local Server**
+      - Click **Start Server** (default port: 1234)
+      - Verify it's running: `curl http://localhost:1234/v1/models`
+   5. Configure the agent to use LMStudio:
+      ```bash
+      # Add to .env file
+      DATASET_AGENT_LLM_PROVIDER=lmstudio
+      DATASET_AGENT_LLM_MODEL=gpt-oss-120b
+      LMSTUDIO_BASE_URL=http://localhost:1234/v1
+      ```
 
 ## Usage
 
@@ -73,40 +95,55 @@ This tool is particularly useful for data cataloging, metadata enrichment, and d
 
 The simplest way to use the Dataset Research Agent is through the command line:
 
-```
-python dataset_research.py "Census of Agriculture"
+```bash
+python -m src.dataset_agent.main "Census of Agriculture"
 ```
 
 You can also provide an optional URL as a starting point:
 
-```
-python dataset_research.py "Census of Agriculture" --url "https://www.nass.usda.gov/AgCensus/"
+```bash
+python -m src.dataset_agent.main "Census of Agriculture" --url "https://www.nass.usda.gov/AgCensus/"
 ```
 
 Additional command line options:
 
-```
-python dataset_research.py "Dataset Name" [--url URL] [--output-dir OUTPUT_DIR] [--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}] [--log-file LOG_FILE] [--llm-provider {ollama,openrouter}] [--llm-model MODEL_NAME] [--env-file ENV_FILE_PATH]
+```bash
+python -m src.dataset_agent.main "Dataset Name" [--url URL] [--output-dir OUTPUT_DIR] [--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}] [--log-file LOG_FILE] [--llm-provider {ollama,openrouter,lmstudio}] [--llm-model MODEL_NAME] [--env-file ENV_FILE_PATH]
 ```
 
 #### LLM Provider Options
 
-- `--llm-provider`: Choose between "ollama" (default, uses locally running Ollama) or "openrouter" (uses OpenRouter API)
+- `--llm-provider`: Choose between:
+  - `ollama` (default) - Uses locally running Ollama
+  - `openrouter` - Uses OpenRouter cloud API
+  - `lmstudio` - Uses locally running LMStudio with OpenAI-compatible API
 - `--llm-model`: Specify the model to use
-  - For Ollama: model name (e.g., "llama3")
+  - For Ollama: model name (e.g., "llama3", "qwen3:32b")
   - For OpenRouter: model identifier (e.g., "anthropic/claude-3-opus")
+  - For LMStudio: model name shown in LMStudio (e.g., "gpt-oss-120b")
 - `--env-file`: Path to .env file with API credentials (defaults to ".env")
 
-Examples:
+#### Examples:
 
-Using Ollama with a specific model:
-```
-python dataset_research.py "Census of Agriculture" --llm-provider ollama --llm-model llama3
+**Using Ollama with a specific model:**
+```bash
+python -m src.dataset_agent.main "Census of Agriculture" --llm-provider ollama --llm-model llama3
 ```
 
-Using OpenRouter:
+**Using OpenRouter:**
+```bash
+python -m src.dataset_agent.main "Census of Agriculture" --llm-provider openrouter --llm-model anthropic/claude-3-opus
 ```
-python dataset_research.py "Census of Agriculture" --llm-provider openrouter --llm-model anthropic/claude-3-opus
+
+**Using LMStudio:**
+```bash
+# Make sure LMStudio is running with a model loaded
+python -m src.dataset_agent.main "Census of Agriculture" --llm-provider lmstudio --llm-model gpt-oss-120b
+```
+
+**Using LMStudio with custom port:**
+```bash
+LMSTUDIO_BASE_URL=http://localhost:5000/v1 python -m src.dataset_agent.main "Census of Agriculture" --llm-provider lmstudio --llm-model gpt-oss-120b
 ```
 
 ### Programmatic Usage
@@ -121,8 +158,9 @@ from src.dataset_agent.main import run_research
 config = Config(
     log_level="INFO", 
     output_dir="/path/to/output",
-    llm_provider="openrouter",  # or "ollama"
-    llm_model="anthropic/claude-3-opus"  # or your preferred model
+    llm_provider="lmstudio",  # or "ollama", "openrouter"
+    llm_model="gpt-oss-120b",  # or your preferred model
+    lmstudio_base_url="http://localhost:1234/v1"  # only needed for LMStudio
 )
 
 # Run research
@@ -140,24 +178,45 @@ print(f"Data URL: {dataset_info.data_url}")
 The project follows a clean architecture approach with clear separation of concerns:
 
 ```
-src/
-├── dataset_agent/
-│   ├── __init__.py
-│   ├── main.py          # Application entry point
-│   ├── config.py        # Configuration handling
-│   ├── domain/          # Core business logic
-│   │   ├── __init__.py
-│   │   ├── models.py    # Data models
-│   │   └── usecases.py  # Business logic interfaces
-│   ├── adapters/        # Implementation adapters
-│   │   ├── __init__.py
-│   │   ├── agent.py     # LLM agent implementation
-│   │   ├── extractor.py # Text extraction implementation
-│   │   ├── storage.py   # Data storage implementation
-│   │   └── tools.py     # Tool implementations
-│   └── utils/           # Utility functions
-│       └── __init__.py
-└── __init__.py
+dataset-agent/
+├── src/
+│   └── dataset_agent/
+│       ├── main.py          # CLI entry point
+│       ├── config.py        # Configuration
+│       ├── domain/          # Core business logic (models, usecases)
+│       ├── adapters/        # LLM agent, storage, tools, extractor
+│       └── utils/           # Text processing utilities
+├── docs/                    # Project documentation
+│   ├── agent-os-overview.md
+│   ├── lmstudio-integration-guide.md
+│   ├── lmstudio-provider-spec.md
+│   ├── lmstudio-quick-reference.md
+│   ├── official-name-detection-summary.md
+│   ├── datasets-social-economic.md
+│   ├── aliases-agent-summary.md
+│   └── white-paper-dataset-research-agent.md
+├── scripts/                 # Batch run scripts + output processing
+│   ├── README.md            # Script documentation
+│   ├── run_asthma_datasets.sh
+│   ├── run_employment_datasets.sh
+│   ├── run_health_welfare_datasets.sh
+│   ├── run_pediatric_datasets.sh
+│   ├── run_social_economic_datasets.sh
+│   └── dataset_metadata_spreadsheet.py
+├── tests/                   # Test scripts
+│   ├── test_aliases.py
+│   ├── test_description_cleaning.py
+│   └── test_integration.py
+├── results/                 # Research result JSON files
+│   └── TRACKING.md          # Batch run history and metadata
+├── output/                  # Employment batch results
+├── workforce/               # Workforce batch results
+├── data/                    # Data files and generated spreadsheets
+├── agent-os/                # AI agent configuration (standards, specs)
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+└── .env.example
 ```
 
 ## Design Principles
@@ -202,6 +261,70 @@ Research results are saved as JSON files with the following structure:
   }
 }
 ```
+
+## Troubleshooting
+
+### LMStudio Issues
+
+**Error: "LMStudio server is not responding"**
+- Ensure LMStudio is running
+- Check that the server is enabled in LMStudio (**Developer** → **Local Server**)
+- Verify the port is 1234 (or update `LMSTUDIO_BASE_URL` in your `.env` file)
+- Test the connection: `curl http://localhost:1234/v1/models`
+
+**Error: "No models loaded"**
+- Load a model in LMStudio before running the agent
+- Click the **↔** icon in LMStudio to load a model into memory
+- Verify the model is loaded: `curl http://localhost:1234/v1/models`
+
+**Slow responses with LMStudio**
+- Use a smaller model for faster inference
+- Reduce context length in LMStudio settings
+- Enable GPU acceleration if available (check LMStudio settings)
+- Consider using a quantized model (e.g., Q4 or Q8)
+
+**Tool calling not working**
+- Ensure your model supports function calling
+- Check LMStudio logs for tool-related errors
+- Try a different model (recommended: gpt-oss, llama-3.2, qwen)
+- Verify that the model is properly loaded and responding
+
+### General Issues
+
+**Import Errors**
+- Make sure all dependencies are installed: `pip install -r requirements.txt`
+- If using a virtual environment, ensure it's activated
+
+**Web Search Failures**
+- Check your internet connection
+- Verify your Tavily API key is set (if using Tavily)
+- Try switching to DuckDuckGo: `WEB_SEARCH_PROVIDER=duckduckgo`
+
+## Batch Processing
+
+To run the agent against a predefined list of datasets, use the batch scripts in `scripts/`. See [`scripts/README.md`](scripts/README.md) for full documentation.
+
+```bash
+./scripts/run_health_welfare_datasets.sh
+START_FROM=5 ./scripts/run_employment_datasets.sh
+```
+
+To convert results to an Excel spreadsheet:
+
+```bash
+python scripts/dataset_metadata_spreadsheet.py results/ data/output.xlsx
+```
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [docs/agent-os-overview.md](docs/agent-os-overview.md) | Agent OS structure and product context |
+| [docs/lmstudio-integration-guide.md](docs/lmstudio-integration-guide.md) | LMStudio setup and integration guide |
+| [docs/lmstudio-provider-spec.md](docs/lmstudio-provider-spec.md) | LMStudio feature specification |
+| [docs/official-name-detection-summary.md](docs/official-name-detection-summary.md) | Official name detection implementation |
+| [docs/white-paper-dataset-research-agent.md](docs/white-paper-dataset-research-agent.md) | Comprehensive project white paper |
+| [results/TRACKING.md](results/TRACKING.md) | History of batch runs and agent evolution |
 
 ## Contributing
 

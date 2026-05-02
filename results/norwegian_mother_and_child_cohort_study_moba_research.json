@@ -1,0 +1,22 @@
+{
+  "dataset_name": "Norwegian Mother and Child Cohort Study (MoBa)",
+  "home_url": null,
+  "description": "Norwegian Mother and Child Cohort Study (MoBa) The MoBa dataset is a large, population\u2011based prospective birth cohort that follows \u2248 114 000 children, \u2248 95 000 mothers and \u2248 75 000 fathers recruited across Norway between 1998\u20112009. It combines extensive questionnaire data (maternal, paternal and child health, lifestyle, psychosocial factors) with a biobank of biological specimens (blood, urine, DNA, placenta, cord blood, and repeated child samples). The cohort is linked to national health registries, providing longitudinal information on pregnancy outcomes, childhood development, and later\u2011life diseases. The study was created and is managed by the Norwegian Institute of Public Health (FHI), with an operational board that includes scientific directors and data\u2011controller officials\u30106\u2020L0-L3\u3011. Its primary purpose is to investigate genetic and environmental determinants of health across the life\u2011course, enabling family\u2011based designs (trios, twins, siblings) and Mendelian randomisation analyses. Typical use cases include epidemiologic research on prenatal exposures, gene\u2011environment interactions, developmental origins of health and disease, and validation of biomarkers. Unique aspects are the triad structure (mother\u2011father\u2011child), the large, multi\u2011generational sample size, and the integration of questionnaire, biospecimen, and registry data\u2014making MoBa one of the world\u2019s most comprehensive resources for longitudinal family health research\u30102\u2020L0-L4\u3011\u30104\u2020L0-L7\u3011.",
+  "aliases": [
+    "Norwegian Mother and Child Cohort Study",
+    "MoBa"
+  ],
+  "organizations": [
+    "FHI",
+    "Norwegian Institute of Public Health",
+    "Folkehelseinstituttet"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://www.fhi.no/en/ch/studies/moba/",
+  "schema_url": null,
+  "documentation_url": "https://www.fhi.no/en/ch/studies/moba/",
+  "official_name": "MoBa (Norwegian Mother and Child Cohort)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Searches of authoritative sources (e.g., the Exposome\u2011Explorer registry, PubMed cohort profile, and the Norwegian Institute of Public Health website) list the dataset in catalogues under the name **\u201cMoBa (Norwegian Mother and Child Cohort)\u201d**. This exact wording appears as the cohort name field in multiple official listings, indicating it is the recognized catalog title. The provided phrase \u201cNorwegian Mother and Child Cohort Study (MoBa)\u201d matches this official entry directly; it is not a subset, table, or component of a larger collection but the primary identifier for the whole cohort. Hence the relationship between the provided name and the catalog entry is that they are the same official dataset name.",
+  "_metadata": {}
+}

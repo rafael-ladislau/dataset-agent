@@ -1,0 +1,24 @@
+{
+  "dataset_name": "GALA II (Genes-Environments & Admixture in Latino Americans)",
+  "home_url": null,
+  "description": "A large cohort of Latino children with asthma used for whole genome sequencing and bronchodilator response phenotyping.",
+  "aliases": [
+    "Gala Ii",
+    "genes-environments & Admixture in Latino Americans",
+    "GALA II"
+  ],
+  "organizations": [
+    "NIH",
+    "National Institutes of Health",
+    "TopMed",
+    "Top Medical Database"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.ncbi.nlm.nih.gov/projects/gap/cgi-bin/study.cgi?study_id=phs001542.v2.p1",
+  "schema_url": null,
+  "documentation_url": "https://sb-biodatacatalyst.readme.io/docs/phs001180-genes-environments-and-admixture-in-latino-asthmatics-gala-ii-study",
+  "official_name": "Genes-Environments and Admixture in Latino Asthmatics (GALA\u202fII) Study",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Web searches of the dbGaP repository and related NIH/TopMed portals list the dataset under the exact title \u201cGenes\u2011Environments and Admixture in Latino Asthmatics (GALA\u202fII) Study.\u201d This title appears consistently on the study\u2019s dbGaP pages (e.g., phs001180) and in the EGA catalog. The name supplied in the prompt\u2014\u201cGALA\u202fII (Genes\u2011Environments & Admixture in Latino Americans)\u201d\u2014is a concise, informal version of the same study name. No evidence indicates that it represents only a subset, table, or component of a larger collection; it refers to the whole study. Therefore the provided name corresponds directly to the official catalog title, making the relationship type\u202f=\u202fofficial_name.",
+  "_metadata": {}
+}

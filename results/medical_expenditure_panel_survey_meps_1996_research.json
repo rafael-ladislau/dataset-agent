@@ -1,0 +1,23 @@
+{
+  "dataset_name": "Medical Expenditure Panel Survey (MEPS)",
+  "home_url": null,
+  "description": "Medical Expenditure Panel Survey (MEPS, 1996\u2011present) The Medical Expenditure Panel Survey is a nationally representative, longitudinal data system that captures detailed information on health\u2011care use, expenditures, insurance coverage, and health status for the civilian non\u2011institutionalized U.S. population. Initiated in 1996 and administered annually by the Agency for Healthcare Research and Quality (AHRQ), MEPS consists of three inter\u2011linked components \u2014 the Household Component (HC), the Medical Provider Component (MPC), and the Insurance/Employer Component \u2014 each surveyed over five interview rounds spanning two years. Purpose & use cases MEPS was created to estimate and monitor national trends in health\u2011care utilization, costs, and insurance coverage. Researchers employ the data to evaluate policy impacts, model health\u2011care spending, study disparities in access and outcomes, assess prescription\u2011drug use, and develop cost\u2011effectiveness analyses. Key features / unique aspects - Longitudinal panel design: the same individuals are followed across five interview waves, enabling both cross\u2011sectional and cohort analyses. - Comprehensive variable set: demographics, socioeconomic status, health conditions, service events (inpatient, outpatient, emergency, prescription fills), detailed expenditure amounts, source of payment, and insurance plan characteristics. - Linkage to the National Health Interview Survey (NHIS), providing a probability\u2011based sample with oversampling of subpopulations. - Public\u2011use files and extensive documentation (codebooks, variable explorer) are freely downloadable from the AHRQ MEPS website, while restricted components (e.g., 1996 Nursing\u2011Home data) are available through Federal Statistical Research Data Centers. These attributes make MEPS a cornerstone resource for health\u2011services research, cost\u2011containment studies, and federal\u2011policy evaluation.",
+  "aliases": [
+    "Medical Expenditure Panel Survey",
+    "MEPS"
+  ],
+  "organizations": [
+    "AHRQ",
+    "Agency for Healthcare Research and Quality",
+    "National Health Interview Survey",
+    "NHIS"
+  ],
+  "access_type": "Unknown",
+  "data_url": null,
+  "schema_url": null,
+  "documentation_url": "https://meps.ipums.org/meps/userGuide.shtml",
+  "official_name": "Medical Expenditure Panel Survey (MEPS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "The Agency for Healthcare Research and Quality (AHRQ) and the official MEPS website consistently refer to the dataset as \u201cMedical Expenditure Panel Survey (MEPS)\u201d.\u202fThe title appears on the AHRQ homepage, documentation pages, and in the Wikipedia entry for the survey, without including a year. The phrase \u201c(MEPS,\u202f1996)\u201d in the provided name simply denotes the series start year and is not part of the formal catalog title. Consequently, the supplied name \u201cMedical Expenditure Panel Survey (MEPS,\u202f1996)\u201d is effectively the same as the official dataset name, differing only by the added start\u2011year note. Hence the relationship is\u202fofficial_name.",
+  "_metadata": {}
+}

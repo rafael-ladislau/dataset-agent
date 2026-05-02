@@ -1,0 +1,29 @@
+{
+  "dataset_name": "American Time Use Survey (ATUS)",
+  "home_url": "https://www.bls.gov/tus/",
+  "description": "American Time Use Survey (ATUS) – Overview The American Time‑Use Survey is an annual, nationally representative diary study that records how Americans aged 15 + spend the previous day’s time. It captures detailed activity‑level information—what people did, where they were, with whom, and the duration of each episode—as well as extensive respondent characteristics (age, sex, race/ethnicity, labor‑force status, education, income, etc.). The survey was launched in 2003 and is sponsored by the U.S. Bureau of Labor Statistics (BLS) and fielded by the U.S. Census Bureau 【1†L1-L4】【3†L1-L4】. Purpose and common use cases ATUS was created to produce the nation’s only federal estimates of time spent in both market (paid work, school) and non‑market activities (household production, child/elder care, volunteering, leisure, religious participation). Researchers use it to examine work‑life balance, gender differentials in unpaid labor, health‑related activity patterns, social isolation, and the economic value of household production 【5†L1-L8】. Key features / unique aspects - Over 250 000 interviews collected from 2003‑2024, making it the largest time‑use micro‑data set in the United States. - Linked to the Current Population Survey, providing rich demographic and labor‑force variables. - Publicly available through BLS’s ATUS database, the IPUMS‑Time Use Extract Builder, and data portals such as Kaggle. - Includes a comprehensive activity coding lexicon (2003‑2015) and separate files for respondent, roster, and CPS background information 【1†L2-L4】【3†L1-L5】. These attributes make ATUS a core resource for economists, sociologists, public‑health analysts, and policy makers studying how people allocate their time across work, care, and leisure.",
+  "aliases": [
+    "ATUS",
+    "Time Use Survey",
+    "BLS Time Use Survey"
+  ],
+  "organizations": [
+    "U.S. Bureau of Labor Statistics",
+    "Bureau of Labor Statistics",
+    "BLS",
+    "U.S. Census Bureau",
+    "United States Census Bureau",
+    "Census Bureau",
+    "U.S. Department of Labor",
+    "Department of Labor",
+    "IPUMS"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.bls.gov/tus/",
+  "schema_url": "https://www.bls.gov/tus/",
+  "documentation_url": "https://www.bls.gov/tus/",
+  "official_name": "American Time Use Survey (ATUS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

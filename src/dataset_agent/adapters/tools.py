@@ -29,14 +29,15 @@ def web_search(query: str) -> str:
     """
     logger.info(f"Web search tool called with query: '{query}'")
     
-    # Get the configured provider from environment
-    provider = os.environ.get("WEB_SEARCH_PROVIDER", "duckduckgo").lower()
+    # Prefer Tavily automatically when API key is present
+    if os.environ.get("TAVILY_API_KEY"):
+        return _tavily_search(query)
     
-    # Dispatch to the appropriate provider
+    # Otherwise, use configured provider or fallback to DuckDuckGo
+    provider = os.environ.get("WEB_SEARCH_PROVIDER", "duckduckgo").lower()
     if provider == "tavily":
         return _tavily_search(query)
-    else:
-        return _duckduckgo_search(query)
+    return _duckduckgo_search(query)
 
 
 def _tavily_search(query: str) -> str:
@@ -123,7 +124,12 @@ def _duckduckgo_search(query: str) -> str:
     tool_start_time = time.time()
     
     try:
-        from duckduckgo_search import DDGS
+        # Prefer the new ddgs package
+        try:
+            from ddgs import DDGS  # type: ignore
+        except ImportError:
+            # Fallback to old package name for compatibility
+            from duckduckgo_search import DDGS  # type: ignore
         
         # Log the search start
         search_start = time.time()
