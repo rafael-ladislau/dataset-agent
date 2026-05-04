@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     fp_sample_size: int = 1000
     #: Hard cap on Dimensions calls per optimize run (0 = no extra cap beyond use-case logic).
     optimize_max_dimensions_calls: int = Field(default=64, ge=0)
+    #: Top publication titles scored with LLM Signal 3 on the primary variant (0 = skip).
+    optimize_signal3_max_titles: int = Field(default=5, ge=0, le=20)
+    #: Titles with mention_score + context_score below this are treated as likely FP (0–20 scale).
+    optimize_signal3_min_relevance_sum: int = Field(default=10, ge=0, le=20)
+    #: Max abstract snippets sent to LLM to derive NOT terms (0 = skip abstract→exclude step).
+    optimize_abstract_exclude_max_hits: int = Field(default=16, ge=0, le=80)
+    #: Max abstract hits passed through ``classify_alias_mention`` before derive (0 = skip filtering).
+    optimize_abstract_classify_max_calls: int = Field(default=12, ge=0, le=80)
 
     @field_validator("fp_sample_size")
     @classmethod

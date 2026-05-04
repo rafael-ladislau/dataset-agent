@@ -14,9 +14,12 @@ from dataset_agent.domain.models import (
     DatasetRecord,
     Group,
     LiteratureValidation,
+    OptimizeRequest,
+    QueryOptimizationRecord,
     ResearchRequest,
     YearsRange,
 )
+from dataset_agent import bootstrap as bootstrap_mod
 from dataset_agent.interfaces import api
 from dataset_agent.settings import Settings
 
@@ -357,3 +360,98 @@ def test_validate_retry_keeps_body_terms_when_llm_suggests_empty(
     assert rv["dataset_names"] == ["Alias A"]
     assert rv["flag_terms"] == ["Org X"]
     api.app.dependency_overrides.clear()
+
+
+def test_optimize_precheck_without_dimensions_key(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /optimize returns structured failure when Dimensions is not configured."""
+    monkeypatch.delenv("DATASET_AGENT_DIMENSIONS_API_KEY", raising=False)
+
+    def _settings() -> Settings:
+        base = _fake_settings(tmp_path)
+        return base.model_copy(update={"dimensions_api_key": ""})
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    try:
+        r = client.post(
+            "/optimize",
+            json={
+                "dataset_name": "Some Long Dataset Name",
+                "dataset_names": ["Some Long Dataset Name", "Other Long Alias Here"],
+                "flag_terms": ["NIH"],
+            },
+        )
+        assert r.status_code == 503
+        body = r.json()
+        assert body["success"] is False
+        assert body.get("failed_phase") == "precheck"
+        assert body.get("errors")
+    finally:
+        api.app.dependency_overrides.pop(api.get_settings, None)
+
+
+def test_optimize_validation_error_422(client: TestClient) -> None:
+    r = client.post("/optimize", json={"dataset_name": ""})
+    assert r.status_code == 422
+
+
+def test_openapi_optimize_mentions_validate_integration(client: TestClient) -> None:
+    r = client.get("/openapi.json")
+    assert r.status_code == 200
+    doc = r.json()
+    desc = doc["paths"]["/optimize"]["post"]["description"]
+    assert "POST /validate" in desc
+    assert "exclusion_terms" in desc
+    assert "/optimize/tasks" in desc
+
+
+def test_optimize_async_task_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_optimize_uc(_settings: Settings):
+        class _UC:
+            async def execute(self, req: OptimizeRequest):
+                _ = req
+                return QueryOptimizationRecord(
+                    success=True,
+                    selected_variant="V1",
+                    for_clause='(\\"x\\")',
+                    dsl_query="search publications ...",
+                    expected_count=7,
+                )
+
+        return _UC()
+
+    monkeypatch.setattr(bootstrap_mod, "build_optimize_use_case", _fake_optimize_uc)
+
+    def _settings() -> Settings:
+        return _fake_settings(tmp_path)
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    try:
+        c = TestClient(api.app)
+        r = c.post(
+            "/optimize/tasks",
+            json={
+                "dataset_name": "Long Name Here",
+                "dataset_names": ["Long Name Here", "Other Long"],
+                "flag_terms": ["NIH"],
+            },
+        )
+        assert r.status_code == 200
+        tid = r.json()["id"]
+        res = c.get(f"/optimize/tasks/{tid}/result")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["success"] is True
+        assert body["selected_variant"] == "V1"
+        assert body["expected_count"] == 7
+    finally:
+        api.app.dependency_overrides.clear()
+
+
+def test_optimize_task_result_rejects_research_task(client: TestClient) -> None:
+    r = client.post("/tasks", json={"dataset_name": "DSOpt"})
+    assert r.status_code == 200
+    tid = r.json()["id"]
+    bad = client.get(f"/optimize/tasks/{tid}/result")
+    assert bad.status_code == 400

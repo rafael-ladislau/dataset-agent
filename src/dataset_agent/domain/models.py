@@ -140,7 +140,11 @@ class OptimizeRequest(BaseModel):
     )
     exclude_terms: list[str] = Field(
         default_factory=list,
-        description="Optional seed exclusions before FP analysis",
+        description=(
+            "Optional seed exclusions before FP analysis. These terms are candidates for "
+            "the resulting `exclusion_terms` and can be forwarded to `POST /validate` as "
+            "`exclude_terms` in follow-up validation runs."
+        ),
     )
 
     @field_validator("dataset_name", mode="before")
@@ -205,7 +209,14 @@ class QueryOptimizationRecord(BaseModel):
     aliases: QueryOptimizationAliases = Field(default_factory=QueryOptimizationAliases)
     alias_counts: list[AliasCountEntry] = Field(default_factory=list)
     flag_terms: list[str] = Field(default_factory=list)
-    exclusion_terms: list[str] = Field(default_factory=list)
+    exclusion_terms: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Suggested NOT terms for follow-up filtering. This list is not persisted "
+            "automatically; pass it to `POST /validate` as `exclude_terms` when you want "
+            "to validate with these exclusions."
+        ),
+    )
     all_variants_tested: list[VariantTestedEntry] = Field(default_factory=list)
     notes: str = ""
 

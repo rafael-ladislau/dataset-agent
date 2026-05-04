@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any, cast
 
@@ -18,6 +19,19 @@ _DSL_INNER_SPECIAL = frozenset('^:~[]{}()!|&+"')
 
 class DimensionsDslError(RuntimeError):
     """Raised when Dimensions credentials, dimcli, or DSL execution fails."""
+
+
+def _parse_retry_after_seconds(message: str) -> float | None:
+    """Best-effort parse for Retry-After delay (seconds) from 429-like error text."""
+    if not message:
+        return None
+    m = re.search(r"retry[\s_-]*after\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)", message, flags=re.I)
+    if not m:
+        return None
+    try:
+        return max(0.0, float(m.group(1)))
+    except (TypeError, ValueError):
+        return None
 
 
 def sanitize_alias(text: str) -> str:
@@ -81,6 +95,69 @@ def build_search_publications_dsl(
         "return publications[basics+title+times_cited] "
         f"sort by times_cited limit {lim}"
     )
+
+
+def build_search_publications_paged_dsl(
+    for_clause: str,
+    *,
+    search_in: str = "full_data",
+    limit: int = 1000,
+    skip: int = 0,
+    fields: str = "basics+title+times_cited",
+) -> str:
+    """Paginated publications fetch (DSL allows up to 1000 records per request)."""
+    lim = max(1, min(1000, int(limit)))
+    sk = max(0, int(skip))
+    return (
+        f'search publications in {search_in} for "{for_clause}" '
+        f"return publications[{fields}] "
+        f"sort by times_cited limit {lim} skip {sk}"
+    )
+
+
+async def fetch_top_n(
+    dsl_port: DimensionsDslPort,
+    for_clause: str,
+    *,
+    max_results: int,
+    search_in: str = "full_data",
+    page_size: int = 1000,
+    fields: str = "basics+title+times_cited",
+) -> tuple[list[dict], int]:
+    """
+    Page through Dimensions until *max_results* dicts are collected or pages dry up.
+
+    Returns ``(publications, dsl_query_count)``. Stops at 50_000 cumulative rows
+    (Dimensions pagination policy) to avoid runaway loops.
+    """
+    page_size = min(1000, max(1, int(page_size)))
+    goal = max(0, int(max_results))
+    if goal == 0 or not (for_clause or "").strip():
+        return [], 0
+    out: list[dict] = []
+    skip = 0
+    dsl_calls = 0
+    max_skip = 50_000
+    while len(out) < goal and skip <= max_skip:
+        chunk = min(page_size, goal - len(out))
+        dsl = build_search_publications_paged_dsl(
+            for_clause,
+            search_in=search_in,
+            limit=chunk,
+            skip=skip,
+            fields=fields,
+        )
+        result = await dsl_port.execute_dsl(dsl)
+        dsl_calls += 1
+        pubs = publications_from_result(result)
+        if not pubs:
+            break
+        row = pubs[:chunk]
+        out.extend(row)
+        if len(pubs) < chunk:
+            break
+        skip += len(row)
+    return out[:goal], dsl_calls
 
 
 def publications_from_result(result: object) -> list[dict]:
@@ -174,15 +251,9 @@ class AsyncThrottledDimensionsDsl(DimensionsDslPort):
             )
 
         rate = max(0.0, float(self._settings.dimensions_rate_limit_seconds))
+        retry_fallback = max(0.1, rate if rate > 0 else 2.1)
 
         async with self._get_lock():
-            now = time.monotonic()
-            if self._last_start_monotonic > 0.0 and rate > 0.0:
-                elapsed = now - self._last_start_monotonic
-                if elapsed < rate:
-                    await asyncio.sleep(rate - elapsed)
-            self._last_start_monotonic = time.monotonic()
-
             def _sync_run() -> Any:
                 try:
                     import dimcli  # type: ignore[import-not-found]
@@ -194,5 +265,30 @@ class AsyncThrottledDimensionsDsl(DimensionsDslPort):
                 dsl_client = dimcli.Dsl()
                 logger.debug("Dimensions DSL: %s", dsl[:500] + ("..." if len(dsl) > 500 else ""))
                 return dsl_client.query(dsl)
-
-            return await asyncio.to_thread(_sync_run)
+            retry_extra = 0.0
+            for attempt in range(2):
+                now = time.monotonic()
+                wait_base = 0.0
+                if self._last_start_monotonic > 0.0 and rate > 0.0:
+                    elapsed = now - self._last_start_monotonic
+                    if elapsed < rate:
+                        wait_base = rate - elapsed
+                wait_total = max(wait_base, retry_extra)
+                if wait_total > 0.0:
+                    await asyncio.sleep(wait_total)
+                self._last_start_monotonic = time.monotonic()
+                try:
+                    return await asyncio.to_thread(_sync_run)
+                except Exception as exc:
+                    msg = str(exc)
+                    is_429 = "429" in msg or "too many requests" in msg.lower()
+                    if attempt == 0 and is_429:
+                        retry_after = _parse_retry_after_seconds(msg)
+                        retry_extra = retry_after if retry_after is not None else retry_fallback
+                        logger.warning(
+                            "Dimensions returned 429; retrying once after %.2fs",
+                            retry_extra,
+                        )
+                        continue
+                    raise DimensionsDslError(msg) from exc
+            raise DimensionsDslError("Dimensions query failed after retry")

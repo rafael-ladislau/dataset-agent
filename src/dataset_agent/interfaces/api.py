@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -10,12 +11,15 @@ from urllib.parse import urljoin
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from dataset_agent.domain.models import (
     DatasetRecord,
     Group,
     LiteratureValidation,
+    OptimizeRequest,
+    QueryOptimizationRecord,
     ResearchRequest,
     TermsEvaluation,
     ValidationRequest,
@@ -74,6 +78,35 @@ def build_use_case(settings: Settings):
     return _bootstrap_build(settings)
 
 
+def build_optimize_use_case(settings: Settings):
+    from dataset_agent.bootstrap import build_optimize_use_case as _bootstrap_opt
+
+    return _bootstrap_opt(settings)
+
+
+def _optimize_http_status(record: QueryOptimizationRecord) -> int:
+    """503 para falhas de infraestrutura Dimensions; 200 para resultados de negócio (incl. success=false)."""
+    if record.success:
+        return 200
+    phase = (record.failed_phase or "").strip()
+    blob = " ".join(record.errors or []).lower()
+    if phase == "precheck":
+        return 503
+    if phase == "phase1_alias_counting":
+        if "all aliases returned zero" in blob:
+            return 200
+        return 503
+    if phase == "phase2_variant_building":
+        if "no query variants could be built" in blob:
+            return 200
+        if "zero publications" in blob:
+            return 200
+        if "all variant probes failed" in blob:
+            return 503
+        return 200
+    return 200
+
+
 def get_settings() -> Settings:
     return Settings()
 
@@ -81,6 +114,9 @@ def get_settings() -> Settings:
 class TaskCreateResponse(BaseModel):
     id: str
     status: str
+
+
+_OPTIMIZE_TASK_TYPE = "optimize"
 
 
 def _run_background_task(task_id: str, settings: Settings) -> None:
@@ -97,6 +133,29 @@ def _run_background_task(task_id: str, settings: Settings) -> None:
             import json
 
             payload = json.loads(payload)
+        if isinstance(payload, dict) and payload.get("task_type") == _OPTIMIZE_TASK_TYPE:
+            opt_body = {k: v for k, v in payload.items() if k != "task_type"}
+            opt_req = OptimizeRequest.model_validate(opt_body)
+            logger.info(
+                "Task %s: running optimize pipeline dataset_name=%r",
+                task_id,
+                opt_req.dataset_name,
+            )
+            from dataset_agent.bootstrap import build_optimize_use_case as _bootstrap_optimize
+
+            uc = _bootstrap_optimize(settings)
+            opt_record = asyncio.run(uc.execute(opt_req))
+            settings.output_dir.mkdir(parents=True, exist_ok=True)
+            out_path = settings.output_dir / f"optimize-{task_id}.json"
+            out_path.write_text(opt_record.model_dump_json(), encoding="utf-8")
+            tasks.update_task(
+                task_id,
+                status=TaskStatus.COMPLETED,
+                result_path=out_path.name,
+            )
+            logger.info("Task %s: optimize finished; result at %s", task_id, out_path)
+            return
+
         request = ResearchRequest.model_validate(payload)
         logger.info(
             "Task %s: running pipeline dataset_name=%r webhook=%s",
@@ -363,6 +422,100 @@ def validate_terms(
     }
 
     return record
+
+
+@app.post(
+    "/optimize",
+    response_model=QueryOptimizationRecord,
+    summary="Otimizar query Dimensions",
+    description=(
+        "Executa o pipeline de otimização em modo síncrono e devolve a melhor variante de query "
+        "Dimensions, com métricas de confiança e `exclusion_terms` sugeridos.\n\n"
+        "Integração recomendada com `/validate`: copie `exclusion_terms` da resposta para "
+        "`exclude_terms` no corpo do `POST /validate` para validar a query filtrada. "
+        "A API não persiste estes termos automaticamente em `DatasetRecord`.\n\n"
+        "Para execução em background (evitar timeout HTTP), use `POST /optimize/tasks` e "
+        "`GET /optimize/tasks/{task_id}/result`."
+    ),
+    responses={
+        422: {"description": "Corpo inválido (validação Pydantic)."},
+        503: {
+            "description": "Dimensions não configurado ou erro ao contactar a API (ver `errors` / `failed_phase`).",
+            "model": QueryOptimizationRecord,
+        },
+    },
+)
+async def optimize_endpoint(
+    body: OptimizeRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> QueryOptimizationRecord | JSONResponse:
+    """Pipeline síncrono em quatro fases. Configure timeout do cliente e do reverse proxy (ex.: 10–30 min)."""
+    uc = build_optimize_use_case(settings)
+    record = await uc.execute(body)
+    status = _optimize_http_status(record)
+    if status != 200:
+        return JSONResponse(
+            status_code=status,
+            content=record.model_dump(mode="json"),
+        )
+    return record
+
+
+@app.post(
+    "/optimize/tasks",
+    response_model=TaskCreateResponse,
+    summary="Enfileirar otimização Dimensions (async)",
+    description=(
+        "Aceita o mesmo corpo que `POST /optimize`. O worker grava `optimize-{task_id}.json` "
+        "em `output_dir` e expõe o resultado em `GET /optimize/tasks/{task_id}/result`."
+    ),
+)
+def create_optimize_task(
+    body: OptimizeRequest,
+    background_tasks: BackgroundTasks,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> TaskCreateResponse:
+    tasks = SqliteTaskRepository(settings.tasks_db)
+    payload = {"task_type": _OPTIMIZE_TASK_TYPE, **body.model_dump(mode="json")}
+    tid = tasks.create_task(payload)
+    logger.info(
+        "Optimize task created id=%s dataset_name=%r (pending; background worker)",
+        tid,
+        body.dataset_name,
+    )
+    background_tasks.add_task(_run_background_task, tid, settings)
+    return TaskCreateResponse(id=tid, status=TaskStatus.PENDING)
+
+
+@app.get("/optimize/tasks/{task_id}/result", response_model=QueryOptimizationRecord)
+def get_optimize_task_result(
+    task_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> QueryOptimizationRecord:
+    """Lê o ficheiro JSON produzido pelo worker para tarefas `POST /optimize/tasks`."""
+    from pathlib import Path
+
+    tasks = SqliteTaskRepository(settings.tasks_db)
+    row = tasks.get_task(task_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Task not found")
+    payload = row.get("payload")
+    if not isinstance(payload, dict) or payload.get("task_type") != _OPTIMIZE_TASK_TYPE:
+        raise HTTPException(status_code=400, detail="Not an optimize task")
+    if row["status"] != TaskStatus.COMPLETED:
+        raise HTTPException(status_code=409, detail=f"Task not completed: {row['status']}")
+    path = row.get("result_path")
+    if not path:
+        raise HTTPException(status_code=500, detail="No result path")
+    allowed_root = settings.output_dir.resolve()
+    p = allowed_root / Path(path).name
+    try:
+        p.relative_to(allowed_root)
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Result path outside allowed directory")
+    if not p.is_file():
+        raise HTTPException(status_code=500, detail="Result file missing")
+    return QueryOptimizationRecord.model_validate_json(p.read_text(encoding="utf-8"))
 
 
 @app.get("/health")

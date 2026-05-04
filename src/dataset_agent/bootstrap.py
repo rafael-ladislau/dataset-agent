@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataset_agent.adapters.agent_anthropic import AnthropicAgent
+from dataset_agent.adapters.dimensions_dsl import AsyncThrottledDimensionsDsl
 from dataset_agent.adapters.extractor import HeuristicTextExtractor
 from dataset_agent.adapters.literature import literature_gate_from_settings
 from dataset_agent.adapters.storage_json import JsonDatasetRepository
+from dataset_agent.application.query_optimization import QueryOptimizationUseCase
 from dataset_agent.application.research import DatasetResearchUseCase
+from dataset_agent.domain.ports import AgentPort
 from dataset_agent.settings import Settings
 
 
@@ -28,15 +31,28 @@ def _build_agent(settings: Settings) -> AnthropicAgent:
     )
 
 
-def build_use_case(settings: Settings) -> DatasetResearchUseCase:
-    agent = _build_agent(settings)
+def build_use_case(settings: Settings, agent: AgentPort | None = None) -> DatasetResearchUseCase:
+    resolved = agent or _build_agent(settings)
     extractor = HeuristicTextExtractor()
     repo = JsonDatasetRepository(settings.output_dir)
-    gate = literature_gate_from_settings(settings, agent=agent)
+    gate = literature_gate_from_settings(settings, agent=resolved)
     return DatasetResearchUseCase(
-        agent,
+        resolved,
         extractor,
         repo,
         settings,
         literature_gate=gate,
+    )
+
+
+def build_optimize_use_case(settings: Settings) -> QueryOptimizationUseCase:
+    """Dimensions query optimization (aliases → variants → FP proxy → selection)."""
+    agent = _build_agent(settings)
+    dsl = AsyncThrottledDimensionsDsl(settings)
+    research = build_use_case(settings, agent=agent)
+    return QueryOptimizationUseCase(
+        dsl_port=dsl,
+        research=research,
+        agent=agent,
+        settings=settings,
     )

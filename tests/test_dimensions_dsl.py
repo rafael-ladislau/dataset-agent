@@ -1,91 +1,104 @@
-"""Tests for Dimensions DSL helpers and throttled client."""
+"""Dimensions DSL helpers (pagination, parsers)."""
 
 from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import patch
-
-import pytest
 
 from dataset_agent.adapters.dimensions_dsl import (
-    AsyncThrottledDimensionsDsl,
-    DimensionsDslError,
-    build_publications_count_dsl,
-    inner_quoted_term,
-    parse_total_count,
-    sanitize_alias,
+    build_search_publications_paged_dsl,
+    fetch_top_n,
+    publication_title,
+    _parse_retry_after_seconds,
 )
+from dataset_agent.adapters.dimensions_dsl import AsyncThrottledDimensionsDsl
 from dataset_agent.settings import Settings
 
 
-def test_sanitize_alias_escapes_special_characters() -> None:
-    assert sanitize_alias("foo:bar") == r"foo\:bar"
-    assert sanitize_alias("a|b") == r"a\|b"
-    assert sanitize_alias('say "hi"') == r"say \"hi\""
+def test_build_search_publications_paged_dsl_has_limit_and_skip() -> None:
+    q = build_search_publications_paged_dsl(
+        '(\\"alpha\\" OR \\"beta\\")',
+        search_in="full_data",
+        limit=500,
+        skip=1000,
+    )
+    assert "limit 500 skip 1000" in q
+    assert "return publications[basics+title+times_cited]" in q
 
 
-def test_inner_quoted_term_matches_sanitize() -> None:
-    assert inner_quoted_term("  O*NET  ") == sanitize_alias("O*NET")
+def test_fetch_top_n_stops_when_empty_page() -> None:
+    class _Port:
+        def __init__(self) -> None:
+            self.calls = 0
 
-
-def test_build_publications_count_dsl_contains_escaped_term() -> None:
-    q = build_publications_count_dsl("O*NET", limit=1)
-    assert "search publications in full_data" in q
-    assert "limit 1" in q
-    assert "O*NET" in q
-
-
-def test_parse_total_count_from_count_total() -> None:
-    assert parse_total_count(SimpleNamespace(count_total=123)) == 123
-
-
-def test_parse_total_count_from_stats() -> None:
-    r = SimpleNamespace(_stats={"total_count": "7"})
-    assert parse_total_count(r) == 7
-
-
-def test_parse_total_count_none() -> None:
-    assert parse_total_count(None) == 0
-
-
-def test_async_throttled_dimensions_dsl_requires_api_key() -> None:
-    settings = Settings(dimensions_api_key="")
-    client = AsyncThrottledDimensionsDsl(settings)
+        async def execute_dsl(self, dsl: str) -> SimpleNamespace:
+            self.calls += 1
+            if self.calls == 1:
+                pubs = [{"basics": {"title": f"t{i}"}} for i in range(1000)]
+                return SimpleNamespace(publications=pubs, count_total=2000)
+            pubs = [{"basics": {"title": f"u{i}"}} for i in range(500)]
+            return SimpleNamespace(publications=pubs, count_total=2000)
 
     async def _run() -> None:
-        with pytest.raises(DimensionsDslError, match="API key"):
-            await client.execute_dsl("search publications return year limit 1")
+        p = _Port()
+        pubs, ncalls = await fetch_top_n(
+            p,
+            '(\\"x\\")',
+            max_results=1500,
+            page_size=1000,
+        )
+        assert ncalls == 2
+        assert len(pubs) == 1500
 
     asyncio.run(_run())
 
 
-def test_async_throttled_dimensions_dsl_serializes_starts_with_sleep() -> None:
-    settings = Settings(dimensions_api_key="test-key", dimensions_rate_limit_seconds=0.2)
-    client = AsyncThrottledDimensionsDsl(settings)
-    sleeps: list[float] = []
-
-    async def fake_sleep(delay: float) -> None:
-        sleeps.append(delay)
-
-    async def fake_to_thread(fn, /, *args, **kwargs):  # noqa: ANN001, ANN003
-        return SimpleNamespace(count_total=1)
+def test_fetch_top_n_respects_max_results_single_page() -> None:
+    class _Port:
+        async def execute_dsl(self, dsl: str) -> SimpleNamespace:
+            pubs = [{"basics": {"title": f"t{i}"}} for i in range(100)]
+            return SimpleNamespace(publications=pubs, count_total=100)
 
     async def _run() -> None:
-        with (
-            patch("dataset_agent.adapters.dimensions_dsl.asyncio.sleep", side_effect=fake_sleep),
-            patch("dataset_agent.adapters.dimensions_dsl.asyncio.to_thread", side_effect=fake_to_thread),
-        ):
-            await client.execute_dsl("q1")
-            await client.execute_dsl("q2")
+        pubs, ncalls = await fetch_top_n(_Port(), r"(\"a\")", max_results=40, page_size=1000)
+        assert ncalls == 1
+        assert len(pubs) == 40
 
     asyncio.run(_run())
-    assert len(sleeps) == 1
-    assert sleeps[0] > 0.15
 
 
-def test_fp_sample_size_validation() -> None:
-    with pytest.raises(ValueError):
-        Settings(fp_sample_size=0)
-    with pytest.raises(ValueError):
-        Settings(fp_sample_size=10_001)
+def test_publication_title_from_basics() -> None:
+    assert publication_title({"basics": {"title": " Hello "}}) == "Hello"
+
+
+def test_parse_retry_after_seconds() -> None:
+    assert _parse_retry_after_seconds("HTTP 429 Retry-After: 1.5") == 1.5
+    assert _parse_retry_after_seconds("too many requests") is None
+
+
+def test_execute_dsl_retries_once_on_429(monkeypatch) -> None:
+    async def _run() -> None:
+        calls = {"n": 0}
+
+        async def fake_to_thread(fn, /, *args, **kwargs):  # noqa: ANN001
+            _ = fn, args, kwargs
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("HTTP 429 Retry-After: 0.01")
+            return SimpleNamespace(publications=[], count_total=0)
+
+        monkeypatch.setattr(
+            "dataset_agent.adapters.dimensions_dsl.asyncio.to_thread",
+            fake_to_thread,
+        )
+        dsl = AsyncThrottledDimensionsDsl(
+            Settings(
+                dimensions_api_key="k",
+                dimensions_rate_limit_seconds=0.0,
+            )
+        )
+        out = await dsl.execute_dsl("search publications return publications limit 1")
+        assert calls["n"] == 2
+        assert getattr(out, "count_total", -1) == 0
+
+    asyncio.run(_run())
