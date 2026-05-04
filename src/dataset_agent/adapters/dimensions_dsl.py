@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Any, cast
 
 from dataset_agent.domain.ports import DimensionsDslPort
 from dataset_agent.settings import Settings
@@ -52,6 +52,61 @@ def build_publications_count_dsl(
         f'search publications in {search_in} for "{fragment}" '
         f"return publications[id] limit {lim}"
     )
+
+
+def build_search_publications_dsl(
+    for_clause: str,
+    *,
+    search_in: str = "full_data",
+    limit: int = 20,
+) -> str:
+    """Full Dimensions search for probing a ``for`` clause (titles + counts)."""
+    lim = max(1, int(limit))
+    return (
+        f'search publications in {search_in} for "{for_clause}" '
+        "return publications[basics+title+times_cited] "
+        f"sort by times_cited limit {lim}"
+    )
+
+
+def publications_from_result(result: object) -> list[dict]:
+    """Normalize dimcli ``.query`` payload to a list of publication dicts."""
+    if result is None:
+        return []
+    pubs: list[Any] = []
+    if hasattr(result, "get"):
+        got = result.get("publications", [])
+        pubs = cast(list[Any], got) if isinstance(got, list) else []
+    if not pubs and hasattr(result, "publications"):
+        raw = getattr(result, "publications", None) or []
+        pubs = cast(list[Any], raw) if isinstance(raw, list) else []
+    out: list[dict] = []
+    for p in pubs:
+        if isinstance(p, dict):
+            out.append(p)
+    return out
+
+
+def publication_title(pub: dict) -> str:
+    """Best-effort title from a Dimensions publication record."""
+    basics = pub.get("basics")
+    if isinstance(basics, dict):
+        t = basics.get("title")
+        if isinstance(t, str) and t.strip():
+            return t.strip()
+    t2 = pub.get("title")
+    return t2.strip() if isinstance(t2, str) else ""
+
+
+def top_titles_from_result(result: object, *, max_titles: int = 10) -> list[str]:
+    titles: list[str] = []
+    for pub in publications_from_result(result):
+        tt = publication_title(pub)
+        if tt:
+            titles.append(tt)
+        if len(titles) >= max_titles:
+            break
+    return titles
 
 
 def parse_total_count(result: object) -> int:
