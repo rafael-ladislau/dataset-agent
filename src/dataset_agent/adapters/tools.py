@@ -157,6 +157,31 @@ EMIT_FLAG_TERMS: dict = {
     },
 }
 
+EMIT_SUBDATASET_ALIASES: dict = {
+    "name": "emit_subdataset_aliases",
+    "description": (
+        "Split dataset aliases into those that refer to this dataset product versus "
+        "versions/sub-products that should be separate records. Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "keep_aliases": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Aliases that still refer to this dataset (max 40 strings).",
+            },
+            "remove_aliases": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Aliases to drop (different cohort/version/sub-product).",
+            },
+        },
+        "required": ["keep_aliases", "remove_aliases"],
+        "additionalProperties": False,
+    },
+}
+
 EMIT_RELEVANCE_SCORE: dict = {
     "name": "emit_relevance_score",
     "description": (

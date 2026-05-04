@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 
 def description_and_home_url_prompt(dataset_name: str, dataset_url: str | None) -> str:
     """Combined prompt: discover description AND official home URL in one call."""
@@ -64,11 +66,30 @@ def aliases_prompt(
     description: str,
     home_url: str | None,
     organizations: list[str] | None = None,
+    dataset_url: str | None = None,
 ) -> str:
     """Find aliases/citation forms for the dataset."""
     url_hint = f"Official site: {home_url}" if home_url else ""
+    ref_url = (dataset_url or "").strip() or None
+    ref_hint = f"Reference URL (use in web_search): {ref_url}" if ref_url else ""
     orgs_hint = f"Known organizations: {', '.join(organizations[:5])}" if organizations else ""
-    context = "\n".join(filter(None, [url_hint, orgs_hint]))
+    context = "\n".join(filter(None, [url_hint, ref_hint, orgs_hint]))
+
+    host = None
+    if ref_url:
+        try:
+            host = urlparse(ref_url).hostname
+        except ValueError:
+            host = None
+    search_lines = [
+        f'Use web_search: "{dataset_name} abbreviation acronym alternative name"',
+    ]
+    if host:
+        search_lines.append(
+            f'Also use web_search: "{dataset_name} acronym OR abbreviation site:{host}"',
+        )
+
+    search_block = "\n".join(search_lines)
 
     return f"""Find alternative names and acronyms for the dataset '{dataset_name}'.
 
@@ -93,11 +114,33 @@ For "American Community Survey":
 - DO NOT include citation formats (no "APA:", "MLA:", "Retrieved from")
 - DO NOT include explanatory notes or commentary
 
-Use web_search: "{dataset_name} abbreviation acronym alternative name"
+{search_block}
 
 ===YOUR TASK===
 Return a Python list for '{dataset_name}':
 ["Full Name", "ACRONYM", "Alternative Name"]"""
+
+
+def subdataset_aliases_prompt(dataset_name: str, aliases: list[str]) -> str:
+    """Ask the model to strip version/sub-product aliases that belong to separate datasets."""
+    lines = "\n".join(f"  - {a!r}" for a in aliases[:40])
+    if not lines:
+        lines = "  (none)"
+
+    return f"""You are curating **search aliases** for the single dataset product: {dataset_name!r}.
+
+Below are candidate aliases. Some entries may refer to **different waves, versions, or sub-products**
+that should be tracked as **separate datasets** (e.g. NLSY79 vs NLSY97, or a spin-off extract),
+not merged into this dataset's alias list.
+
+Aliases:
+{lines}
+
+Use the emit_subdataset_aliases tool **exactly once** with:
+- keep_aliases: aliases that legitimately refer to **this** dataset product (same program, same scope)
+- remove_aliases: aliases that are clearly a **different cohort/version/sub-product** or unrelated product
+
+If unsure, prefer **keeping** the alias (false negatives are safer than dropping valid names)."""
 
 
 def refine_dataset_aliases_prompt(

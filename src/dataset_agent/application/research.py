@@ -13,12 +13,20 @@ from dataset_agent.adapters.tools import TOOL_DEFINITIONS
 from dataset_agent.adapters.organizations import process_organizations
 from dataset_agent.adapters.text_processing import (
     clean_description,
+    dedupe_strings_ci_preserve_order,
     filter_aliases_by_substrings,
+    hostname_from_http_url,
+    is_alias_likely_sentence,
+    is_alias_version_token_only,
+    is_whole_alias_generic_token,
     normalize_access_label,
+    remove_compound_aliases,
 )
 from dataset_agent.adapters.dataset_aliases import (
+    detect_subdataset_aliases,
     refine_dataset_names_with_llm,
     refine_flag_terms_with_llm,
+    validate_no_flag_alias_overlap,
 )
 from dataset_agent.adapters.literature import evaluate_terms_with_llm
 from dataset_agent.domain.models import (
@@ -45,6 +53,9 @@ class LiteratureGateFailed(RuntimeError):
     """Raised when literature screening fails after all attempts."""
 
 
+_MAX_ALIAS_LEN = 80
+
+
 def _filter_alias_entries(aliases: list[str], organizations: list[str]) -> list[str]:
     _ = organizations  # reserved for future rules
     processed: list[str] = []
@@ -61,6 +72,15 @@ def _filter_alias_entries(aliases: list[str], organizations: list[str]) -> list[
             or "doi.org" in a.lower()
             or re.search(r"doi:\s*[\d./]+", a.lower())
         )
+        if not is_url_or_id:
+            if len(a) > _MAX_ALIAS_LEN:
+                continue
+            if is_alias_version_token_only(a):
+                continue
+            if is_whole_alias_generic_token(a):
+                continue
+            if is_alias_likely_sentence(a):
+                continue
         if is_url_or_id:
             processed.append(a)
             continue
@@ -72,6 +92,8 @@ def _filter_alias_entries(aliases: list[str], organizations: list[str]) -> list[
         )
         if len(s) >= 2:
             processed.append(s)
+    processed = dedupe_strings_ci_preserve_order(processed)
+    processed = remove_compound_aliases(processed)
     return filter_aliases_by_substrings(processed)
 
 
@@ -230,7 +252,7 @@ class DatasetResearchUseCase:
         # Step 1: Description + Home URL (combined, 1 LLM call)
         logger.info("Step 1/6: description + home_url (LLM + web search)")
         desc_home_raw = self._agent.get_information(
-            prompts.description_and_home_url_prompt(name, None),
+            prompts.description_and_home_url_prompt(name, request.dataset_url),
             tools=TOOL_DEFINITIONS,
         )
         sections = self._extractor.extract_sections(desc_home_raw)
@@ -299,12 +321,23 @@ class DatasetResearchUseCase:
         # Step 5: Aliases (1 LLM call, uses orgs + home_url context)
         logger.info("Step 5/6: aliases (LLM)")
         alias_raw = self._agent.get_information(
-            prompts.aliases_prompt(name, description, home_url, flag_terms),
+            prompts.aliases_prompt(
+                name,
+                description,
+                home_url,
+                flag_terms,
+                dataset_url=request.dataset_url,
+            ),
             tools=TOOL_DEFINITIONS,
         )
         logger.debug("Aliases raw output: %r", alias_raw[:500] if alias_raw else "")
         aliases = self._extractor.extract_list(alias_raw)
         logger.debug("Aliases extracted list: %r", aliases)
+        ref_for_host = (request.dataset_url or "").strip() or (home_url or "")
+        host_alias = hostname_from_http_url(ref_for_host)
+        if host_alias and host_alias.lower() not in {str(a).lower() for a in aliases if a}:
+            aliases.append(host_alias)
+            logger.info("Added hostname as alias candidate: %s", host_alias)
         if name not in aliases and name.lower() not in {a.lower() for a in aliases}:
             aliases.append(name)
         dataset_names = _filter_alias_entries(aliases, flag_terms)
@@ -325,6 +358,27 @@ class DatasetResearchUseCase:
                 len(names_before_refine),
             )
             dataset_names = names_before_refine
+        dataset_names, flag_terms, overlap_removed = validate_no_flag_alias_overlap(
+            dataset_names,
+            flag_terms,
+        )
+        if overlap_removed:
+            logger.info(
+                "Removed %s aliases overlapping flag_terms (sample=%r)",
+                len(overlap_removed),
+                overlap_removed[:5],
+            )
+        dataset_names, sub_removed = detect_subdataset_aliases(
+            self._agent,
+            name,
+            dataset_names,
+        )
+        if sub_removed:
+            logger.info(
+                "Subdataset alias filter removed %s entries (sample=%r)",
+                len(sub_removed),
+                sub_removed[:8],
+            )
         logger.info("Step 6 done: %s dataset name aliases for literature", len(dataset_names))
 
         logger.info("Building DatasetRecord with config defaults")
