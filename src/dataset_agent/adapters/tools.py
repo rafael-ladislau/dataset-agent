@@ -397,6 +397,46 @@ EMIT_WEB_ALIAS_MEANINGS: dict = {
     },
 }
 
+EMIT_SUB_PRODUCT_NAMES: dict = {
+    "name": "emit_sub_product_names",
+    "description": (
+        "Return distinct sub-product or module names found on the dataset homepage "
+        "(e.g. QWI, LODES under LEHD). Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "names": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Short product/module names only (max 20).",
+            },
+        },
+        "required": ["names"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_MULTILINGUAL_ALIASES: dict = {
+    "name": "emit_multilingual_aliases",
+    "description": (
+        "Return alternate spellings or translations of the dataset title for search "
+        "(accented/unaccented, other languages). Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "aliases": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Additional citation forms (max 25).",
+            },
+        },
+        "required": ["aliases"],
+        "additionalProperties": False,
+    },
+}
+
 EMIT_RELEVANCE_SCORE: dict = {
     "name": "emit_relevance_score",
     "description": (

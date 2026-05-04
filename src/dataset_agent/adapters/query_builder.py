@@ -13,6 +13,7 @@ from dataset_agent.adapters.dimensions_dsl import (
     parse_total_count,
     top_titles_from_result,
 )
+from dataset_agent.adapters.query_heuristics import apply_short_acronym_heuristic
 from dataset_agent.domain.ports import DimensionsDslPort
 
 VariantId = Literal["V1", "V2", "V3", "V4", "V5"]
@@ -134,6 +135,7 @@ def default_variant_build_order(
     """Return ``(variant, for_clause)`` pairs to probe in a typical optimization pass."""
     st = _clean(safe)
     rk = _clean(risky)
+    st, rk = apply_short_acronym_heuristic(st, rk)
     fl = _clean(flag_terms)
     ex = _clean(exclusion_terms)
     th = tier_hybrid_terms

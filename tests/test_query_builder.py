@@ -69,8 +69,8 @@ def test_readable_strips_escapes() -> None:
 
 def test_default_variant_order_skips_v2_by_default() -> None:
     seq = default_variant_build_order(
-        safe=["A", "B"],
-        risky=["X"],
+        safe=["Dataset Alpha Long", "Dataset Beta Long"],
+        risky=["XRisky"],
         flag_terms=["f1"],
         exclusion_terms=["noise"],
     )
@@ -80,8 +80,8 @@ def test_default_variant_order_skips_v2_by_default() -> None:
 
 def test_default_variant_includes_v2_when_asked() -> None:
     seq = default_variant_build_order(
-        safe=["A"],
-        risky=["X"],
+        safe=["Dataset Longname"],
+        risky=["XRisky"],
         flag_terms=["f"],
         exclusion_terms=[],
         include_v2_diagnostic=True,
