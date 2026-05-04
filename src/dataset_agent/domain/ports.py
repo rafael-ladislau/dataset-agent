@@ -80,6 +80,15 @@ class LiteratureGatePort(ABC):
         pass
 
 
+class DimensionsDslPort(ABC):
+    """Execute Dimensions DSL queries with rate limiting (async implementations)."""
+
+    @abstractmethod
+    async def execute_dsl(self, dsl: str) -> Any:
+        """Run a DSL string; must enforce ``Settings.dimensions_rate_limit_seconds`` between query starts."""
+        pass
+
+
 class TaskStatus:
     PENDING = "pending"
     PROCESSING = "processing"

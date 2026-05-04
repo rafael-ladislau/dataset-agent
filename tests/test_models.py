@@ -5,8 +5,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from dataset_agent.domain.models import (
+    ConfidenceLevel,
     DatasetRecord,
     Group,
+    OptimizeRequest,
+    QueryOptimizationRecord,
     ResearchRequest,
     ValidationRequest,
     YearsRange,
@@ -47,6 +50,26 @@ def test_research_request_defaults_include_llm_batch_size() -> None:
     req = ResearchRequest(dataset_name="Dataset X")
     assert req.sample_size == 10
     assert req.llm_batch_size == 25
+    assert req.dataset_url is None
+
+
+def test_research_request_dataset_url_stripped() -> None:
+    req = ResearchRequest(dataset_name="X", dataset_url="  https://a.example  ")
+    assert req.dataset_url == "https://a.example"
+
+
+def test_optimize_request_and_record_defaults() -> None:
+    body = OptimizeRequest(dataset_name="  CPS  ", dataset_url=" https://census.gov ")
+    assert body.dataset_name == "CPS"
+    assert body.dataset_url == "https://census.gov"
+    rec = QueryOptimizationRecord(
+        success=False,
+        failed_phase="phase3",
+        errors=["Dimensions timeout"],
+        confidence=ConfidenceLevel.LOW,
+    )
+    assert rec.schema_version == 1
+    assert rec.aliases.safe == []
 
 
 def test_validation_request_accepts_sample_size_up_to_1000() -> None:

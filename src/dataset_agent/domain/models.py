@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -68,11 +68,25 @@ class ResearchRequest(BaseModel):
         le=1000,
         description="Maximum lexical candidates sent to LLM validation (0-1000)",
     )
+    dataset_url: Optional[str] = Field(
+        default=None,
+        description="Optional official dataset URL (used for alias discovery / optimize pipeline)",
+    )
 
     @field_validator("dataset_name", mode="before")
     @classmethod
     def _strip_dataset_name(cls, v: object) -> object:
         return v.strip() if isinstance(v, str) else v
+
+    @field_validator("dataset_url", mode="before")
+    @classmethod
+    def _strip_dataset_url(cls, v: object) -> object:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s or None
+        return v
 
 
 class ValidationRequest(BaseModel):
@@ -98,6 +112,102 @@ class ValidationRequest(BaseModel):
         default_factory=list,
         description="Terms to exclude from Dimensions query / filtering on retry",
     )
+
+
+class ConfidenceLevel(str, Enum):
+    """Aggregate confidence for the selected Dimensions query variant."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class OptimizeRequest(BaseModel):
+    """Input for the Query Optimization pipeline (POST /optimize)."""
+
+    dataset_name: str = Field(..., min_length=1)
+    dataset_url: Optional[str] = Field(
+        default=None,
+        description="Official dataset page URL (strong signal for aliases and heuristics)",
+    )
+    dataset_names: list[str] = Field(
+        default_factory=list,
+        description="Optional override: seed aliases instead of running full research",
+    )
+    flag_terms: list[str] = Field(
+        default_factory=list,
+        description="Optional override: seed flag terms",
+    )
+    exclude_terms: list[str] = Field(
+        default_factory=list,
+        description="Optional seed exclusions before FP analysis",
+    )
+
+    @field_validator("dataset_name", mode="before")
+    @classmethod
+    def _strip_opt_dataset_name(cls, v: object) -> object:
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("dataset_url", mode="before")
+    @classmethod
+    def _strip_opt_dataset_url(cls, v: object) -> object:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s or None
+        return v
+
+
+class QueryOptimizationAliases(BaseModel):
+    """Alias buckets after risk classification."""
+
+    safe: list[str] = Field(default_factory=list)
+    risky: list[str] = Field(default_factory=list)
+
+
+class AliasCountEntry(BaseModel):
+    """Per-alias publication count and risk label."""
+
+    alias: str
+    count: int = Field(ge=0)
+    risk: Literal["safe", "risky"]
+
+
+class VariantTestedEntry(BaseModel):
+    """One tested query variant (V1/V3/V4, etc.)."""
+
+    label: str
+    for_clause: str
+    expected_count: Optional[int] = Field(default=None, ge=0)
+    fp_rate_pct: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+    top_titles: list[str] = Field(default_factory=list)
+
+
+class QueryOptimizationRecord(BaseModel):
+    """Output of the Query Optimization Agent (see docs/spec-gap-analysis.md §2.1)."""
+
+    schema_version: int = Field(default=1, ge=1, description="JSON contract version for clients")
+    success: bool = Field(default=True, description="False if the pipeline aborted or degraded")
+    failed_phase: Optional[str] = Field(
+        default=None,
+        description="Last completed phase name when success is false (e.g. phase1_alias_counting)",
+    )
+    errors: list[str] = Field(default_factory=list, description="Human-readable error messages")
+
+    selected_variant: Optional[str] = None
+    for_clause: Optional[str] = None
+    dsl_query: Optional[str] = None
+    expected_count: Optional[int] = Field(default=None, ge=0)
+    fp_rate_pct: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+    confidence: Optional[ConfidenceLevel] = None
+
+    aliases: QueryOptimizationAliases = Field(default_factory=QueryOptimizationAliases)
+    alias_counts: list[AliasCountEntry] = Field(default_factory=list)
+    flag_terms: list[str] = Field(default_factory=list)
+    exclusion_terms: list[str] = Field(default_factory=list)
+    all_variants_tested: list[VariantTestedEntry] = Field(default_factory=list)
+    notes: str = ""
 
 
 class DatasetRecord(BaseModel):

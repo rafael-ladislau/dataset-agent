@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,3 +42,17 @@ class Settings(BaseSettings):
     literature_max_attempts: int = 3
     literature_threshold: float = 0.5
     dimensions_api_key: str = ""
+
+    #: Minimum interval between consecutive Dimensions DSL query *starts* (serial throttle).
+    dimensions_rate_limit_seconds: float = 2.1
+    #: Publications sample size for false-positive verification (capped at 10_000).
+    fp_sample_size: int = 1000
+    #: Hard cap on Dimensions calls per optimize run (0 = no extra cap beyond use-case logic).
+    optimize_max_dimensions_calls: int = Field(default=64, ge=0)
+
+    @field_validator("fp_sample_size")
+    @classmethod
+    def _fp_sample_size_bounds(cls, v: int) -> int:
+        if v < 1 or v > 10_000:
+            raise ValueError("fp_sample_size must be between 1 and 10000")
+        return v
