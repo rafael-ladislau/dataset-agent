@@ -54,6 +54,20 @@ def build_publications_count_dsl(
     )
 
 
+def build_for_clause_count_dsl(
+    for_clause: str,
+    *,
+    search_in: str = "full_data",
+    limit: int = 1,
+) -> str:
+    """Total hit count DSL for an arbitrary boolean ``for`` clause (scope comparison, etc.)."""
+    lim = max(1, int(limit))
+    return (
+        f'search publications in {search_in} for "{for_clause}" '
+        f"return publications[id] limit {lim}"
+    )
+
+
 def build_search_publications_dsl(
     for_clause: str,
     *,

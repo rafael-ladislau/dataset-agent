@@ -182,6 +182,221 @@ EMIT_SUBDATASET_ALIASES: dict = {
     },
 }
 
+EMIT_FP_ANALYSIS: dict = {
+    "name": "emit_fp_analysis",
+    "description": (
+        "Return false-positive domains for a risky alias in scientific literature. "
+        "Call exactly once with structured domains and indicator keywords per domain."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "domains": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "domain_name": {
+                            "type": "string",
+                            "description": "Short FP domain label (e.g. biochemistry).",
+                        },
+                        "indicator_terms": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Terms that signal this FP domain in titles/abstracts (max 20).",
+                        },
+                    },
+                    "required": ["domain_name", "indicator_terms"],
+                    "additionalProperties": False,
+                },
+                "description": "Non-empty list of FP collision domains for the alias.",
+            },
+        },
+        "required": ["domains"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_FLAG_TERMS_FOR_ALIAS: dict = {
+    "name": "emit_flag_terms_for_alias",
+    "description": (
+        "Return context flag terms that indicate the paper is about the target dataset "
+        "when a risky alias appears. Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "flag_terms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Domain-positive terms (max 20 strings).",
+            },
+        },
+        "required": ["flag_terms"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_DOMAIN_POSITIVE_KEYWORDS: dict = {
+    "name": "emit_domain_positive_keywords",
+    "description": (
+        "Return short override keywords: if they appear in a title, treat as dataset-relevant. "
+        "Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "keywords": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Override keywords (max 15).",
+            },
+        },
+        "required": ["keywords"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_TITLE_RELEVANCE: dict = {
+    "name": "emit_title_relevance",
+    "description": (
+        "Signal 3: score how relevant a single publication title is to the dataset. "
+        "Call exactly once per title."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "mention_score": {
+                "type": "integer",
+                "description": "0–10: clear mention of this dataset vs unrelated use of terms.",
+            },
+            "context_score": {
+                "type": "integer",
+                "description": "0–10: domain match (uses/analyzes/references this dataset's data).",
+            },
+            "mentioned_term": {
+                "type": "string",
+                "description": "Best matching term or empty string.",
+            },
+            "reason": {
+                "type": "string",
+                "description": "Brief justification (max 25 words).",
+            },
+        },
+        "required": ["mention_score", "context_score", "mentioned_term", "reason"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_QUERY_VARIANTS: dict = {
+    "name": "emit_query_variants",
+    "description": (
+        "Summarize tested Dimensions query variants (counts, FP rates). Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "variants": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string"},
+                        "expected_count": {"type": "integer"},
+                        "fp_rate_pct": {"type": "number"},
+                        "notes": {"type": "string"},
+                    },
+                    "required": ["label", "expected_count", "fp_rate_pct", "notes"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["variants"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_ALIAS_MENTION_CLASSIFICATION: dict = {
+    "name": "emit_alias_mention_classification",
+    "description": (
+        "Decide whether an alias mention in an abstract refers to the target dataset "
+        "or a false positive. Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "is_genuine_dataset_reference": {
+                "type": "boolean",
+                "description": "True if the mention is about the target dataset product.",
+            },
+            "confidence": {
+                "type": "integer",
+                "description": "0–10 self-rated confidence in the classification.",
+            },
+            "reason": {
+                "type": "string",
+                "description": "One short sentence explaining the decision.",
+            },
+        },
+        "required": ["is_genuine_dataset_reference", "confidence", "reason"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_EXCLUDE_TERMS: dict = {
+    "name": "emit_exclude_terms",
+    "description": (
+        "Return NOT-clause candidate phrases derived from confirmed false-positive contexts. "
+        "Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "exclude_terms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Phrases for Dimensions post-filter or DSL NOT (max 25).",
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "Brief summary of how terms were chosen (max 40 words).",
+            },
+        },
+        "required": ["exclude_terms", "reasoning"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_WEB_ALIAS_MEANINGS: dict = {
+    "name": "emit_web_alias_meanings",
+    "description": (
+        "After reviewing web search hits, list alternative meanings of an ambiguous term "
+        "as domains with candidate exclude terms. Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "domains": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "domain_name": {"type": "string"},
+                        "candidate_exclude_terms": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                    "required": ["domain_name", "candidate_exclude_terms"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["domains"],
+        "additionalProperties": False,
+    },
+}
+
 EMIT_RELEVANCE_SCORE: dict = {
     "name": "emit_relevance_score",
     "description": (
