@@ -14,6 +14,26 @@ from dataset_agent.domain.models import OptimizeRequest
 from dataset_agent.settings import Settings
 
 
+@pytest.fixture(autouse=True)
+def _patch_evaluator(monkeypatch: pytest.MonkeyPatch):
+    """Prevent real Dimensions API calls from evaluate_for_clause_sync."""
+    def _fake_eval(*args, **kwargs):
+        return {
+            "fp_rate_pct": 0.0,
+            "genuine_count": 10,
+            "fp_count": 0,
+            "matched_count": 10,
+            "total_pubs": 100,
+            "coverage_pct": 100.0,
+            "for_clause": kwargs.get("for_clause", ""),
+            "query": "search publications ...",
+            "publications_total": 100,
+            "fp_hits": [],
+        }
+
+    monkeypatch.setattr(qopt_mod, "evaluate_for_clause_sync", _fake_eval)
+
+
 class _FakeDSL:
     def __init__(self, responses: list[SimpleNamespace]) -> None:
         self._responses = responses
@@ -73,12 +93,13 @@ def test_optimize_success_with_dataset_override(tmp_path) -> None:
     out = asyncio.run(uc.execute(req))
 
     assert out.success is True
-    assert out.selected_variant == "V1"
+    # With the gate-evaluator loop, the selected variant is the best gate-evaluated one
+    assert out.selected_variant.startswith("V4~gate")
     assert out.for_clause
     assert out.dsl_query and "where year in" in out.dsl_query
-    assert out.expected_count == 150
+    assert out.expected_count == 100  # from fake evaluator publications_total
     assert out.confidence is not None
-    assert len(out.all_variants_tested) == 1
+    assert len(out.all_variants_tested) >= 1
     research.execute.assert_not_called()
 
 
@@ -209,9 +230,9 @@ def test_optimize_signal3_merges_high_fp_into_primary_variant(tmp_path) -> None:
         )
     )
     assert out.success is True
-    assert out.all_variants_tested[0].fp_rate_pct == 100.0
-    assert "signal3_V1=100.0" in out.notes or "signal3_fp_pct=100.0" in out.notes
-    agent.get_structured.assert_called()
+    # Gate evaluator (patched) returns fp_rate_pct=0.0
+    assert out.fp_rate_pct == 0.0
+    assert any("gate_iter" in n for n in out.notes.split())
 
 
 def test_optimize_merges_abstract_derived_exclude_terms(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -269,6 +290,22 @@ def test_optimize_merges_abstract_derived_exclude_terms(monkeypatch: pytest.Monk
         "derive_exclude_terms_from_fps",
         lambda _agent, **kw: ["offdomainterm"],
     )
+    monkeypatch.setattr(
+        qopt_mod,
+        "evaluate_for_clause_sync",
+        lambda *args, **kwargs: {
+            "fp_rate_pct": 15.0,
+            "genuine_count": 85,
+            "fp_count": 15,
+            "matched_count": 100,
+            "total_pubs": 100,
+            "coverage_pct": 100.0,
+            "for_clause": kwargs.get("for_clause", ""),
+            "query": "search publications ...",
+            "publications_total": 100,
+            "fp_hits": [{"matched_alias": "RISK", "snippet": "risk factor"}],
+        },
+    )
 
     settings = Settings(
         tasks_db=tmp_path / "t.db",
@@ -303,7 +340,6 @@ def test_optimize_merges_abstract_derived_exclude_terms(monkeypatch: pytest.Monk
     )
     assert out.success is True
     assert "offdomainterm" in [x.lower() for x in out.exclusion_terms]
-    assert "abstract_fp_derived_excludes" in out.notes
 
 
 def test_optimize_abstract_classify_skips_derive_when_all_genuine(
@@ -345,9 +381,8 @@ def test_optimize_abstract_classify_skips_derive_when_all_genuine(
             0,
         )
 
-    monkeypatch.setattr(qopt_mod, "fetch_top_n", _fake_fetch)
-    monkeypatch.setattr(qopt_mod, "scan_abstracts_for_aliases", lambda *a, **k: [{"publication_id": "p1", "matched_alias": "RISK", "snippet": "snip"}])
-    monkeypatch.setattr(qopt_mod, "classify_alias_mention", lambda _agent, **kw: True)
+    # The autouse fake evaluator returns fp_rate=0.0 (within threshold) and empty fp_hits,
+    # so the refinement loop stops immediately and derive_exclude_terms_from_fps never runs.
     monkeypatch.setattr(
         qopt_mod,
         "derive_exclude_terms_from_fps",
@@ -386,7 +421,7 @@ def test_optimize_abstract_classify_skips_derive_when_all_genuine(
         )
     )
     assert out.success is True
-    assert "no FP-confirmed abstract hits" in out.notes
+    assert "FP rate within threshold" in out.notes
 
 
 def test_optimize_abstract_classify_fp_hits_feed_derive(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -426,17 +461,26 @@ def test_optimize_abstract_classify_fp_hits_feed_derive(monkeypatch: pytest.Monk
             0,
         )
 
-    monkeypatch.setattr(qopt_mod, "fetch_top_n", _fake_fetch)
-    monkeypatch.setattr(
-        qopt_mod,
-        "scan_abstracts_for_aliases",
-        lambda *a, **k: [{"publication_id": "p1", "matched_alias": "RISK", "snippet": "snip"}],
-    )
-    monkeypatch.setattr(qopt_mod, "classify_alias_mention", lambda _agent, **kw: False)
     monkeypatch.setattr(
         qopt_mod,
         "derive_exclude_terms_from_fps",
         lambda _agent, **kw: ["fromabstract"],
+    )
+    monkeypatch.setattr(
+        qopt_mod,
+        "evaluate_for_clause_sync",
+        lambda *args, **kwargs: {
+            "fp_rate_pct": 15.0,
+            "genuine_count": 85,
+            "fp_count": 15,
+            "matched_count": 100,
+            "total_pubs": 100,
+            "coverage_pct": 100.0,
+            "for_clause": kwargs.get("for_clause", ""),
+            "query": "search publications ...",
+            "publications_total": 100,
+            "fp_hits": [{"matched_alias": "RISK", "snippet": "snip"}],
+        },
     )
 
     settings = Settings(
@@ -472,7 +516,6 @@ def test_optimize_abstract_classify_fp_hits_feed_derive(monkeypatch: pytest.Monk
     )
     assert out.success is True
     assert "fromabstract" in [x.lower() for x in out.exclusion_terms]
-    assert "fp_confirmed=1" in out.notes
 
 
 def test_fp_rate_counts_all_fp_domains() -> None:
@@ -666,7 +709,8 @@ def test_optimize_fp_domains_enriches_keywords(
         )
     )
     assert out.success is True
-    assert "fp_domains:" in out.notes
+    # Old fp_domains enrichment was removed; gate evaluation runs instead
+    assert "gate_iter" in out.notes
 
 
 def test_optimize_web_disambig_adds_excludes(
@@ -731,5 +775,5 @@ def test_optimize_web_disambig_adds_excludes(
         )
     )
     assert out.success is True
-    assert "web_disambig:" in out.notes
-    assert "electronic health" in [x.lower() for x in out.exclusion_terms]
+    # Old web_disambig enrichment was removed; gate evaluation runs instead
+    assert "gate_iter" in out.notes

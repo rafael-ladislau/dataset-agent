@@ -250,6 +250,11 @@ class DatasetRecord(BaseModel):
         default=None,
         description="Dimensions DSL used for literature/publication count lookup",
     )
+    alias_collisions: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Collision domains from web disambiguation → candidate exclude terms",
+    )
+    query_optimization: Optional[QueryOptimizationRecord] = None
     retry_validation: Optional[ValidationRequest] = Field(
         default=None,
         description="Suggested POST /validate body for a follow-up run (set by /validate only)",
@@ -310,4 +315,6 @@ def build_record_from_pipeline(
         relationship_type="official_name",
         official_name_reasoning=reasoning,
         webhook_url=request.webhook_url,
+        alias_collisions={},
+        query_optimization=None,
     )

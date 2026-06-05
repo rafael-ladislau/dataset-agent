@@ -5,6 +5,10 @@ from __future__ import annotations
 from collections import Counter
 import logging
 import re
+import time
+from typing import Any
+from dataset_agent.adapters.dimensions_dsl import parse_total_count, publication_title, publications_from_result
+from dataset_agent.adapters.fp_analysis import classify_alias_mention
 from dataset_agent.adapters.tools import EMIT_RELEVANCE_SCORE, EMIT_TERMS_EVALUATION
 from dataset_agent.domain.ports import AgentPort, LiteratureGatePort, LiteratureGateResult
 
@@ -837,6 +841,256 @@ def promote_dimensions_metrics_from_detail(record: DatasetRecord, detail: dict) 
         record.publications_total = detail.get("publications_total")
 
 
+def _stem_text(text: str) -> str:
+    """Light custom stem: lowercase, fold punctuation, collapse whitespace."""
+    s = (text or "").lower()
+    s = re.sub(r"[^\w\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _pub_text(pub: dict) -> str:
+    """Concatenate title + abstract for stem matching."""
+    title = publication_title(pub)
+    abstract = ""
+    basics = pub.get("basics")
+    if isinstance(basics, dict):
+        abstract = basics.get("abstract") or ""
+    if not abstract:
+        abstract = pub.get("abstract") or ""
+    return f"{title} {abstract}"
+
+
+def _find_matched_alias(pub: dict, aliases: list[str]) -> str:
+    """Return the first alias whose stem appears in the publication text."""
+    text = _stem_text(_pub_text(pub))
+    for alias in aliases:
+        if alias and _stem_text(alias) in text:
+            return alias
+    return ""
+
+
+def _extract_snippet(text: str, alias: str, radius: int = 300) -> str:
+    """Extract ~radius chars around the alias occurrence."""
+    idx = text.lower().find(alias.lower())
+    if idx == -1:
+        return (text or "")[:600]
+    start = max(0, idx - radius)
+    end = min(len(text), idx + len(alias) + radius)
+    return text[start:end]
+
+
+def _build_for_clause_from_record(record: DatasetRecord) -> str:
+    """Build a V4 for-clause from the record's terms."""
+    from dataset_agent.adapters.query_builder import build_for_clause
+
+    terms = [record.main_dataset_name] + list(record.dataset_names or [])
+    terms = [t for t in terms if t and len(t) > 2]
+    flags = [t for t in (record.flag_terms or []) if t and len(t) > 2]
+    excludes = [t for t in (record.exclude_terms or []) if t and len(t) > 2]
+    if not terms:
+        return ""
+    return build_for_clause(
+        safe=terms,
+        variant="V4",
+        flag_terms=flags,
+        exclusion_terms=excludes,
+    )
+
+
+def evaluate_for_clause_sync(
+    for_clause: str,
+    aliases: list[str],
+    dataset_name: str,
+    settings: Settings,
+    agent: AgentPort | None = None,
+) -> dict:
+    """
+    Sync candidate-DSL evaluator.
+
+    Pulls up to *fp_sample_size* pubs, matches alias stems in title+abstract,
+    conditionally resolves reference_ids, classifies matched pubs, and returns
+    FP metrics.
+    """
+    try:
+        import dimcli  # type: ignore[import-not-found]
+    except ImportError:
+        return {
+            "fp_rate_pct": 0.0,
+            "genuine_count": 0,
+            "matched_count": 0,
+            "total_pubs": 0,
+            "error": "dimcli_not_installed",
+        }
+
+    api_key = (settings.dimensions_api_key or "").strip()
+    if not api_key:
+        return {
+            "fp_rate_pct": 0.0,
+            "genuine_count": 0,
+            "matched_count": 0,
+            "total_pubs": 0,
+            "error": "no_api_key",
+        }
+
+    pull_size = min(int(settings.fp_sample_size), 1000)
+    q = (
+        f'search publications in full_data for "{for_clause}" '
+        f"return publications[basics+title+abstract+reference_ids+times_cited] "
+        f"sort by times_cited limit {pull_size}"
+    )
+
+    dimcli.login(key=api_key)
+    dsl_client = dimcli.Dsl()
+    result = dsl_client.query(q)
+    total = parse_total_count(result)
+    pubs = publications_from_result(result)
+
+    if not pubs:
+        return {
+            "fp_rate_pct": 0.0,
+            "genuine_count": 0,
+            "matched_count": 0,
+            "total_pubs": 0,
+            "coverage_pct": 0.0,
+            "for_clause": for_clause,
+            "query": q,
+            "publications_total": total,
+        }
+
+    alias_stems = [_stem_text(a) for a in aliases if a]
+
+    matched: list[dict] = []
+    nonmatched: list[dict] = []
+    for pub in pubs:
+        text = _stem_text(_pub_text(pub))
+        if any(stem in text for stem in alias_stems):
+            matched.append(pub)
+        else:
+            nonmatched.append(pub)
+
+    coverage = 100.0 * len(matched) / len(pubs) if pubs else 0.0
+
+    # Resolve references only when title+abstract coverage is below threshold
+    if (
+        coverage < settings.gate_ref_min_title_abstract_match_pct
+        and settings.gate_ref_resolution_enabled
+        and nonmatched
+    ):
+        ref_ids: list[str] = []
+        for pub in nonmatched:
+            refs = pub.get("reference_ids") or []
+            if isinstance(refs, list):
+                ref_ids.extend(str(r) for r in refs if r)
+        # dedupe while preserving order
+        seen: set[str] = set()
+        unique_refs: list[str] = []
+        for rid in ref_ids:
+            if rid not in seen:
+                seen.add(rid)
+                unique_refs.append(rid)
+
+        cap = settings.gate_ref_max_unique_ids
+        batch = settings.gate_ref_batch_size
+        ref_titles: dict[str, str] = {}
+        from dataset_agent.adapters.dimensions_dsl import sanitize_alias
+
+        for i in range(0, min(len(unique_refs), cap), batch):
+            chunk = unique_refs[i : i + batch]
+            id_list = ", ".join(f'"{sanitize_alias(rid)}"' for rid in chunk)
+            ref_q = f"search publications where id in [{id_list}] return publications[id+title]"
+            try:
+                ref_result = dsl_client.query(ref_q)
+                for rp in publications_from_result(ref_result):
+                    pid = str(rp.get("id", "")).strip()
+                    t = publication_title(rp)
+                    if pid and t:
+                        ref_titles[pid] = t
+            except Exception as exc:
+                logger.warning("Reference resolution batch failed: %s", exc)
+            # tiny throttle between reference batches
+            time.sleep(0.1)
+
+        # Promote pubs whose references match an alias stem
+        still_nonmatched: list[dict] = []
+        for pub in nonmatched:
+            refs = pub.get("reference_ids") or []
+            promoted = False
+            if isinstance(refs, list):
+                for rid in refs:
+                    title = ref_titles.get(str(rid))
+                    if title and any(stem in _stem_text(title) for stem in alias_stems):
+                        matched.append(pub)
+                        promoted = True
+                        break
+            if not promoted:
+                still_nonmatched.append(pub)
+        nonmatched = still_nonmatched
+
+    # Classify matched pubs (sampled/capped)
+    fp_count = 0
+    genuine_count = 0
+    fp_hits: list[dict[str, str]] = []
+    max_classify = max(1, settings.optimize_abstract_classify_max_calls or 20)
+
+    for pub in matched[:max_classify]:
+        matched_alias = _find_matched_alias(pub, aliases)
+        if not matched_alias:
+            genuine_count += 1
+            continue
+
+        snippet = _extract_snippet(_pub_text(pub), matched_alias)
+        title = publication_title(pub)
+
+        if agent is None:
+            genuine_count += 1
+            continue
+
+        try:
+            genuine = classify_alias_mention(
+                agent,
+                dataset_name=dataset_name,
+                alias=matched_alias,
+                snippet=snippet,
+                title=title,
+            )
+        except Exception as exc:
+            logger.warning("classify_alias_mention failed: %s", exc)
+            genuine = True
+
+        if genuine:
+            genuine_count += 1
+        else:
+            fp_count += 1
+            fp_hits.append(
+                {
+                    "publication_id": str(pub.get("id") or ""),
+                    "matched_alias": matched_alias,
+                    "snippet": snippet,
+                }
+            )
+
+    # Assume unclassified matched pubs are genuine (conservative)
+    unclassified = max(0, len(matched) - max_classify)
+    genuine_count += unclassified
+
+    matched_count = len(matched)
+    fp_rate_pct = 100.0 * fp_count / matched_count if matched_count else 0.0
+
+    return {
+        "fp_rate_pct": fp_rate_pct,
+        "genuine_count": genuine_count,
+        "fp_count": fp_count,
+        "matched_count": matched_count,
+        "total_pubs": len(pubs),
+        "coverage_pct": coverage,
+        "for_clause": for_clause,
+        "query": q,
+        "publications_total": total,
+        "fp_hits": fp_hits,
+    }
+
+
 class NoOpLiteratureGate(LiteratureGatePort):
     def assess(
         self,
@@ -872,12 +1126,12 @@ class DimensionsLiteratureGate(LiteratureGatePort):
         record: DatasetRecord,
         sample_size: int = 10,
         llm_batch_size: int = 25,
+        for_clause: str | None = None,
     ) -> LiteratureGateResult:
+        _ = (sample_size, llm_batch_size)  # kept for signature compat
         logger.info(
-            "Literature gate Dimensions: assessing dataset=%r (sample_size=%s llm_batch_size=%s)",
+            "Literature gate Dimensions: assessing dataset=%r",
             record.main_dataset_name,
-            sample_size,
-            llm_batch_size,
         )
         try:
             import dimcli  # type: ignore
@@ -890,175 +1144,61 @@ class DimensionsLiteratureGate(LiteratureGatePort):
             logger.warning("Dimensions API key missing; gate accepts")
             return LiteratureGateResult(True, 1.0, {"skip": "no_api_key"})
 
+        fc = for_clause or _build_for_clause_from_record(record)
+        if not fc:
+            logger.warning("Dimensions: empty for_clause; gate accepts")
+            return LiteratureGateResult(True, 1.0, {"skip": "empty_for_clause"})
+
+        aliases = [record.main_dataset_name] + list(record.dataset_names or [])
         try:
-            logger.info("Dimensions: authenticating with API key...")
-            dataset_terms_validation = build_dataset_validation_terms(record)
-            flag_terms_validation = list(
-                {t for t in (record.flag_terms or []) if t and len(t) > 1}
+            ev = evaluate_for_clause_sync(
+                for_clause=fc,
+                aliases=aliases,
+                dataset_name=record.main_dataset_name,
+                settings=self._settings,
+                agent=self._agent,
             )
-            logger.debug("Validation terms - dataset: %s", dataset_terms_validation)
-            logger.debug("Validation terms - flag: %s", flag_terms_validation)
+        except Exception as exc:
+            logger.exception("Dimensions gate evaluator error")
+            return LiteratureGateResult(False, 0.0, {"error": str(exc)})
 
-            q = build_dimensions_literature_query(record, sample_size=sample_size)
-            exclude_raw = record.exclude_terms or []
-
-            result, total_count = execute_dimensions_literature_query(self._settings, q)
-
-            # Extract publications from result
-            pubs = result.get("publications", []) if hasattr(result, "get") else []
-            if not pubs and hasattr(result, "publications"):
-                pubs = result.publications or []
-
-            n_before_ex = len(pubs)
-            pubs = _filter_publications_by_exclude_terms(pubs, exclude_raw)
-            if n_before_ex and len(pubs) < n_before_ex:
-                logger.info(
-                    "Dimensions: exclude_terms post-filter removed %s/%s publications",
-                    n_before_ex - len(pubs),
-                    n_before_ex,
-                )
-
-            logger.info("Dimensions: %s publications analyzed (total available: %s)", len(pubs), total_count)
-            
-            if not pubs:
-                logger.warning("Dimensions: no publications found")
-                return LiteratureGateResult(False, 0.0, {"publications_analyzed": 0, "publications_total": total_count, "query": q})
-            
-            logger.info("Dimensions: running lexical prefilter on %s publications...", len(pubs))
-            ordered_search_terms = _build_ordered_search_terms(
-                record.main_dataset_name,
-                record.dataset_names,
-                record.flag_terms,
-            )
-            lexical_validation = _validate_publications_lexical(
-                publications=pubs,
-                ordered_terms=ordered_search_terms,
-            )
-            lexical_candidates = [d for d in lexical_validation["details"] if d.get("valid")]
-            pub_order = _pub_index_by_publication_id(pubs)
-            lexical_candidates_sorted = sorted(
-                lexical_candidates,
-                key=lambda d: pub_order.get(str(d.get("publication_id", "") or ""), 10**9),
-            )
-            string_search_matched_publications = _build_string_search_matched_publications(
-                lexical_candidates_sorted
-            )
-            selected_details = lexical_candidates_sorted[: max(0, llm_batch_size)]
-            selected_pubs: list[dict] = []
-            for d in selected_details:
-                pid = str(d.get("publication_id", "") or "")
-                p = _pub_by_publication_id(pubs, pid)
-                if p is not None:
-                    selected_pubs.append(p)
-            selected_match_contexts = [str(d.get("match_context", "") or "") for d in selected_details]
-
-            # LLM validation: analyze lexical top-N candidates only
-            if self._agent and llm_batch_size > 0 and selected_pubs:
-                logger.info(
-                    "Dimensions: running LLM validation on %s/%s lexical candidates...",
-                    len(selected_pubs),
-                    len(lexical_candidates),
-                )
-                llm_validation = _validate_publications_with_llm(
-                    publications=selected_pubs,
-                    dataset_name=record.main_dataset_name,
-                    dataset_terms=dataset_terms_validation,
-                    description=record.description,
-                    organizations=record.flag_terms,
-                    agent=self._agent,
-                    match_contexts=selected_match_contexts,
-                )
-                
-                # Score: average of final scores (min of mention, context) normalized to 0-1
-                avg_score = llm_validation["average_score"]
-                indicator = avg_score / 10.0  # Convert 0-10 to 0-1
-                
-                # Count publications with final_score >= 5 as "valid"
-                valid_count = sum(1 for s in llm_validation["final_scores"] if s >= 5)
-                
-                thr = self._settings.literature_threshold
-                passed = indicator >= thr
-                
-                logger.info(
-                    "Dimensions: LLM validation complete - total=%s valid=%s (score>=5) avg_score=%.1f indicator=%.2f threshold=%.2f passed=%s",
-                    llm_validation["total"],
-                    valid_count,
-                    avg_score,
-                    indicator,
-                    thr,
-                    passed,
-                )
-                
-                return LiteratureGateResult(
-                    passed=passed,
-                    indicator=indicator,
-                    detail={
-                        "query": q,
-                        "publications_total": total_count,
-                        "publications_retrieved": len(pubs),
-                        "lexical_prefilter_total": lexical_validation["total"],
-                        "lexical_prefilter_valid": lexical_validation["valid"],
-                        "llm_analyzed": llm_validation["total"],
-                        "publications_analyzed": llm_validation["total"],
-                        "llm_valid": valid_count,
-                        "publications_valid": valid_count,
-                        "average_score": avg_score,
-                        "validation_type": "lexical_prefilter_llm",
-                        "string_search_matched_publications": string_search_matched_publications,
-                        "lexical_details": selected_details,
-                        "validation_details": llm_validation["details"],
-                    },
-                )
-
-            # Fallback to lexical-only validation if no agent, no candidates, or llm_batch_size disabled
-            if self._agent and llm_batch_size > 0 and not selected_pubs:
-                logger.info("Dimensions: lexical prefilter returned no valid candidates for LLM")
-
-            logger.info(
-                "Dimensions: running lexical-only validation (agent=%s llm_batch_size=%s selected=%s)",
-                bool(self._agent),
-                llm_batch_size,
-                len(selected_pubs),
-            )
-            indicator = lexical_validation["indicator"]
-            thr = self._settings.literature_threshold
-            passed = indicator >= thr
-
-            logger.info(
-                "Dimensions: lexical validation complete - total=%s valid=%s indicator=%.2f threshold=%.2f passed=%s",
-                lexical_validation["total"],
-                lexical_validation["valid"],
-                indicator,
-                thr,
-                passed,
-            )
-
+        if ev.get("error"):
+            logger.warning("Dimensions evaluator error: %s", ev["error"])
             return LiteratureGateResult(
-                passed=passed,
-                indicator=indicator,
-                detail={
-                    "query": q,
-                    "publications_total": total_count,
-                    "publications_retrieved": len(pubs),
-                    "lexical_prefilter_total": lexical_validation["total"],
-                    "lexical_prefilter_valid": lexical_validation["valid"],
-                    "publications_analyzed": lexical_validation["total"],
-                    "publications_valid": lexical_validation["valid"],
-                    "llm_analyzed": 0,
-                    "llm_valid": 0,
-                    "validation_type": "lexical",
-                    "string_search_matched_publications": string_search_matched_publications,
-                    "validation_details": lexical_validation["details"][:5],
-                },
+                False,
+                0.0,
+                {"error": ev["error"], "query": ev.get("query")},
             )
-        except Exception as e:
-            logger.exception("Dimensions gate error")
-            return LiteratureGateResult(False, 0.0, {"error": str(e)})
+
+        fp_rate = float(ev.get("fp_rate_pct") or 0.0)
+        indicator = max(0.0, 1.0 - fp_rate / 100.0)
+        thr = self._settings.literature_threshold
+        passed = indicator >= thr
+
+        logger.info(
+            "Dimensions gate result: fp_rate_pct=%.2f indicator=%.2f threshold=%.2f passed=%s",
+            fp_rate,
+            indicator,
+            thr,
+            passed,
+        )
+
+        detail = dict(ev)
+        detail["passed"] = passed
+        detail["indicator"] = indicator
+        detail["threshold"] = thr
+        # Backward-compatible keys for consumers that expect legacy detail shape
+        detail.setdefault("validation_details", [])
+        detail.setdefault("lexical_details", [])
+        detail.setdefault("publications_analyzed", ev.get("matched_count") or 0)
+        detail.setdefault("publications_valid", ev.get("genuine_count") or 0)
+        return LiteratureGateResult(passed=passed, indicator=indicator, detail=detail)
 
 
 def literature_gate_from_settings(
-    settings: Settings, agent: AgentPort | None = None
+    settings: Settings, agent: AgentPort | None = None, dsl_port: Any = None
 ) -> LiteratureGatePort:
+    _ = dsl_port  # reserved for future async evaluator wiring
     if settings.literature_gate == "dimensions":
         return DimensionsLiteratureGate(settings, agent=agent)
     return NoOpLiteratureGate()

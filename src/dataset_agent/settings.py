@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     default_publication_types: list[str] = Field(default_factory=lambda: ["article"])
     default_filter_us_affiliation: bool = False
 
-    literature_gate: Literal["noop", "dimensions"] = "noop"
+    literature_gate: Literal["noop", "dimensions"] = "dimensions"
     literature_max_attempts: int = 3
     literature_threshold: float = 0.5
     dimensions_api_key: str = ""
@@ -93,6 +93,24 @@ class Settings(BaseSettings):
     optimize_web_disambig_max_aliases: int = Field(default=2, ge=0, le=5)
     #: Append multilingual / unaccented alias variants during research Step 5.
     research_multilingual_aliases: bool = True
+    #: Max top aliases to run web disambiguation collision check on (0 = skip).
+    research_collision_max_aliases: int = Field(default=3, ge=0, le=10)
+    #: Max risky/short aliases to run suffix-necessity check on during research (0 = skip).
+    research_suffix_check_max_aliases: int = Field(default=3, ge=0, le=10)
+
+    #: FP rate % threshold that triggers refinement in the optimization loop.
+    optimize_fp_threshold_pct: float = Field(default=10.0, ge=0.0, le=100.0)
+    #: Max optimization loop iterations (build DSL → gate → refine).
+    optimize_max_iterations: int = Field(default=3, ge=1, le=10)
+
+    #: Enable reference-id resolution in the literature gate evaluator.
+    gate_ref_resolution_enabled: bool = True
+    #: Coverage threshold (% of pulled pubs with alias stems in title+abstract) to skip reference resolution.
+    gate_ref_min_title_abstract_match_pct: float = Field(default=10.0, ge=0.0, le=100.0)
+    #: Hard cap on unique reference ids resolved per gate evaluation run.
+    gate_ref_max_unique_ids: int = Field(default=2000, ge=0)
+    #: Batch size for reference-id resolution queries (Dimensions limit).
+    gate_ref_batch_size: int = Field(default=512, ge=1, le=1000)
 
     @field_validator("lmstudio_base_url")
     @classmethod

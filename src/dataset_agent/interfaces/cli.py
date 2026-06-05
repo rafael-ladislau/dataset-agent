@@ -19,15 +19,14 @@ def run_cmd(
     dataset_name: str = typer.Argument(..., help="Dataset name"),
     webhook: Optional[str] = typer.Option(None, "--webhook", help="Optional notification URL"),
 ) -> None:
-    from dataset_agent.bootstrap import build_use_case
+    import asyncio
+    from dataset_agent.bootstrap import run_full_pipeline
 
     settings = Settings()
-    use_case = build_use_case(settings)
-
     req = ResearchRequest(dataset_name=dataset_name.strip(), webhook_url=webhook)
 
     try:
-        record, path = use_case.execute(req)
+        record, path = asyncio.run(run_full_pipeline(req, settings))
     except LiteratureGateFailed as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=2) from e

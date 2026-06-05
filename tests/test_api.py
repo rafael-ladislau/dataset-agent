@@ -31,31 +31,37 @@ def _fake_settings(tmp_path: Path) -> Settings:
     )
 
 
+async def _fake_run_full_pipeline(request: ResearchRequest, settings: Settings):
+    """Return a minimal record without LLM calls."""
+    record = DatasetRecord(
+        engine="dimensions",
+        group=Group(name="default"),
+        main_dataset_name=request.dataset_name,
+        home_url=None,
+        description="test",
+        years_range=YearsRange(start_year=2020, end_year=2021),
+        webhook_url=request.webhook_url,
+    )
+    settings.output_dir.mkdir(parents=True, exist_ok=True)
+    path = settings.output_dir / f"{request.dataset_name}.json"
+    path.write_text(record.model_dump_json(), encoding="utf-8")
+    return record, path
+
+
 def _fake_build_use_case(settings: Settings):
     """Return use case that writes a minimal JSON result without LLM."""
 
     class _UC:
         def execute(self, req: ResearchRequest) -> tuple[DatasetRecord, Path]:
-            record = DatasetRecord(
-                engine="dimensions",
-                group=Group(name="default"),
-                main_dataset_name=req.dataset_name,
-                home_url=None,
-                description="test",
-                years_range=YearsRange(start_year=2020, end_year=2021),
-                webhook_url=req.webhook_url,
-            )
-            settings.output_dir.mkdir(parents=True, exist_ok=True)
-            path = settings.output_dir / f"{req.dataset_name}.json"
-            path.write_text(record.model_dump_json(), encoding="utf-8")
-            return record, path
+            import asyncio
+            return asyncio.run(_fake_run_full_pipeline(req, settings))
 
     return _UC()
 
 
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setattr(api, "build_use_case", _fake_build_use_case)
+    monkeypatch.setattr(bootstrap_mod, "run_full_pipeline", _fake_run_full_pipeline)
 
     def _settings() -> Settings:
         return _fake_settings(tmp_path)
@@ -92,7 +98,7 @@ def test_create_task_and_fetch_result(client: TestClient) -> None:
 
 
 def test_webhook_called_on_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(api, "build_use_case", _fake_build_use_case)
+    monkeypatch.setattr(bootstrap_mod, "run_full_pipeline", _fake_run_full_pipeline)
 
     def _settings() -> Settings:
         return _fake_settings(tmp_path)
@@ -111,33 +117,33 @@ def test_webhook_called_on_success(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     api.app.dependency_overrides.clear()
 
 
+async def _fake_run_full_pipeline_failed(request: ResearchRequest, settings: Settings):
+    """Return a record with failed literature validation."""
+    out = settings.output_dir
+    out.mkdir(exist_ok=True)
+    record = DatasetRecord(
+        engine="dimensions",
+        group=Group(name="g"),
+        main_dataset_name=request.dataset_name,
+        description="desc",
+        years_range=YearsRange(start_year=2020, end_year=2025),
+        literature_validation=LiteratureValidation(
+            passed=False,
+            indicator=0.3,
+            attempts=3,
+            detail={"publications_found": 10, "publications_valid": 3},
+        ),
+    )
+    p = out / "result.json"
+    p.write_text(record.model_dump_json(indent=2))
+    return record, p
+
+
 def test_task_completes_with_failed_literature_validation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Task completes even when literature validation fails, with validation info in result."""
-
-    class _UCWithFailedValidation:
-        def execute(self, req: ResearchRequest) -> tuple[DatasetRecord, Path]:
-            out = tmp_path / "out"
-            out.mkdir(exist_ok=True)
-            record = DatasetRecord(
-                engine="dimensions",
-                group=Group(name="g"),
-                main_dataset_name=req.dataset_name,
-                description="desc",
-                years_range=YearsRange(start_year=2020, end_year=2025),
-                literature_validation=LiteratureValidation(
-                    passed=False,
-                    indicator=0.3,
-                    attempts=3,
-                    detail={"publications_found": 10, "publications_valid": 3},
-                ),
-            )
-            p = out / "result.json"
-            p.write_text(record.model_dump_json(indent=2))
-            return record, p
-
-    monkeypatch.setattr(api, "build_use_case", lambda _s: _UCWithFailedValidation())
+    monkeypatch.setattr(bootstrap_mod, "run_full_pipeline", _fake_run_full_pipeline_failed)
 
     def _settings() -> Settings:
         return _fake_settings(tmp_path)
@@ -155,7 +161,6 @@ def test_task_completes_with_failed_literature_validation(
     assert body["literature_validation"]["passed"] is False
     assert body["literature_validation"]["indicator"] == 0.3
     assert body["literature_validation"]["attempts"] == 3
-    api.app.dependency_overrides.clear()
     api.app.dependency_overrides.clear()
 
 

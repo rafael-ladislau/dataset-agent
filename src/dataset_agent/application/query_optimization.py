@@ -25,6 +25,7 @@ from dataset_agent.adapters.fp_analysis import (
     score_title_signal3,
     web_search_alias_meanings,
 )
+from dataset_agent.adapters.literature import evaluate_for_clause_sync
 from dataset_agent.adapters.query_builder import build_for_clause, default_variant_build_order, run_variant
 from dataset_agent.adapters.query_heuristics import (
     _SUFFIX_CANDIDATES,
@@ -238,6 +239,7 @@ class QueryOptimizationUseCase:
         )
 
         desc_for_signal3 = ""
+        rec: DatasetRecord | None = None
         if request.dataset_names:
             aliases = dedupe_strings_ci_preserve_order(list(request.dataset_names))
             flag_terms = dedupe_strings_ci_preserve_order(list(request.flag_terms))
@@ -430,293 +432,142 @@ class QueryOptimizationUseCase:
             len(tested),
         )
 
-        fp_keywords: dict[str, list[str]] = {}
-        sorted_risky: list[tuple[str, int]] = []
-        if risky:
-            sorted_risky = sorted(
-                [
-                    (
-                        r,
-                        next(
-                            (e.count for e in alias_entries if e.alias.lower() == r.lower()),
-                            0,
-                        ),
-                    )
-                    for r in risky
-                ],
-                key=lambda x: -x[1],
-            )
-        fp_cap = int(self._settings.optimize_fp_domains_max_aliases)
-        if fp_cap > 0 and sorted_risky:
-            for alias_text, _ in sorted_risky[:fp_cap]:
-                domains = await asyncio.to_thread(
-                    identify_fp_domains,
-                    self._agent,
-                    request.dataset_name,
-                    alias_text,
-                )
-                for domain, kws in domains.items():
-                    fp_keywords.setdefault(domain, []).extend(kws)
-            for k in fp_keywords:
-                fp_keywords[k] = dedupe_strings_ci_preserve_order(fp_keywords[k])
-            notes_parts.append(
-                "fp_domains: "
-                f"{sum(len(v) for v in fp_keywords.values())} keywords across {len(fp_keywords)} domains"
-            )
-        if not fp_keywords:
-            fp_keywords = {"risky": [r.lower() for r in risky if len(r) > 2][:12]}
-
-        exc_work = dedupe_strings_ci_preserve_order(list(exclusion_terms))
-        web_cap = int(self._settings.optimize_web_disambig_max_aliases)
-        if web_cap > 0 and sorted_risky:
-            for alias_text, _ in sorted_risky[:web_cap]:
-                web_domains = await asyncio.to_thread(
-                    web_search_alias_meanings,
-                    self._agent,
-                    alias_text,
-                )
-                for domain, cands in web_domains.items():
-                    fp_keywords.setdefault(domain, []).extend(cands)
-                    exc_work = dedupe_strings_ci_preserve_order(exc_work + cands[:5])
-            for k in fp_keywords:
-                fp_keywords[k] = dedupe_strings_ci_preserve_order(fp_keywords[k])
-            notes_parts.append(
-                f"web_disambig: enriched fp_keywords from web search ({web_cap} aliases)"
-            )
-
-        ranked = sorted(
-            enumerate(tested),
-            key=lambda it: (-(it[1].expected_count or 0), _VARIANT_ORDER.get(it[1].label, 99)),
-        )
-        top_idx = [i for i, _ in ranked[:2]]
-        primary_i = ranked[0][0]
-        scope_ratios: dict[str, float] = {}
-        noise_by_idx: dict[int, list[str]] = {}
-        pubs_primary: list[dict] = []
+        # Phase 3: iterative gate evaluation loop (replaces proxy-FP phase)
+        phase3 = "phase3_gate_evaluation"
         t_phase3 = time.perf_counter()
 
-        for i in top_idx:
-            ent = tested[i]
-            fc = ent.for_clause
-            if self._scope_budget_left():
-                try:
-                    scope_ratios[ent.label] = await run_scope_comparison(self._dsl, fc)
-                    self._dims_calls += 2
-                except DimensionsDslError:
-                    scope_ratios[ent.label] = 0.0
-            else:
-                notes_parts.append("Skipped scope comparison (Dimensions call budget).")
-                scope_ratios[ent.label] = 0.0
+        # Collect all aliases for the evaluator
+        alias_pool = [request.dataset_name]
+        if request.dataset_names:
+            alias_pool.extend(request.dataset_names)
+        if rec is not None:
+            alias_pool.extend(rec.dataset_names)
+        aliases = dedupe_strings_ci_preserve_order([a for a in alias_pool if a])
 
-            titles = list(ent.top_titles)
-            if (
-                i == primary_i
-                and risky
-                and flag_terms
-                and _fp_keywords_active(fp_keywords)
-                and self._budget_left()
-            ):
-                sample_goal = min(max(60, int(self._settings.fp_sample_size)), 5000)
-                pubs, n_fp_calls = await fetch_top_n(
-                    self._dsl,
-                    fc,
-                    max_results=sample_goal,
-                    search_in="full_data",
-                    page_size=1000,
-                    fields="basics+title+abstract+times_cited",
-                )
-                self._dims_calls += n_fp_calls
-                if n_fp_calls:
-                    notes_parts.append(f"fp_sample_dims_calls={n_fp_calls}")
-                pubs_primary = list(pubs)
-                titles = [t for p in pubs if (t := publication_title(p)).strip()]
+        exc_work = dedupe_strings_ci_preserve_order(list(exclusion_terms))
+        current_safe = list(safe)
+        current_risky = list(risky)
+        current_flags = list(flag_terms)
 
-            fp_pct, noise = _fp_rate_and_noise_terms(titles, fp_keywords)
-            fp_final = fp_pct
-            if int(self._settings.optimize_signal3_max_titles) > 0 and titles:
-                try:
-                    s3 = await self._signal3_fp_rate_pct(request, desc_for_signal3, titles)
-                except Exception as e:
-                    logger.warning("optimize signal3 batch failed: %s", e)
-                    s3 = None
-                if s3 is not None:
-                    fp_final = max(fp_pct, s3)
-                    notes_parts.append(
-                        f"signal3_{ent.label}={s3:.1f} keyword_fp_pct={fp_pct:.1f} "
-                        f"n={min(len(titles), int(self._settings.optimize_signal3_max_titles))}",
-                    )
-            noise_by_idx[i] = noise
-            tested[i] = ent.model_copy(
-                update={
-                    "fp_rate_pct": fp_final,
-                    "top_titles": titles[:10],
-                },
+        # Start with the best Phase-2 variant
+        best_variant = tested[0]
+        current_for_clause = best_variant.for_clause
+
+        best_ev: dict | None = None
+        best_variant_entry: VariantTestedEntry | None = None
+
+        max_iters = max(1, self._settings.optimize_max_iterations)
+        threshold = float(self._settings.optimize_fp_threshold_pct)
+
+        for iteration in range(max_iters):
+            logger.info(
+                "optimize_phase run_id=%s gate_iter=%s for_clause=%s",
+                run_id,
+                iteration,
+                (current_for_clause[:80] + "...") if len(current_for_clause) > 80 else current_for_clause,
             )
 
-        abs_cap = int(self._settings.optimize_abstract_exclude_max_hits)
-        cls_cap = int(self._settings.optimize_abstract_classify_max_calls)
-        if pubs_primary and risky and abs_cap > 0:
-            try:
-                raw_hits = scan_abstracts_for_aliases(pubs_primary, risky)
-                hits = raw_hits[:abs_cap]
-                if hits:
-                    pub_titles: dict[str, str] = {}
-                    for p in pubs_primary:
-                        if not isinstance(p, dict):
-                            continue
-                        pid = str(p.get("id") or "").strip()
-                        if pid:
-                            pub_titles[pid] = publication_title(p)
+            ev = await asyncio.to_thread(
+                evaluate_for_clause_sync,
+                for_clause=current_for_clause,
+                aliases=aliases,
+                dataset_name=request.dataset_name,
+                settings=self._settings,
+                agent=self._agent,
+            )
 
-                    if cls_cap <= 0:
-                        fp_hits = hits
-                    else:
-                        fp_hits = []
-                        n_cls = min(len(hits), cls_cap)
-                        for h in hits[:n_cls]:
-                            if not isinstance(h, dict):
-                                continue
-                            pid = str(h.get("publication_id") or "").strip()
-                            title = pub_titles.get(pid, "")
-                            alias = str(h.get("matched_alias") or "").strip()
-                            snippet = str(h.get("snippet") or "")
+            fp_rate = float(ev.get("fp_rate_pct") or 0.0)
+            expected_count = int(ev.get("publications_total") or 0)
+            coverage = float(ev.get("coverage_pct") or 0.0)
 
-                            def _classify_one() -> bool:
-                                return classify_alias_mention(
-                                    self._agent,
-                                    dataset_name=request.dataset_name,
-                                    alias=alias,
-                                    snippet=snippet,
-                                    title=title,
-                                )
+            label = f"V4~gate{iteration}"
+            entry = VariantTestedEntry(
+                label=label,
+                for_clause=current_for_clause,
+                expected_count=expected_count,
+                fp_rate_pct=fp_rate,
+                top_titles=[],
+            )
+            tested.append(entry)
+            notes_parts.append(
+                f"gate_iter{iteration} fp_rate={fp_rate:.1f}% coverage={coverage:.1f}% total={expected_count}"
+            )
 
-                            try:
-                                genuine = await asyncio.to_thread(_classify_one)
-                            except Exception as e:
-                                logger.warning("classify_alias_mention failed: %s", e)
-                                genuine = True
-                            if not genuine:
-                                fp_hits.append(h)
-                        if not fp_hits:
-                            notes_parts.append(
-                                "abstract_fp_scan: no FP-confirmed abstract hits in classified sample",
-                            )
+            if best_ev is None or fp_rate < (best_ev.get("fp_rate_pct") or 100.0):
+                best_ev = ev
+                best_variant_entry = entry
 
-                    if fp_hits:
-
-                        def _derive_excludes() -> list[str]:
-                            return derive_exclude_terms_from_fps(
-                                self._agent,
-                                dataset_name=request.dataset_name,
-                                fp_hits=fp_hits,
-                            )
-
-                        suggested = await asyncio.to_thread(_derive_excludes)
-                        if suggested:
-                            exc_work = dedupe_strings_ci_preserve_order(exc_work + suggested[:25])
-                            notes_parts.append(
-                                "abstract_fp_derived_excludes="
-                                f"{len(suggested)} scan_hits={len(raw_hits)} fp_confirmed={len(fp_hits)}",
-                            )
-            except Exception as e:
-                logger.warning("optimize abstract exclude derivation failed: %s", e)
-
-        for iter_no in range(2):
-            worst_idx: int | None = None
-            worst_fp = -1.0
-            worst_cnt = -1
-            for idx, ent in enumerate(tested):
-                fpv = float(ent.fp_rate_pct or 0.0)
-                if fpv <= 3.0:
-                    continue
-                cnt = ent.expected_count or 0
-                if cnt <= 0:
-                    continue
-                if worst_idx is None or fpv > worst_fp or (fpv == worst_fp and cnt > worst_cnt):
-                    worst_idx, worst_fp, worst_cnt = idx, fpv, cnt
-            if worst_idx is None:
+            if fp_rate <= threshold:
+                notes_parts.append(f"gate_iter{iteration}: FP rate within threshold.")
                 break
-            i_pick = worst_idx
-            exc_lower = {e.lower() for e in exc_work}
-            extras: list[str] = []
-            for kw in noise_by_idx.get(i_pick, []):
-                k = kw.strip()
-                if len(k) < 4:
-                    continue
-                if k.lower() in exc_lower:
-                    continue
-                extras.append(k)
-                if len(extras) >= 5:
-                    break
-            if not extras:
-                notes_parts.append("fp_refine: no new exclude candidates from keyword hits.")
+
+            # Refine: derive excludes from FP hits
+            fp_hits = ev.get("fp_hits", [])
+            if fp_hits and self._agent:
+                def _derive() -> list[str]:
+                    return derive_exclude_terms_from_fps(
+                        self._agent,
+                        dataset_name=request.dataset_name,
+                        fp_hits=fp_hits,
+                    )
+
+                suggested = await asyncio.to_thread(_derive)
+                if suggested:
+                    exc_work = dedupe_strings_ci_preserve_order(exc_work + suggested[:25])
+                    notes_parts.append(
+                        f"gate_iter{iteration}: added {len(suggested)} excludes from FP hits"
+                    )
+
+            # Rebuild V4 with updated excludes
+            if not (current_risky and current_flags):
+                notes_parts.append(f"gate_iter{iteration}: no risky aliases+flags to refine.")
                 break
-            exc_work = dedupe_strings_ci_preserve_order(exc_work + extras)
-            if not (risky and flag_terms):
-                break
+
             new_fc = build_for_clause(
-                safe=safe,
+                safe=current_safe,
                 variant="V4",
-                risky=risky,
-                flag_terms=flag_terms,
+                risky=current_risky,
+                flag_terms=current_flags,
                 exclusion_terms=exc_work,
             )
-            if not new_fc.strip():
+            if not new_fc.strip() or new_fc == current_for_clause:
+                notes_parts.append(f"gate_iter{iteration}: for_clause unchanged; stopping.")
                 break
-            if not self._budget_left():
-                notes_parts.append("fp_refine: skipped (Dimensions call budget).")
-                break
-            label_r = f"V4~{iter_no + 1}"
-            try:
-                vr = await run_variant(self._dsl, label_r, new_fc, limit=20)
-                self._dims_calls += 1
-            except DimensionsDslError as e:
-                errors.append(f"{label_r}: {e}")
-                break
-            tit = list(vr.get("top_titles") or [])
-            fp2, noise2 = _fp_rate_and_noise_terms(tit, fp_keywords)
-            tested.append(
-                VariantTestedEntry(
-                    label=label_r,
-                    for_clause=new_fc,
-                    expected_count=vr.get("expected_count"),
-                    fp_rate_pct=fp2,
-                    top_titles=tit[:10],
-                )
-            )
-            noise_by_idx[len(tested) - 1] = noise2
-            notes_parts.append(
-                f"fp_refine_iter{iter_no + 1} added_excludes={extras!s} new_fp_pct={fp2:.1f}",
-            )
+            current_for_clause = new_fc
 
         logger.info(
-            "optimize_phase run_id=%s phase=phase3_fp dims=%s elapsed_s=%.2f",
+            "optimize_phase run_id=%s phase=phase3_gate dims=%s elapsed_s=%.2f",
             run_id,
             self._dims_calls,
             time.perf_counter() - t_phase3,
         )
 
-        candidates: list[tuple[float, int, int, VariantTestedEntry]] = []
-        for ent in tested:
-            cnt = ent.expected_count or 0
-            fp = float(ent.fp_rate_pct or 0.0)
-            if fp > 5.0:
-                continue
-            score = float(cnt) * (1.0 - fp / 100.0)
-            pref = _VARIANT_ORDER.get(ent.label, 99)
-            candidates.append((score, -pref, cnt, ent))
-
-        if not candidates:
-            best = tested[0]
-            notes_parts.append("No variant under 5% proxy FP; picked first probe result.")
+        # Prefer best gate-evaluated variant; fall back to lowest-FP among all tested
+        if best_variant_entry is not None:
+            best = best_variant_entry
+            notes_parts.append(
+                f"Selected gate-evaluated variant {best.label} (fp_rate={best.fp_rate_pct:.1f}%)."
+            )
         else:
-            best = max(candidates, key=lambda x: (x[0], x[1], x[2]))[3]
+            candidates: list[tuple[float, int, int, VariantTestedEntry]] = []
+            for ent in tested:
+                cnt = ent.expected_count or 0
+                fp = float(ent.fp_rate_pct or 0.0)
+                if fp > 5.0:
+                    continue
+                score = float(cnt) * (1.0 - fp / 100.0)
+                pref = _VARIANT_ORDER.get(ent.label, 99)
+                candidates.append((score, -pref, cnt, ent))
+            if not candidates:
+                best = tested[0]
+                notes_parts.append("No variant under 5% proxy FP; picked first probe result.")
+            else:
+                best = max(candidates, key=lambda x: (x[0], x[1], x[2]))[3]
 
-        scope_r = scope_ratios.get(best.label, 0.0)
         fp_sel = float(best.fp_rate_pct or 0.0)
-        if fp_sel < 1.0 and scope_r < 5.0:
+        if fp_sel < 1.0:
             confidence = ConfidenceLevel.HIGH
-        elif fp_sel < 3.0 and scope_r < 10.0:
+        elif fp_sel < 3.0:
             confidence = ConfidenceLevel.MEDIUM
         else:
             confidence = ConfidenceLevel.LOW

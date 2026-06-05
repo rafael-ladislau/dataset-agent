@@ -5,14 +5,30 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 
-def description_and_home_url_prompt(dataset_name: str, dataset_url: str | None) -> str:
-    """Combined prompt: discover description AND official home URL in one call."""
+def description_and_home_url_prompt(
+    dataset_name: str,
+    dataset_url: str | None,
+    search_results: str = "",
+    fetched_page: str = "",
+) -> str:
+    """Combined prompt: discover description AND official home URL in one call.
+
+    When *search_results* or *fetched_page* are provided, the model must base
+    its answer on them rather than relying on internal knowledge.
+    """
     url = dataset_url if dataset_url else "None"
+    evidence_blocks: list[str] = []
+    if search_results:
+        evidence_blocks.append(f"===WEB SEARCH RESULTS===\n{search_results}\n")
+    if fetched_page:
+        evidence_blocks.append(f"===FETCHED PAGE PREVIEW===\n{fetched_page[:4000]}\n")
+    evidence = "\n".join(evidence_blocks) if evidence_blocks else ""
     return f"""Research the dataset '{dataset_name}' and provide TWO outputs.
 
 Reference URL (if provided): {url}
 
-Use web_search to find the official website or repository for this dataset.
+{evidence}
+Base the description and home_url on the evidence above. If no evidence is provided, use your knowledge, but prefer the evidence when available.
 
 ===EXAMPLE OUTPUT===
 For "Current Population Survey":

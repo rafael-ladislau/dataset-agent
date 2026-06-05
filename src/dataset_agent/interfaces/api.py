@@ -164,8 +164,9 @@ def _run_background_task(task_id: str, settings: Settings) -> None:
             request.dataset_name,
             "yes" if request.webhook_url else "no",
         )
-        use_case = build_use_case(settings)
-        record, path = use_case.execute(request)
+        from dataset_agent.bootstrap import run_full_pipeline
+
+        record, path = asyncio.run(run_full_pipeline(request, settings))
         logger.info("Task %s: pipeline finished; result at %s", task_id, path)
         tasks.update_task(
             task_id,

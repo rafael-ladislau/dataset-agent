@@ -230,6 +230,47 @@ async def run_alias_count(
     return parse_total_count(result)
 
 
+async def fetch_reference_titles(
+    dsl_port: DimensionsDslPort,
+    ids: list[str],
+    *,
+    batch_size: int = 512,
+    max_unique_ids: int = 2000,
+) -> dict[str, str]:
+    """
+    Batch-resolve reference ids to titles via Dimensions.
+
+    Deduplicates *ids*, caps to *max_unique_ids*, batches in groups of
+    *batch_size*, and returns ``{id: title}`` for successfully resolved ids.
+    """
+    deduped = list({str(i).strip() for i in ids if isinstance(i, str) and i.strip()})
+    if not deduped:
+        return {}
+    capped = deduped[:max(1, int(max_unique_ids))]
+    bs = max(1, min(1000, int(batch_size)))
+    out: dict[str, str] = {}
+    for i in range(0, len(capped), bs):
+        chunk = capped[i : i + bs]
+        id_list = ", ".join(f'"{sanitize_alias(i)}"' for i in chunk)
+        dsl = f"search publications where id in [{id_list}] return publications[id+title]"
+        try:
+            result = await dsl_port.execute_dsl(dsl)
+        except Exception as exc:
+            logger.warning("fetch_reference_titles batch failed: %s", exc)
+            continue
+        for pub in publications_from_result(result):
+            if not isinstance(pub, dict):
+                continue
+            pid = str(pub.get("id") or "").strip()
+            if not pid:
+                continue
+            t = publication_title(pub)
+            if t:
+                out[pid] = t
+    logger.info("fetch_reference_titles: resolved %s/%s unique ids", len(out), len(capped))
+    return out
+
+
 class AsyncThrottledDimensionsDsl(DimensionsDslPort):
     """Serial throttle between query *starts*; runs dimcli in a worker thread."""
 

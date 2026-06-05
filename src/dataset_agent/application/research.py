@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from dataset_agent.application import prompts
 from dataset_agent.adapters.llm_output_cleanup import is_llm_list_entry_junk
-from dataset_agent.adapters.tools import TOOL_DEFINITIONS
+from dataset_agent.adapters.tools import TOOL_DEFINITIONS, make_request, web_search
 from dataset_agent.adapters.organizations import process_organizations
 from dataset_agent.adapters.text_processing import (
     clean_description,
@@ -33,7 +34,8 @@ from dataset_agent.adapters.literature import (
     fetch_dimensions_publication_metrics,
     promote_dimensions_metrics_from_detail,
 )
-from dataset_agent.adapters.query_heuristics import generate_multilingual_aliases
+from dataset_agent.adapters.fp_analysis import web_search_alias_meanings
+from dataset_agent.adapters.query_heuristics import generate_multilingual_aliases, check_suffix_necessity
 from dataset_agent.domain.models import (
     DatasetRecord,
     LiteratureValidation,
@@ -44,6 +46,7 @@ from dataset_agent.domain.models import (
 from dataset_agent.domain.ports import (
     AgentPort,
     DatasetRepositoryPort,
+    DimensionsDslPort,
     LiteratureGatePort,
     TextExtractorPort,
 )
@@ -135,12 +138,14 @@ class DatasetResearchUseCase:
         repository: DatasetRepositoryPort,
         settings: Settings,
         literature_gate: LiteratureGatePort | None = None,
+        dsl_port: DimensionsDslPort | None = None,
     ):
         self._agent = agent
         self._extractor = extractor
         self._repository = repository
         self._settings = settings
         self._literature_gate = literature_gate
+        self._dsl_port = dsl_port
 
     def execute(self, request: ResearchRequest) -> tuple[DatasetRecord, Path]:
         max_attempts = max(1, self._settings.literature_max_attempts)
@@ -288,9 +293,15 @@ class DatasetResearchUseCase:
         name = request.dataset_name
 
         # Step 1: Description + Home URL (combined, 1 LLM call)
-        logger.info("Step 1/6: description + home_url (LLM + web search)")
+        logger.info("Step 1/6: description + home_url (deterministic web search + fetch)")
+        search_results = web_search(name)
+        fetched_page = ""
+        if request.dataset_url:
+            fetched_page = make_request(request.dataset_url)
         desc_home_raw = self._agent.get_information(
-            prompts.description_and_home_url_prompt(name, request.dataset_url),
+            prompts.description_and_home_url_prompt(
+                name, request.dataset_url, search_results, fetched_page
+            ),
             tools=TOOL_DEFINITIONS,
         )
         sections = self._extractor.extract_sections(desc_home_raw)
@@ -432,8 +443,62 @@ class DatasetResearchUseCase:
             )
         logger.info("Step 6 done: %s dataset name aliases for literature", len(dataset_names))
 
+        # Step 7: Homonym / collision web check
+        collision_domains: dict[str, list[str]] = {}
+        collision_max = self._settings.research_collision_max_aliases
+        if collision_max > 0 and dataset_names:
+            logger.info("Step 7: collision check on top %s aliases", collision_max)
+            for alias in dataset_names[:collision_max]:
+                try:
+                    domains = web_search_alias_meanings(self._agent, alias)
+                    for domain, terms in domains.items():
+                        collision_domains.setdefault(domain, []).extend(terms)
+                except Exception as exc:
+                    logger.warning("Collision check failed for %r: %s", alias, exc)
+            if collision_domains:
+                logger.info(
+                    "Collision check: %s domains, %s total candidate exclude terms",
+                    len(collision_domains),
+                    sum(len(v) for v in collision_domains.values()),
+                )
+
+        # Step 8: Suffix necessity check
+        suffix_forms: dict[str, str] = {}
+        suffix_max = self._settings.research_suffix_check_max_aliases
+        if suffix_max > 0 and dataset_names and self._dsl_port is not None:
+            logger.info("Step 8: suffix necessity check on top %s aliases", suffix_max)
+            for alias in dataset_names[:suffix_max]:
+                try:
+                    loop = asyncio.new_event_loop()
+                    result = loop.run_until_complete(
+                        check_suffix_necessity(self._dsl_port, alias)
+                    )
+                    loop.close()
+                    if result:
+                        suffix_forms[alias] = result
+                        logger.info("Suffix promoted: %r -> %r", alias, result)
+                except Exception as exc:
+                    logger.warning("Suffix check failed for %r: %s", alias, exc)
+        elif suffix_max > 0 and dataset_names:
+            # LLM fallback when no Dimensions key
+            logger.info("Step 8: suffix check via LLM fallback")
+            prompt = (
+                f"Dataset: {name!r}. Aliases: {dataset_names[:suffix_max]!r}.\n\n"
+                "Which of these short or ambiguous aliases would benefit from adding a "
+                "suffix like 'dataset', 'survey', 'data', or 'study' for a literature search? "
+                "Return a JSON object mapping alias -> suffixed_form, or {} if none."
+            )
+            try:
+                raw = self._agent.get_structured(prompt, {"type": "object", "properties": {}})
+                if isinstance(raw, dict):
+                    for k, v in raw.items():
+                        if isinstance(v, str) and v.strip():
+                            suffix_forms[str(k)] = v.strip()
+            except Exception as exc:
+                logger.warning("LLM suffix fallback failed: %s", exc)
+
         logger.info("Building DatasetRecord with config defaults")
-        return build_record_from_pipeline(
+        record = build_record_from_pipeline(
             request,
             description=description,
             dataset_names=dataset_names,
@@ -445,3 +510,15 @@ class DatasetResearchUseCase:
             home_url=home_url,
             defaults=self._settings,
         )
+        record.alias_collisions = collision_domains
+        if suffix_forms:
+            # Store suffix forms in a way that's accessible; for now attach to record
+            # We don't have a dedicated field, so use a private detail or extend aliases
+            # Let's add suffix-promoted forms to dataset_names if not already present
+            existing_lower = {n.lower() for n in record.dataset_names}
+            for original, suffixed in suffix_forms.items():
+                if suffixed.lower() not in existing_lower:
+                    record.dataset_names.append(suffixed)
+                    existing_lower.add(suffixed.lower())
+            record.dataset_names = dedupe_strings_ci_preserve_order(record.dataset_names)
+        return record
