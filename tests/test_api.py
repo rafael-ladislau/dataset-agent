@@ -192,6 +192,7 @@ def test_validate_passes_llm_batch_size_to_gate(
         "suggested_exclude_terms": [],
         "reasoning": "ok",
     }
+    fake_literature.promote_dimensions_metrics_from_detail = lambda record, detail: None
 
     class _FakeAgent:
         def __init__(self, **kwargs):
@@ -256,6 +257,7 @@ def test_validate_retry_validation_hateoas_and_exclude_merge(
         "suggested_exclude_terms": ["stem cell"],
         "reasoning": "ok",
     }
+    fake_literature.promote_dimensions_metrics_from_detail = lambda record, detail: None
 
     class _FakeAgent:
         def __init__(self, **kwargs):
@@ -331,6 +333,7 @@ def test_validate_retry_keeps_body_terms_when_llm_suggests_empty(
         "suggested_exclude_terms": [],
         "reasoning": "ok",
     }
+    fake_literature.promote_dimensions_metrics_from_detail = lambda record, detail: None
 
     class _FakeAgent:
         def __init__(self, **kwargs):

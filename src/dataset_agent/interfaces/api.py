@@ -26,6 +26,7 @@ from dataset_agent.domain.models import (
     YearsRange,
 )
 from dataset_agent.domain.ports import TaskStatus
+from dataset_agent.adapters.literature import promote_dimensions_metrics_from_detail
 from dataset_agent.adapters.tasks_sqlite import SqliteTaskRepository
 from dataset_agent.logging_setup import configure_application_logging
 from dataset_agent.settings import Settings
@@ -370,8 +371,6 @@ def validate_terms(
         attempts=1,
         detail=result.detail,
     )
-    from dataset_agent.adapters.literature import promote_dimensions_metrics_from_detail
-
     promote_dimensions_metrics_from_detail(record, result.detail)
 
     # Run terms evaluation
