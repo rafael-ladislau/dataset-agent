@@ -370,8 +370,10 @@ def validate_terms(
         attempts=1,
         detail=result.detail,
     )
-    record.publications_total = result.detail.get("publications_total")
-    
+    from dataset_agent.adapters.literature import promote_dimensions_metrics_from_detail
+
+    promote_dimensions_metrics_from_detail(record, result.detail)
+
     # Run terms evaluation
     validation_details = result.detail.get("validation_details", [])
     logger.info("Running terms evaluation...")

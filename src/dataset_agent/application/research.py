@@ -28,7 +28,12 @@ from dataset_agent.adapters.dataset_aliases import (
     refine_flag_terms_with_llm,
     validate_no_flag_alias_overlap,
 )
-from dataset_agent.adapters.literature import evaluate_terms_with_llm
+from dataset_agent.adapters.literature import (
+    evaluate_terms_with_llm,
+    fetch_dimensions_publication_metrics,
+    promote_dimensions_metrics_from_detail,
+)
+from dataset_agent.adapters.query_heuristics import generate_multilingual_aliases
 from dataset_agent.domain.models import (
     DatasetRecord,
     LiteratureValidation,
@@ -47,6 +52,31 @@ if TYPE_CHECKING:
     from dataset_agent.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+
+def _attach_dimensions_preview_if_needed(
+    record: DatasetRecord,
+    settings: Settings,
+    sample_size: int,
+) -> None:
+    """When literature gate is noop, still fetch Dimensions count + DSL if API key is set."""
+    if settings.literature_gate == "dimensions":
+        return
+    if not (settings.dimensions_api_key or "").strip():
+        return
+    try:
+        q, total = fetch_dimensions_publication_metrics(
+            record, sample_size=sample_size, settings=settings
+        )
+        record.dsl_query = q
+        record.publications_total = total
+        logger.info(
+            "Dimensions preview: publications_total=%s dsl_query=%s",
+            total,
+            (q[:120] + "…") if len(q) > 120 else q,
+        )
+    except Exception as exc:
+        logger.warning("Dimensions preview failed: %s", exc)
 
 
 class LiteratureGateFailed(RuntimeError):
@@ -136,6 +166,10 @@ class DatasetResearchUseCase:
 
             if self._literature_gate is None:
                 logger.info("No literature gate configured; research complete.")
+                _attach_dimensions_preview_if_needed(
+                    record, self._settings, request.sample_size
+                )
+                path = self._repository.save(record)
                 return record, path
 
             logger.info(
@@ -170,9 +204,11 @@ class DatasetResearchUseCase:
                     attempts=attempt,
                     detail=result.detail,
                 )
-                # Extract publications_total to record level
-                record.publications_total = result.detail.get("publications_total")
-                
+                promote_dimensions_metrics_from_detail(record, result.detail)
+                _attach_dimensions_preview_if_needed(
+                    record, self._settings, request.sample_size
+                )
+
                 # Always evaluate terms effectiveness
                 validation_details = result.detail.get("validation_details", [])
                 logger.info("Running terms evaluation...")
@@ -214,9 +250,11 @@ class DatasetResearchUseCase:
                 attempts=last_attempt,
                 detail=last_result.detail,
             )
-            # Extract publications_total to record level
-            record.publications_total = last_result.detail.get("publications_total")
-            
+            promote_dimensions_metrics_from_detail(record, last_result.detail)
+            _attach_dimensions_preview_if_needed(
+                record, self._settings, request.sample_size
+            )
+
             # Always evaluate terms effectiveness
             validation_details = last_result.detail.get("validation_details", [])
             logger.info("Running terms evaluation...")
@@ -342,6 +380,19 @@ class DatasetResearchUseCase:
             aliases.append(name)
         dataset_names = _filter_alias_entries(aliases, flag_terms)
         logger.info("Step 5 done: %s names after filters", len(dataset_names))
+
+        if self._settings.research_multilingual_aliases:
+            ml_aliases = generate_multilingual_aliases(name, self._agent)
+            if ml_aliases:
+                before_ml = len(dataset_names)
+                ml_lower = {n.lower() for n in dataset_names}
+                dataset_names.extend(a for a in ml_aliases if a.lower() not in ml_lower)
+                dataset_names = dedupe_strings_ci_preserve_order(dataset_names)
+                logger.info(
+                    "Multilingual alias expansion: %s -> %s names",
+                    before_ml,
+                    len(dataset_names),
+                )
 
         names_before_refine = list(dataset_names)
         logger.info("Step 6/6: refine dataset_names vs flag_terms (LLM)")

@@ -51,6 +51,9 @@ def test_optimize_success_with_dataset_override(tmp_path) -> None:
         optimize_signal3_max_titles=0,
         optimize_abstract_exclude_max_hits=0,
         optimize_abstract_classify_max_calls=0,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0,
+        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -97,6 +100,9 @@ def test_optimize_all_variants_zero_publications(tmp_path) -> None:
         optimize_signal3_max_titles=0,
         optimize_abstract_exclude_max_hits=0,
         optimize_abstract_classify_max_calls=0,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0,
+        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -180,6 +186,9 @@ def test_optimize_signal3_merges_high_fp_into_primary_variant(tmp_path) -> None:
         optimize_signal3_min_relevance_sum=10,
         optimize_abstract_exclude_max_hits=0,
         optimize_abstract_classify_max_calls=0,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0,
+        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -201,7 +210,7 @@ def test_optimize_signal3_merges_high_fp_into_primary_variant(tmp_path) -> None:
     )
     assert out.success is True
     assert out.all_variants_tested[0].fp_rate_pct == 100.0
-    assert "signal3_fp_pct=100.0" in out.notes
+    assert "signal3_V1=100.0" in out.notes or "signal3_fp_pct=100.0" in out.notes
     agent.get_structured.assert_called()
 
 
@@ -269,6 +278,9 @@ def test_optimize_merges_abstract_derived_exclude_terms(monkeypatch: pytest.Monk
         optimize_signal3_max_titles=0,
         optimize_abstract_exclude_max_hits=8,
         optimize_abstract_classify_max_calls=0,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0,
+        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -350,6 +362,9 @@ def test_optimize_abstract_classify_skips_derive_when_all_genuine(
         optimize_signal3_max_titles=0,
         optimize_abstract_exclude_max_hits=8,
         optimize_abstract_classify_max_calls=4,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0,
+        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -432,6 +447,9 @@ def test_optimize_abstract_classify_fp_hits_feed_derive(monkeypatch: pytest.Monk
         optimize_signal3_max_titles=0,
         optimize_abstract_exclude_max_hits=8,
         optimize_abstract_classify_max_calls=4,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0,
+        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -455,3 +473,263 @@ def test_optimize_abstract_classify_fp_hits_feed_derive(monkeypatch: pytest.Monk
     assert out.success is True
     assert "fromabstract" in [x.lower() for x in out.exclusion_terms]
     assert "fp_confirmed=1" in out.notes
+
+
+def test_fp_rate_counts_all_fp_domains() -> None:
+    """Keyword FP proxy must match domain keys from identify_fp_domains, not only 'risky'."""
+    fp_kw = {"nursing": ["patient", "hospital"], "technology": ["neural network"]}
+    pct, noise = qopt_mod._fp_rate_and_noise_terms(
+        [
+            "Diagnostic and Statistical Manual of Mental Disorders",
+            "Nursing patient outcomes in acute care",
+        ],
+        fp_kw,
+    )
+    assert pct == 50.0
+    assert "patient" in noise
+
+
+def test_optimize_short_acronym_suffix_via_rk0(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Short acronyms pre-bucketed as risky (e.g. ONET) still get suffix promotion."""
+    responses = [
+        SimpleNamespace(count_total=2000),
+        SimpleNamespace(count_total=500_000),
+        SimpleNamespace(count_total=5000),
+        SimpleNamespace(
+            count_total=150,
+            publications=[{"basics": {"title": "Paper"}}],
+        ),
+        SimpleNamespace(count_total=800),
+        SimpleNamespace(count_total=400),
+    ]
+    dsl = _FakeDSL(responses)
+
+    async def _fake_suffix(_dsl, alias: str, **kw: object) -> str | None:
+        _ = kw
+        if alias == "ONET":
+            return "ONET dataset"
+        return None
+
+    monkeypatch.setattr(qopt_mod, "check_suffix_necessity", _fake_suffix)
+
+    settings = Settings(
+        tasks_db=tmp_path / "t.db",
+        output_dir=tmp_path / "out",
+        dimensions_api_key="test-key",
+        optimize_max_dimensions_calls=50,
+        optimize_signal3_max_titles=0,
+        optimize_abstract_exclude_max_hits=0,
+        optimize_abstract_classify_max_calls=0,
+        optimize_suffix_check_enabled=True,
+        optimize_suffix_check_max_aliases=3,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0,
+    )
+    uc = QueryOptimizationUseCase(
+        dsl_port=dsl,
+        research=MagicMock(),
+        agent=MagicMock(),
+        settings=settings,
+    )
+    out = asyncio.run(
+        uc.execute(
+            OptimizeRequest(
+                dataset_name="My Long Dataset Alpha",
+                dataset_names=["My Long Dataset Alpha", "ONET"],
+                flag_terms=["NIH"],
+            )
+        )
+    )
+    assert out.success is True
+    assert out.aliases is not None
+    assert any("dataset" in s.lower() for s in out.aliases.safe)
+    assert "suffix_promoted: 'ONET'" in out.notes
+
+
+def test_optimize_suffix_promotes_risky_alias(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Risky alias with high bare/suffixed ratio is promoted to safe via suffix check."""
+    responses = [
+        SimpleNamespace(count_total=2000),
+        SimpleNamespace(count_total=80),
+        SimpleNamespace(count_total=500_000),
+        SimpleNamespace(
+            count_total=150,
+            publications=[{"basics": {"title": "Paper on Ambiguous Term dataset"}}],
+        ),
+        SimpleNamespace(count_total=800),
+        SimpleNamespace(count_total=400),
+    ]
+    dsl = _FakeDSL(responses)
+
+    async def _fake_suffix(_dsl, alias: str, **kw: object) -> str | None:
+        _ = kw
+        if alias == "Ambiguous Term":
+            return "Ambiguous Term dataset"
+        return None
+
+    monkeypatch.setattr(qopt_mod, "check_suffix_necessity", _fake_suffix)
+
+    settings = Settings(
+        tasks_db=tmp_path / "t.db",
+        output_dir=tmp_path / "out",
+        dimensions_api_key="test-key",
+        optimize_max_dimensions_calls=50,
+        optimize_signal3_max_titles=0,
+        optimize_abstract_exclude_max_hits=0,
+        optimize_abstract_classify_max_calls=0,
+        optimize_suffix_check_enabled=True,
+        optimize_suffix_check_max_aliases=3,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0,
+    )
+    uc = QueryOptimizationUseCase(
+        dsl_port=dsl,
+        research=MagicMock(),
+        agent=MagicMock(),
+        settings=settings,
+    )
+    out = asyncio.run(
+        uc.execute(
+            OptimizeRequest(
+                dataset_name="My Long Dataset Alpha",
+                dataset_names=["My Long Dataset Alpha", "Ambiguous Term"],
+                flag_terms=["NIH"],
+            )
+        )
+    )
+    assert out.success is True
+    assert out.aliases is not None
+    assert any("dataset" in s.lower() for s in out.aliases.safe)
+    assert "suffix_promoted" in out.notes
+
+
+def test_optimize_fp_domains_enriches_keywords(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """identify_fp_domains replaces crude risky-token fp_keywords when enabled."""
+    responses = [
+        SimpleNamespace(count_total=2000),
+        SimpleNamespace(count_total=80),
+        SimpleNamespace(count_total=500_000),
+        SimpleNamespace(
+            count_total=150,
+            publications=[{"basics": {"title": "Nursing paper with RISK acronym"}}],
+        ),
+        SimpleNamespace(count_total=800),
+        SimpleNamespace(count_total=400),
+        SimpleNamespace(count_total=10),
+        SimpleNamespace(count_total=8),
+    ]
+    dsl = _FakeDSL(responses)
+
+    def _fake_fp_domains(_agent, _ds: str, alias: str) -> dict[str, list[str]]:
+        if alias == "RISK":
+            return {"nursing": ["patient", "hospital"]}
+        return {}
+
+    monkeypatch.setattr(qopt_mod, "identify_fp_domains", _fake_fp_domains)
+    monkeypatch.setattr(qopt_mod, "web_search_alias_meanings", lambda *_a, **_k: {})
+
+    settings = Settings(
+        tasks_db=tmp_path / "t.db",
+        output_dir=tmp_path / "out",
+        dimensions_api_key="test-key",
+        optimize_max_dimensions_calls=50,
+        optimize_signal3_max_titles=0,
+        optimize_abstract_exclude_max_hits=0,
+        optimize_abstract_classify_max_calls=0,
+        optimize_fp_domains_max_aliases=2,
+        optimize_web_disambig_max_aliases=0,
+        optimize_suffix_check_max_aliases=0,
+    )
+    uc = QueryOptimizationUseCase(
+        dsl_port=dsl,
+        research=MagicMock(),
+        agent=MagicMock(),
+        settings=settings,
+    )
+    out = asyncio.run(
+        uc.execute(
+            OptimizeRequest(
+                dataset_name="My Long Dataset Alpha",
+                dataset_names=[
+                    "My Long Dataset Alpha",
+                    "Another Long Title Here",
+                    "RISK",
+                ],
+                flag_terms=["NIH"],
+            )
+        )
+    )
+    assert out.success is True
+    assert "fp_domains:" in out.notes
+
+
+def test_optimize_web_disambig_adds_excludes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """web_search_alias_meanings seeds exclusion_terms from web-grounded candidates."""
+    responses = [
+        SimpleNamespace(count_total=2000),
+        SimpleNamespace(count_total=80),
+        SimpleNamespace(count_total=500_000),
+        SimpleNamespace(
+            count_total=150,
+            publications=[{"basics": {"title": "Off-domain RISK paper"}}],
+        ),
+        SimpleNamespace(count_total=800),
+        SimpleNamespace(count_total=400),
+        SimpleNamespace(count_total=10),
+        SimpleNamespace(count_total=8),
+    ]
+    dsl = _FakeDSL(responses)
+
+    monkeypatch.setattr(qopt_mod, "identify_fp_domains", lambda *_a, **_k: {})
+    monkeypatch.setattr(
+        qopt_mod,
+        "web_search_alias_meanings",
+        lambda _agent, alias: (
+            {"informatics": ["electronic health", "clinical trial"]}
+            if alias == "RISK"
+            else {}
+        ),
+    )
+
+    settings = Settings(
+        tasks_db=tmp_path / "t.db",
+        output_dir=tmp_path / "out",
+        dimensions_api_key="test-key",
+        optimize_max_dimensions_calls=50,
+        optimize_signal3_max_titles=0,
+        optimize_abstract_exclude_max_hits=0,
+        optimize_abstract_classify_max_calls=0,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=2,
+        optimize_suffix_check_max_aliases=0,
+    )
+    uc = QueryOptimizationUseCase(
+        dsl_port=dsl,
+        research=MagicMock(),
+        agent=MagicMock(),
+        settings=settings,
+    )
+    out = asyncio.run(
+        uc.execute(
+            OptimizeRequest(
+                dataset_name="My Long Dataset Alpha",
+                dataset_names=[
+                    "My Long Dataset Alpha",
+                    "Another Long Title Here",
+                    "RISK",
+                ],
+                flag_terms=["NIH"],
+            )
+        )
+    )
+    assert out.success is True
+    assert "web_disambig:" in out.notes
+    assert "electronic health" in [x.lower() for x in out.exclusion_terms]

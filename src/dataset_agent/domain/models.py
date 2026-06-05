@@ -246,6 +246,10 @@ class DatasetRecord(BaseModel):
     literature_validation: Optional[LiteratureValidation] = None
     terms_evaluation: Optional[TermsEvaluation] = None
     publications_total: Optional[int] = None
+    dsl_query: Optional[str] = Field(
+        default=None,
+        description="Dimensions DSL used for literature/publication count lookup",
+    )
     retry_validation: Optional[ValidationRequest] = Field(
         default=None,
         description="Suggested POST /validate body for a follow-up run (set by /validate only)",

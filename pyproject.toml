@@ -20,6 +20,7 @@ dependencies = [
     "uvicorn[standard]>=0.29",
     "anthropic>=0.42",
     "ddgs>=9.0",
+    "tavily-python>=0.5",
     "dimcli>=0.9",
 ]
 

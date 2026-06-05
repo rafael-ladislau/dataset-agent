@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from dataset_agent.adapters.query_heuristics import (
+    _SUFFIX_CANDIDATES,
     apply_short_acronym_heuristic,
     check_suffix_necessity,
     detect_rhetorical_name,
@@ -91,5 +92,31 @@ def test_check_suffix_necessity_returns_suffixed_when_ratio_high() -> None:
         rec = await check_suffix_necessity(p, "All of Us", ratio_threshold=50.0)
         assert rec is not None
         assert "dataset" in rec.lower()
+
+    asyncio.run(_go())
+
+
+def test_check_suffix_necessity_uses_bare_count_param() -> None:
+    """When bare_count is supplied, skip the redundant bare-alias Dimensions call."""
+    calls: list[str] = []
+
+    class _P:
+        async def execute_dsl(self, dsl: str) -> object:
+            from types import SimpleNamespace
+
+            calls.append(dsl)
+            if "dataset" in dsl.lower():
+                return SimpleNamespace(count_total=10)
+            return SimpleNamespace(count_total=9999)
+
+    async def _go() -> None:
+        p = _P()
+        rec = await check_suffix_necessity(
+            p, "All of Us", bare_count=5000, ratio_threshold=50.0
+        )
+        assert rec is not None
+        assert "dataset" in rec.lower()
+        # bare_count skips one Dimensions round-trip; only suffix candidates are queried.
+        assert len(calls) == len(_SUFFIX_CANDIDATES)
 
     asyncio.run(_go())

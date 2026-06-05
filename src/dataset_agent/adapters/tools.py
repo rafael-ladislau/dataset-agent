@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import httpx
 
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def web_search(query: str) -> str:
-    """Search the public web via DuckDuckGo and return formatted results."""
+    """Search the public web (Tavily or DuckDuckGo) and return formatted results."""
     q = (query or "").strip()
     if not q:
         return (
@@ -18,17 +19,72 @@ def web_search(query: str) -> str:
             "Call again with a single non-empty search string in the 'query' argument."
         )
     qprev = (q[:120] + "…") if len(q) > 120 else q
-    logger.info("Tool web_search: query=%r", qprev)
+    provider, tavily_key = _search_config()
+    logger.info("Tool web_search: provider=%s query=%r", provider, qprev)
+
+    if provider == "tavily":
+        return _tavily_search(q, api_key=tavily_key)
+    return _ddg_search(q)
+
+
+def _search_config() -> tuple[str, str]:
+    """Resolve web search provider and Tavily API key from env or Settings (.env)."""
+    provider = os.environ.get("WEB_SEARCH_PROVIDER", "").strip().lower()
+    api_key = os.environ.get("TAVILY_API_KEY", "").strip()
+    if provider:
+        return provider, api_key
+    try:
+        from dataset_agent.settings import Settings
+
+        s = Settings()
+        return s.web_search_provider.strip().lower(), s.tavily_api_key.strip()
+    except Exception:
+        return "duckduckgo", ""
+
+
+def _tavily_search(query: str, *, api_key: str = "") -> str:
+    """Search via Tavily API; fall back to DuckDuckGo on missing key or errors."""
+    api_key = (api_key or os.environ.get("TAVILY_API_KEY", "")).strip()
+    if not api_key:
+        logger.warning("TAVILY_API_KEY not set, falling back to DuckDuckGo")
+        return _ddg_search(query)
+    try:
+        from tavily import TavilyClient
+    except ImportError:
+        logger.warning("tavily-python not installed, falling back to DuckDuckGo")
+        return _ddg_search(query)
+    try:
+        client = TavilyClient(api_key=api_key)
+        response = client.search(query, max_results=6, search_depth="basic")
+        results = response.get("results", [])
+        if not results:
+            logger.info("Tool web_search (tavily): 0 results")
+            return "web_search: no results"
+        logger.info("Tool web_search (tavily): %s results", len(results))
+        parts = []
+        for r in results:
+            title = r.get("title") or ""
+            url = r.get("url") or ""
+            content = (r.get("content") or "")[:400]
+            parts.append(f"- {title}\n  {url}\n  {content}")
+        return "\n".join(parts)
+    except Exception as e:
+        logger.warning("Tavily search failed: %s, falling back to DuckDuckGo", e)
+        return _ddg_search(query)
+
+
+def _ddg_search(query: str) -> str:
+    """Search via DuckDuckGo and return formatted results."""
     try:
         from ddgs import DDGS
     except ImportError:
         return "web_search: ddgs not installed (pip install ddgs)"
     try:
-        hits = list(DDGS().text(q, max_results=6))
+        hits = list(DDGS().text(query, max_results=6))
         if not hits:
-            logger.info("Tool web_search: 0 results")
+            logger.info("Tool web_search (ddg): 0 results")
             return "web_search: no results"
-        logger.info("Tool web_search: %s results", len(hits))
+        logger.info("Tool web_search (ddg): %s results", len(hits))
         parts = []
         for h in hits:
             body = (h.get("body") or "")[:400]

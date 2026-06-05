@@ -19,14 +19,19 @@ from dataset_agent.adapters.fp_analysis import (
     classify_alias_mention,
     classify_title,
     derive_exclude_terms_from_fps,
+    identify_fp_domains,
     run_scope_comparison,
     scan_abstracts_for_aliases,
     score_title_signal3,
+    web_search_alias_meanings,
 )
 from dataset_agent.adapters.query_builder import build_for_clause, default_variant_build_order, run_variant
 from dataset_agent.adapters.query_heuristics import (
+    _SUFFIX_CANDIDATES,
     apply_short_acronym_heuristic,
+    check_suffix_necessity,
     detect_rhetorical_name,
+    is_short_acronym,
     platform_exclude_suggestions,
     rhetorical_exclusions,
 )
@@ -63,11 +68,15 @@ def _alias_risk_label(c_alias: int, c_full: int, has_full_name: bool) -> Literal
     return "safe"
 
 
+def _fp_keywords_active(fp_keywords: dict[str, list[str]]) -> bool:
+    return any(isinstance(v, list) and v for v in fp_keywords.values())
+
+
 def _fp_rate_and_noise_terms(
     titles: list[str],
     fp_keywords: dict[str, list[str]],
 ) -> tuple[float, list[str]]:
-    """Proxy FP rate from title keyword hits + noise tokens for NOT refinement."""
+    """Proxy FP rate from title keyword hits across all FP domains + noise for NOT refinement."""
     hits = 0
     noise_terms: list[str] = []
     n = 0
@@ -76,10 +85,13 @@ def _fp_rate_and_noise_terms(
             continue
         n += 1
         m = classify_title(title, fp_keywords)
-        risky_kw = m.get("risky") or []
-        if risky_kw:
+        matched: list[str] = []
+        for kws in m.values():
+            if isinstance(kws, list):
+                matched.extend(str(x) for x in kws if isinstance(x, str) and x.strip())
+        if matched:
             hits += 1
-            noise_terms.extend(str(x) for x in risky_kw if isinstance(x, str) and x.strip())
+            noise_terms.extend(matched)
     pct = (100.0 * hits / n) if n else 0.0
     return pct, dedupe_strings_ci_preserve_order(noise_terms)
 
@@ -118,6 +130,38 @@ class QueryOptimizationUseCase:
             return 0
         self._dims_calls += 1
         return await run_alias_count(self._dsl, alias, search_in=search_in)
+
+    async def _try_suffix_promote(
+        self,
+        alias: str,
+        bare_count: int,
+        *,
+        notes_parts: list[str],
+        suffix_checked: int,
+    ) -> tuple[str | None, int]:
+        """Return (suffixed safe form, updated suffix_checked) or (None, suffix_checked)."""
+        if not self._settings.optimize_suffix_check_enabled:
+            return None, suffix_checked
+        if suffix_checked >= self._settings.optimize_suffix_check_max_aliases:
+            return None, suffix_checked
+        if bare_count <= 0 or not self._budget_left():
+            return None, suffix_checked
+        ratio = (
+            float(self._settings.optimize_suffix_ratio_short_acronym)
+            if is_short_acronym(alias)
+            else float(self._settings.optimize_suffix_ratio_threshold)
+        )
+        suffixed = await check_suffix_necessity(
+            self._dsl,
+            alias,
+            bare_count=bare_count,
+            ratio_threshold=ratio,
+        )
+        self._dims_calls += len(_SUFFIX_CANDIDATES)
+        suffix_checked += 1
+        if suffixed:
+            notes_parts.append(f"suffix_promoted: {alias!r} -> {suffixed!r}")
+        return suffixed, suffix_checked
 
     async def _signal3_fp_rate_pct(
         self,
@@ -231,9 +275,27 @@ class QueryOptimizationUseCase:
             st0, rk0 = apply_short_acronym_heuristic(aliases, [])
             c_full = await self._count(request.dataset_name)
             alias_entries: list[AliasCountEntry] = []
-            risky: list[str] = list(rk0)
+            risky: list[str] = []
             safe: list[str] = []
             has_fn = bool((request.dataset_name or "").strip())
+            suffix_checked = 0
+
+            for a in rk0:
+                if not self._budget_left():
+                    notes_parts.append("Stopped short-acronym counting early (Dimensions call budget).")
+                    break
+                c = await self._count(a)
+                alias_entries.append(AliasCountEntry(alias=a, count=c, risk="risky"))
+                if c <= 0:
+                    risky.append(a)
+                    continue
+                suffixed, suffix_checked = await self._try_suffix_promote(
+                    a, c, notes_parts=notes_parts, suffix_checked=suffix_checked
+                )
+                if suffixed:
+                    safe.append(suffixed)
+                else:
+                    risky.append(a)
 
             for a in st0:
                 if not self._budget_left():
@@ -245,7 +307,13 @@ class QueryOptimizationUseCase:
                 if c <= 0:
                     continue
                 if risk == "risky":
-                    risky.append(a)
+                    suffixed, suffix_checked = await self._try_suffix_promote(
+                        a, c, notes_parts=notes_parts, suffix_checked=suffix_checked
+                    )
+                    if suffixed:
+                        safe.append(suffixed)
+                    else:
+                        risky.append(a)
                 else:
                     safe.append(a)
 
@@ -362,7 +430,60 @@ class QueryOptimizationUseCase:
             len(tested),
         )
 
-        fp_keywords: dict[str, list[str]] = {"risky": [r.lower() for r in risky if len(r) > 2][:12]}
+        fp_keywords: dict[str, list[str]] = {}
+        sorted_risky: list[tuple[str, int]] = []
+        if risky:
+            sorted_risky = sorted(
+                [
+                    (
+                        r,
+                        next(
+                            (e.count for e in alias_entries if e.alias.lower() == r.lower()),
+                            0,
+                        ),
+                    )
+                    for r in risky
+                ],
+                key=lambda x: -x[1],
+            )
+        fp_cap = int(self._settings.optimize_fp_domains_max_aliases)
+        if fp_cap > 0 and sorted_risky:
+            for alias_text, _ in sorted_risky[:fp_cap]:
+                domains = await asyncio.to_thread(
+                    identify_fp_domains,
+                    self._agent,
+                    request.dataset_name,
+                    alias_text,
+                )
+                for domain, kws in domains.items():
+                    fp_keywords.setdefault(domain, []).extend(kws)
+            for k in fp_keywords:
+                fp_keywords[k] = dedupe_strings_ci_preserve_order(fp_keywords[k])
+            notes_parts.append(
+                "fp_domains: "
+                f"{sum(len(v) for v in fp_keywords.values())} keywords across {len(fp_keywords)} domains"
+            )
+        if not fp_keywords:
+            fp_keywords = {"risky": [r.lower() for r in risky if len(r) > 2][:12]}
+
+        exc_work = dedupe_strings_ci_preserve_order(list(exclusion_terms))
+        web_cap = int(self._settings.optimize_web_disambig_max_aliases)
+        if web_cap > 0 and sorted_risky:
+            for alias_text, _ in sorted_risky[:web_cap]:
+                web_domains = await asyncio.to_thread(
+                    web_search_alias_meanings,
+                    self._agent,
+                    alias_text,
+                )
+                for domain, cands in web_domains.items():
+                    fp_keywords.setdefault(domain, []).extend(cands)
+                    exc_work = dedupe_strings_ci_preserve_order(exc_work + cands[:5])
+            for k in fp_keywords:
+                fp_keywords[k] = dedupe_strings_ci_preserve_order(fp_keywords[k])
+            notes_parts.append(
+                f"web_disambig: enriched fp_keywords from web search ({web_cap} aliases)"
+            )
+
         ranked = sorted(
             enumerate(tested),
             key=lambda it: (-(it[1].expected_count or 0), _VARIANT_ORDER.get(it[1].label, 99)),
@@ -371,7 +492,6 @@ class QueryOptimizationUseCase:
         primary_i = ranked[0][0]
         scope_ratios: dict[str, float] = {}
         noise_by_idx: dict[int, list[str]] = {}
-        exc_work = dedupe_strings_ci_preserve_order(list(exclusion_terms))
         pubs_primary: list[dict] = []
         t_phase3 = time.perf_counter()
 
@@ -393,7 +513,7 @@ class QueryOptimizationUseCase:
                 i == primary_i
                 and risky
                 and flag_terms
-                and fp_keywords.get("risky")
+                and _fp_keywords_active(fp_keywords)
                 and self._budget_left()
             ):
                 sample_goal = min(max(60, int(self._settings.fp_sample_size)), 5000)
@@ -413,7 +533,7 @@ class QueryOptimizationUseCase:
 
             fp_pct, noise = _fp_rate_and_noise_terms(titles, fp_keywords)
             fp_final = fp_pct
-            if i == primary_i and int(self._settings.optimize_signal3_max_titles) > 0 and titles:
+            if int(self._settings.optimize_signal3_max_titles) > 0 and titles:
                 try:
                     s3 = await self._signal3_fp_rate_pct(request, desc_for_signal3, titles)
                 except Exception as e:
@@ -422,7 +542,8 @@ class QueryOptimizationUseCase:
                 if s3 is not None:
                     fp_final = max(fp_pct, s3)
                     notes_parts.append(
-                        f"signal3_fp_pct={s3:.1f} keyword_fp_pct={fp_pct:.1f} n={min(len(titles), int(self._settings.optimize_signal3_max_titles))}",
+                        f"signal3_{ent.label}={s3:.1f} keyword_fp_pct={fp_pct:.1f} "
+                        f"n={min(len(titles), int(self._settings.optimize_signal3_max_titles))}",
                     )
             noise_by_idx[i] = noise
             tested[i] = ent.model_copy(

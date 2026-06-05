@@ -5,14 +5,11 @@ from __future__ import annotations
 from collections import Counter
 import logging
 import re
-from typing import TYPE_CHECKING
-
 from dataset_agent.adapters.tools import EMIT_RELEVANCE_SCORE, EMIT_TERMS_EVALUATION
 from dataset_agent.domain.ports import AgentPort, LiteratureGatePort, LiteratureGateResult
 
-if TYPE_CHECKING:
-    from dataset_agent.domain.models import DatasetRecord
-    from dataset_agent.settings import Settings
+from dataset_agent.domain.models import DatasetRecord
+from dataset_agent.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -762,6 +759,84 @@ def _build_string_search_matched_publications(lexical_match_details: list[dict])
     return matched
 
 
+def build_dataset_validation_terms(record: DatasetRecord) -> list[str]:
+    """Dataset name aliases plus acronyms extracted for lexical/LLM validation."""
+    dataset_terms_raw = [record.main_dataset_name]
+    if record.dataset_names:
+        dataset_terms_raw.extend(record.dataset_names)
+    dataset_terms_validation = list(dataset_terms_raw)
+    for term in dataset_terms_raw:
+        acronyms = re.findall(r"\(([A-Z]{2,})\)", term)
+        dataset_terms_validation.extend(acronyms)
+        if " - " in term:
+            parts = term.split(" - ")
+            dataset_terms_validation.extend(p.strip() for p in parts if len(p.strip()) > 1)
+    return list({t for t in dataset_terms_validation if t and len(t) > 1})
+
+
+def build_dimensions_literature_query(record: DatasetRecord, *, sample_size: int) -> str:
+    """Build the Dimensions DSL string used by the literature gate and research preview."""
+    dataset_terms_raw = [record.main_dataset_name]
+    if record.dataset_names:
+        dataset_terms_raw.extend(record.dataset_names)
+    dataset_terms_query = [t.replace('"', '\\"') for t in dataset_terms_raw if t and len(t) > 2]
+    flag_terms_raw = record.flag_terms if record.flag_terms else []
+    flag_terms_query = [t.replace('"', '\\"') for t in flag_terms_raw if t and len(t) > 2]
+    dataset_clause = " OR ".join(f'\\"{t}\\"' for t in dataset_terms_query)
+    if flag_terms_query:
+        flag_clause = " OR ".join(f'\\"{t}\\"' for t in flag_terms_query)
+        search_inner = f"(({dataset_clause}) AND ({flag_clause}))"
+    else:
+        search_inner = f"({dataset_clause})"
+    return (
+        "search publications in full_data for "
+        f'"{search_inner}" '
+        "return publications[basics + abstract + concepts_scores + times_cited] "
+        f"sort by times_cited limit {sample_size}"
+    )
+
+
+def execute_dimensions_literature_query(settings: Settings, q: str) -> tuple[object, int]:
+    """Authenticate with Dimensions and run a literature DSL query."""
+    from dataset_agent.adapters.dimensions_dsl import parse_total_count
+
+    try:
+        import dimcli  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError("dimcli is not installed") from exc
+
+    api_key = (settings.dimensions_api_key or "").strip()
+    if not api_key:
+        raise ValueError("Dimensions API key is not configured")
+    dimcli.login(key=api_key)
+    dsl = dimcli.Dsl()
+    logger.info("Dimensions: running query: %s", q)
+    result = dsl.query(q)
+    return result, parse_total_count(result)
+
+
+def fetch_dimensions_publication_metrics(
+    record: DatasetRecord,
+    *,
+    sample_size: int,
+    settings: Settings,
+) -> tuple[str, int]:
+    """Return (dsl_query, publications_total) without running validation."""
+    q = build_dimensions_literature_query(record, sample_size=sample_size)
+    _, total_count = execute_dimensions_literature_query(settings, q)
+    return q, total_count
+
+
+def promote_dimensions_metrics_from_detail(record: DatasetRecord, detail: dict) -> None:
+    """Copy Dimensions DSL and publication count from gate detail onto the record."""
+    if not detail:
+        return
+    if detail.get("query"):
+        record.dsl_query = detail.get("query")
+    if detail.get("publications_total") is not None:
+        record.publications_total = detail.get("publications_total")
+
+
 class NoOpLiteratureGate(LiteratureGatePort):
     def assess(
         self,
@@ -817,65 +892,18 @@ class DimensionsLiteratureGate(LiteratureGatePort):
 
         try:
             logger.info("Dimensions: authenticating with API key...")
-            dimcli.login(key=api_key)
-            dsl = dimcli.Dsl()
-            
-            # Build dataset names group: main name + all aliases
-            dataset_terms_raw = [record.main_dataset_name]
-            if record.dataset_names:
-                dataset_terms_raw.extend(record.dataset_names)
-            
-            # For query: escape quotes, filter empty/short
-            dataset_terms_query = [t.replace('"', '\\"') for t in dataset_terms_raw if t and len(t) > 2]
-            
-            # For lexical validation: include original terms + extracted acronyms
-            dataset_terms_validation = list(dataset_terms_raw)
-            for term in dataset_terms_raw:
-                # Extract acronyms from parentheses: "Name (ABC)" -> add "ABC"
-                acronyms = re.findall(r'\(([A-Z]{2,})\)', term)
-                dataset_terms_validation.extend(acronyms)
-                # Split "Name - ACRONYM" patterns
-                if ' - ' in term:
-                    parts = term.split(' - ')
-                    dataset_terms_validation.extend(p.strip() for p in parts if len(p.strip()) > 1)
-            dataset_terms_validation = list(set(t for t in dataset_terms_validation if t and len(t) > 1))
-            
-            # Build flag_terms group (organizations) - all terms
-            flag_terms_raw = record.flag_terms if record.flag_terms else []
-            flag_terms_query = [t.replace('"', '\\"') for t in flag_terms_raw if t and len(t) > 2]
-            flag_terms_validation = list(set(t for t in flag_terms_raw if t and len(t) > 1))
-            
+            dataset_terms_validation = build_dataset_validation_terms(record)
+            flag_terms_validation = list(
+                {t for t in (record.flag_terms or []) if t and len(t) > 1}
+            )
             logger.debug("Validation terms - dataset: %s", dataset_terms_validation)
             logger.debug("Validation terms - flag: %s", flag_terms_validation)
-            
-            # Build query: (dataset_name1 OR dataset_name2) AND (flag_term1 OR flag_term2)
-            dataset_clause = " OR ".join(f'\\"{t}\\"' for t in dataset_terms_query)
-            if flag_terms_query:
-                flag_clause = " OR ".join(f'\\"{t}\\"' for t in flag_terms_query)
-                search_inner = f"(({dataset_clause}) AND ({flag_clause}))"
-            else:
-                search_inner = f"({dataset_clause})"
 
+            q = build_dimensions_literature_query(record, sample_size=sample_size)
             exclude_raw = record.exclude_terms or []
 
-            q = (
-                'search publications in full_data for '
-                f'"{search_inner}" '
-                "return publications[basics + abstract + concepts_scores + times_cited] "
-                f"sort by times_cited limit {sample_size}"
-            )
-            
-            logger.info("Dimensions: running query: %s", q)
-            
-            result = dsl.query(q)
-            
-            # Get total count from dimcli
-            total_count = 0
-            if hasattr(result, 'count_total'):
-                total_count = result.count_total
-            elif hasattr(result, '_stats') and isinstance(result._stats, dict):
-                total_count = result._stats.get('total_count', 0)
-            
+            result, total_count = execute_dimensions_literature_query(self._settings, q)
+
             # Extract publications from result
             pubs = result.get("publications", []) if hasattr(result, "get") else []
             if not pubs and hasattr(result, "publications"):

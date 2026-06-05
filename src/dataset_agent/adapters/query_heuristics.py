@@ -198,6 +198,7 @@ async def check_suffix_necessity(
     *,
     search_in: str = "full_data",
     ratio_threshold: float = 100.0,
+    bare_count: int | None = None,
 ) -> str | None:
     """If count(bare)/count(bare + suffix) > *ratio_threshold*, return best suffixed form."""
     from dataset_agent.adapters.dimensions_dsl import run_alias_count
@@ -205,7 +206,10 @@ async def check_suffix_necessity(
     bare = (alias or "").strip()
     if not bare or len(bare) > 120:
         return None
-    c_bare = await run_alias_count(dsl_port, bare, search_in=search_in)
+    if bare_count is not None:
+        c_bare = bare_count
+    else:
+        c_bare = await run_alias_count(dsl_port, bare, search_in=search_in)
     if c_bare <= 0:
         return None
 
