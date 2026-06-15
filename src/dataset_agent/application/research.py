@@ -465,38 +465,45 @@ class DatasetResearchUseCase:
         # Step 8: Suffix necessity check
         suffix_forms: dict[str, str] = {}
         suffix_max = self._settings.research_suffix_check_max_aliases
-        if suffix_max > 0 and dataset_names and self._dsl_port is not None:
+        if suffix_max > 0 and dataset_names:
             logger.info("Step 8: suffix necessity check on top %s aliases", suffix_max)
             for alias in dataset_names[:suffix_max]:
+                result = None
+                # Try DSL-based suffix check first
+                if self._dsl_port is not None:
+                    try:
+                        loop = asyncio.new_event_loop()
+                        result = loop.run_until_complete(
+                            check_suffix_necessity(self._dsl_port, alias)
+                        )
+                        loop.close()
+                        if result:
+                            suffix_forms[alias] = result
+                            logger.info("Suffix promoted: %r -> %r", alias, result)
+                            continue
+                    except RuntimeError as exc:
+                        if "already running" in str(exc):
+                            logger.debug("Cannot run nested event loop; will use LLM fallback for suffix check")
+                        else:
+                            logger.warning("Suffix check failed for %r: %s", alias, exc)
+                    except Exception as exc:
+                        logger.warning("Suffix check failed for %r: %s", alias, exc)
+                # LLM fallback (also used when nested event loop fails)
+                if result is None and alias in suffix_forms:
+                    continue
                 try:
-                    loop = asyncio.new_event_loop()
-                    result = loop.run_until_complete(
-                        check_suffix_necessity(self._dsl_port, alias)
+                    prompt = (
+                        f"Dataset: {name!r}. Alias: {alias!r}.\n\n"
+                        "Would this alias benefit from adding a suffix like 'dataset', "
+                        "'survey', 'data', or 'study' for a literature search? "
+                        "If yes, return the suggested suffixed form. If no, return '' (empty string)."
                     )
-                    loop.close()
-                    if result:
-                        suffix_forms[alias] = result
-                        logger.info("Suffix promoted: %r -> %r", alias, result)
+                    raw = self._agent.get_structured(prompt, {"type": "string"})
+                    if isinstance(raw, str) and raw.strip():
+                        suffix_forms[alias] = raw.strip()
+                        logger.info("Suffix promoted (LLM): %r -> %r", alias, raw.strip())
                 except Exception as exc:
-                    logger.warning("Suffix check failed for %r: %s", alias, exc)
-        elif suffix_max > 0 and dataset_names:
-            # LLM fallback when no Dimensions key
-            logger.info("Step 8: suffix check via LLM fallback")
-            prompt = (
-                f"Dataset: {name!r}. Aliases: {dataset_names[:suffix_max]!r}.\n\n"
-                "Which of these short or ambiguous aliases would benefit from adding a "
-                "suffix like 'dataset', 'survey', 'data', or 'study' for a literature search? "
-                "Return a JSON object mapping alias -> suffixed_form, or {} if none."
-            )
-            try:
-                raw = self._agent.get_structured(prompt, {"type": "object", "properties": {}})
-                if isinstance(raw, dict):
-                    for k, v in raw.items():
-                        if isinstance(v, str) and v.strip():
-                            suffix_forms[str(k)] = v.strip()
-            except Exception as exc:
-                logger.warning("LLM suffix fallback failed: %s", exc)
-
+                    logger.warning("LLM suffix fallback failed for %r: %s", alias, exc)
         logger.info("Building DatasetRecord with config defaults")
         record = build_record_from_pipeline(
             request,

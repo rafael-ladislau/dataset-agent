@@ -17,7 +17,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    llm_provider: Literal["ollama", "lmstudio"] = "lmstudio"
+    llm_provider: Literal["ollama", "lmstudio", "openrouter"] = "lmstudio"
     ollama_model: str = "gemma4-31b"
     ollama_base_url: str = "http://127.0.0.1:11434"
     lmstudio_base_url: str = Field(
@@ -34,6 +34,27 @@ class Settings(BaseSettings):
             "DATASET_AGENT_LMSTUDIO_MODEL",
         ),
     )
+    #: OpenRouter (Anthropic-compatible) endpoint and credentials.
+    openrouter_base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        validation_alias=AliasChoices(
+            "OPENROUTER_BASE_URL",
+            "DATASET_AGENT_OPENROUTER_BASE_URL",
+        ),
+    )
+    openrouter_model: str = Field(
+        default="anthropic/claude-3.5-sonnet",
+        validation_alias=AliasChoices(
+            "DATASET_AGENT_OPENROUTER_MODEL",
+        ),
+    )
+    openrouter_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "OPENROUTER_API_KEY",
+            "DATASET_AGENT_OPENROUTER_API_KEY",
+        ),
+    )
     llm_max_tokens: int = 4096
     llm_api_key: str = Field(
         default="local",
@@ -46,6 +67,14 @@ class Settings(BaseSettings):
         validation_alias="WEB_SEARCH_PROVIDER",
     )
     tavily_api_key: str = Field(default="", validation_alias="TAVILY_API_KEY")
+
+    #: Comma-separated API keys that secure write endpoints (empty disables auth).
+    api_keys: str = Field(default="", validation_alias=AliasChoices("API_KEYS", "DATASET_AGENT_API_KEYS"))
+    #: Comma-separated CORS allowed origins ("*" allows all).
+    cors_origins: str = Field(
+        default="*",
+        validation_alias=AliasChoices("CORS_ORIGINS", "DATASET_AGENT_CORS_ORIGINS"),
+    )
 
     agent_max_iterations: int = 5
     agent_timeout_seconds: int = 120
@@ -112,7 +141,7 @@ class Settings(BaseSettings):
     #: Batch size for reference-id resolution queries (Dimensions limit).
     gate_ref_batch_size: int = Field(default=512, ge=1, le=1000)
 
-    @field_validator("lmstudio_base_url")
+    @field_validator("lmstudio_base_url", "openrouter_base_url")
     @classmethod
     def _normalize_lmstudio_base_url(cls, v: str) -> str:
         """Anthropic SDK expects host root without /v1 (it appends /v1/messages)."""

@@ -10,7 +10,8 @@ from typing import Annotated, Any
 from urllib.parse import urljoin
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -26,6 +27,7 @@ from dataset_agent.domain.models import (
     YearsRange,
 )
 from dataset_agent.domain.ports import TaskStatus
+from dataset_agent.adapters.auth import APIKeyAuth
 from dataset_agent.adapters.literature import promote_dimensions_metrics_from_detail
 from dataset_agent.adapters.tasks_sqlite import SqliteTaskRepository
 from dataset_agent.logging_setup import configure_application_logging
@@ -71,6 +73,15 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+_cors_origins = [o.strip() for o in Settings().cors_origins.split(",") if o.strip()] or ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 def build_use_case(settings: Settings):
     """Lazy wrapper so importing this module does not eagerly load the LLM client."""
@@ -110,6 +121,22 @@ def _optimize_http_status(record: QueryOptimizationRecord) -> int:
 
 def get_settings() -> Settings:
     return Settings()
+
+
+def verify_api_key(
+    settings: Annotated[Settings, Depends(get_settings)],
+    x_api_key: Annotated[str | None, Header()] = None,
+) -> str:
+    """Dependency that enforces API key auth on write endpoints.
+
+    Auth is skipped entirely when no keys are configured in settings.
+    """
+    auth = APIKeyAuth(settings.api_keys)
+    if not auth.enabled:
+        return "anonymous"
+    if not auth.is_valid_key(x_api_key):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    return auth.get_client_id(x_api_key)
 
 
 class TaskCreateResponse(BaseModel):
@@ -195,6 +222,7 @@ def create_task(
     body: ResearchRequest,
     background_tasks: BackgroundTasks,
     settings: Annotated[Settings, Depends(get_settings)],
+    _client: Annotated[str, Depends(verify_api_key)],
 ) -> TaskCreateResponse:
     tasks = SqliteTaskRepository(settings.tasks_db)
     tid = tasks.create_task(body.model_dump(mode="json"))
@@ -309,6 +337,7 @@ def validate_terms(
     body: ValidationRequest,
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
+    _client: Annotated[str, Depends(verify_api_key)],
 ) -> DatasetRecord:
     """
     Validate dataset terms against Dimensions publications.
@@ -450,6 +479,7 @@ def validate_terms(
 async def optimize_endpoint(
     body: OptimizeRequest,
     settings: Annotated[Settings, Depends(get_settings)],
+    _client: Annotated[str, Depends(verify_api_key)],
 ) -> QueryOptimizationRecord | JSONResponse:
     """Pipeline síncrono em quatro fases. Configure timeout do cliente e do reverse proxy (ex.: 10–30 min)."""
     uc = build_optimize_use_case(settings)
@@ -476,6 +506,7 @@ def create_optimize_task(
     body: OptimizeRequest,
     background_tasks: BackgroundTasks,
     settings: Annotated[Settings, Depends(get_settings)],
+    _client: Annotated[str, Depends(verify_api_key)],
 ) -> TaskCreateResponse:
     tasks = SqliteTaskRepository(settings.tasks_db)
     payload = {"task_type": _OPTIMIZE_TASK_TYPE, **body.model_dump(mode="json")}

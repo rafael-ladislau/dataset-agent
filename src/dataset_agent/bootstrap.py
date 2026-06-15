@@ -16,16 +16,21 @@ from dataset_agent.settings import Settings
 
 def _build_agent(settings: Settings) -> AnthropicAgent:
     """Create an AnthropicAgent from the current settings."""
+    api_key = settings.llm_api_key
     if settings.llm_provider == "lmstudio":
         base_url = settings.lmstudio_base_url
         model_name = settings.lmstudio_model
+    elif settings.llm_provider == "openrouter":
+        base_url = settings.openrouter_base_url
+        model_name = settings.openrouter_model
+        api_key = settings.openrouter_api_key or settings.llm_api_key
     else:
         base_url = settings.ollama_base_url
         model_name = settings.ollama_model
     return AnthropicAgent(
         model_name=model_name,
         base_url=base_url,
-        api_key=settings.llm_api_key,
+        api_key=api_key,
         max_tokens=settings.llm_max_tokens,
         max_iterations=settings.agent_max_iterations,
         timeout_seconds=settings.agent_timeout_seconds,

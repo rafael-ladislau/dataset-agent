@@ -1,0 +1,114 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+
+---
+description: Python best practices and patterns for this project (FastAPI, Pydantic, ports/adapters, SQLite)
+globs: **/*.py, src/**/*.py, tests/**/*.py
+---
+
+# Python Best Practices
+
+## Project Structure
+- Use src-layout with `src/dataset_agent/`
+- Follow the ports/adapters (hexagonal) layering: `domain/` (models, ports), `application/` (use cases), `adapters/` (concrete implementations), `interfaces/` (CLI, API)
+- Place tests in `tests/` directory parallel to `src/`
+- Keep configuration in `settings.py` (Pydantic Settings) and environment variables (`.env`)
+- Store dependencies in `pyproject.toml`
+
+## Code Style
+- Follow Black code formatting
+- Use isort for import sorting
+- Follow PEP 8 naming conventions:
+  - snake_case for functions and variables
+  - PascalCase for classes
+  - UPPER_CASE for constants
+- Maximum line length of 88 characters (Black default)
+- Use absolute imports over relative imports
+
+## Type Hints
+- Use type hints for all function parameters and returns
+- Prefer modern syntax (`X | None`) with `from __future__ import annotations`
+- Use `TypeVar` for generic types
+- Use abstract base classes / `Protocol` for ports
+
+## FastAPI Structure
+- Define the app in `interfaces/api.py`; wire concrete adapters in `bootstrap.py`
+- Use dependency injection (`Depends`) for settings and auth
+- Keep business logic in `application/` use cases, not in route handlers
+- Implement proper error handlers and consistent error responses
+- Validate requests/responses with Pydantic models from `domain/models.py`
+
+## Database
+- Use the SQLite task repository (`adapters/tasks_sqlite.py`) behind a port
+- Keep DB access in adapters, never in domain/application layers
+- Use thread-safe connections and proper indexing
+
+## Authentication
+- Use the `APIKeyAuth` adapter for `x-api-key` validation on write endpoints
+- Read keys from the `API_KEYS` setting (comma-separated); empty disables auth
+- Never hardcode secrets; load them from environment/`.env`
+
+## API Design
+- Use proper HTTP status codes
+- Handle errors consistently and surface structured failure detail
+- Validate inputs with Pydantic
+- Document endpoints via FastAPI's OpenAPI/Swagger
+
+## Testing
+- Use pytest for testing
+- Write tests for all routes
+- Use pytest-cov for coverage
+- Implement proper fixtures
+- Use proper mocking with pytest-mock
+- Test all error scenarios
+
+## Security
+- Use HTTPS in production
+- Implement proper CORS
+- Sanitize all user inputs
+- Use proper session configuration
+- Implement proper logging
+- Follow OWASP guidelines
+
+## Performance
+- Use proper caching with Flask-Caching
+- Implement database query optimization
+- Use proper connection pooling
+- Implement proper pagination
+- Use background tasks for heavy operations
+- Monitor application performance
+
+## Error Handling
+- Create custom exception classes
+- Use proper try-except blocks
+- Implement proper logging
+- Return proper error responses
+- Handle edge cases properly
+- Use proper error messages
+
+## Documentation
+- Use Google-style docstrings
+- Document all public APIs
+- Keep README.md updated
+- Use proper inline comments
+- Generate API documentation
+- Document environment setup
+
+## Development Workflow
+- Use virtual environments (venv)
+- Implement pre-commit hooks
+- Use proper Git workflow
+- Follow semantic versioning
+- Use proper CI/CD practices
+- Implement proper logging
+
+## Dependencies
+- Pin dependency versions
+- Use requirements.txt for production
+- Separate dev dependencies
+- Use proper package versions
+- Regularly update dependencies
+- Check for security vulnerabilities

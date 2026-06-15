@@ -28,7 +28,7 @@ def _fake_settings(tmp_path: Path) -> Settings:
     return Settings(
         tasks_db=tmp_path / "tasks.db",
         output_dir=tmp_path / "out",
-    )
+    ).model_copy(update={"api_keys": ""})
 
 
 async def _fake_run_full_pipeline(request: ResearchRequest, settings: Settings):
@@ -463,3 +463,47 @@ def test_optimize_task_result_rejects_research_task(client: TestClient) -> None:
     tid = r.json()["id"]
     bad = client.get(f"/optimize/tasks/{tid}/result")
     assert bad.status_code == 400
+
+
+def test_api_key_required_when_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(bootstrap_mod, "run_full_pipeline", _fake_run_full_pipeline)
+
+    def _settings() -> Settings:
+        return _fake_settings(tmp_path).model_copy(update={"api_keys": "secret-key"})
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    try:
+        c = TestClient(api.app)
+
+        # Missing key -> 401
+        missing = c.post("/tasks", json={"dataset_name": "WH"})
+        assert missing.status_code == 401
+
+        # Wrong key -> 401
+        wrong = c.post(
+            "/tasks",
+            json={"dataset_name": "WH"},
+            headers={"x-api-key": "nope"},
+        )
+        assert wrong.status_code == 401
+
+        # Correct key -> 200
+        ok = c.post(
+            "/tasks",
+            json={"dataset_name": "WH"},
+            headers={"x-api-key": "secret-key"},
+        )
+        assert ok.status_code == 200
+
+        # GET endpoints stay open
+        assert c.get("/tasks").status_code == 200
+    finally:
+        api.app.dependency_overrides.clear()
+
+
+def test_api_key_disabled_allows_all(client: TestClient) -> None:
+    # Default fixture has api_keys="" -> auth disabled, no header needed.
+    r = client.post("/tasks", json={"dataset_name": "WH"})
+    assert r.status_code == 200

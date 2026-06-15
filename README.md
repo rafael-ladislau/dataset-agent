@@ -8,8 +8,9 @@ See `DOCUMENTACAO_PROJETO.md` for a full technical reference and `docs/white-pap
 
 - Python 3.11+
 - An LLM provider — one of:
-  - **Ollama** (default, local): [ollama.com](https://ollama.com)
-  - **OpenRouter** (cloud): requires `DATASET_AGENT_OPENROUTER_API_KEY`
+  - **LM Studio** (default, local): [lmstudio.ai](https://lmstudio.ai)
+  - **Ollama** (local): [ollama.com](https://ollama.com)
+  - **OpenRouter** (cloud): requires `OPENROUTER_API_KEY`
 
 ## Installation
 
@@ -38,11 +39,36 @@ All variables use the `DATASET_AGENT_` prefix.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATASET_AGENT_LLM_PROVIDER` | `ollama` | `ollama` or `openrouter` |
-| `DATASET_AGENT_OLLAMA_MODEL` | `llama3` | Model name for Ollama |
+| `DATASET_AGENT_LLM_PROVIDER` | `lmstudio` | `lmstudio`, `ollama`, or `openrouter` |
+| `LMSTUDIO_BASE_URL` | `http://127.0.0.1:1234` | LM Studio server URL |
+| `DATASET_AGENT_LMSTUDIO_MODEL` | `gemma-4-31b-it-mlx` | Model name as shown in LM Studio |
+| `DATASET_AGENT_OLLAMA_MODEL` | `gemma4-31b` | Model name for Ollama |
 | `DATASET_AGENT_OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server URL |
-| `DATASET_AGENT_OPENROUTER_API_KEY` | _(empty)_ | **Sensitive** — get at [openrouter.ai/keys](https://openrouter.ai/keys) |
-| `DATASET_AGENT_OPENROUTER_MODEL` | `openai/gpt-4o-mini` | Model slug for OpenRouter |
+| `OPENROUTER_API_KEY` | _(empty)_ | **Sensitive** — get at [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter Anthropic-compatible endpoint |
+| `DATASET_AGENT_OPENROUTER_MODEL` | `anthropic/claude-3.5-sonnet` | Model slug for OpenRouter |
+
+##### Using LM Studio
+
+1. Download and install [LM Studio](https://lmstudio.ai).
+2. Download a model (e.g., `gemma-4-31b-it-mlx`).
+3. Load the model (click the **↔** icon).
+4. Start the local server: **Developer → Local Server → Start Server** (default port `1234`).
+5. Verify it is running: `curl http://localhost:1234/v1/models`.
+6. Point the agent at it via `.env`:
+   ```bash
+   DATASET_AGENT_LLM_PROVIDER=lmstudio
+   DATASET_AGENT_LMSTUDIO_MODEL=gemma-4-31b-it-mlx
+   LMSTUDIO_BASE_URL=http://localhost:1234
+   ```
+
+##### Using OpenRouter
+
+```bash
+DATASET_AGENT_LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=your_api_key_here
+DATASET_AGENT_OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
+```
 
 #### Runtime
 
@@ -51,6 +77,14 @@ All variables use the `DATASET_AGENT_` prefix.
 | `DATASET_AGENT_AGENT_MAX_ITERATIONS` | `5` | Max LLM tool-call iterations per step |
 | `DATASET_AGENT_AGENT_TIMEOUT_SECONDS` | `120` | Per-step timeout |
 | `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `DATASET_AGENT_LOG_DIR` | _(empty)_ | When set, writes rotating logs (`dataset_agent.log`, `dataset_agent_errors.log`, 10 MB × 5) |
+
+#### API Security _(optional)_
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_KEYS` | _(empty)_ | Comma-separated keys; when set, write endpoints require an `x-api-key` header. Empty disables auth. |
+| `CORS_ORIGINS` | `*` | Comma-separated allowed CORS origins |
 
 #### Persistence
 
@@ -97,7 +131,19 @@ dataset-research-api
 | `GET` | `/tasks/{id}/result` | Retrieve completed `DatasetRecord` |
 | `GET` | `/tasks` | List all tasks |
 | `POST` | `/validate` | Run literature gate on existing terms |
+| `POST` | `/optimize` | Optimize a Dimensions publications query (sync) |
+| `POST` | `/optimize/tasks` | Optimize query (async) |
+| `GET` | `/optimize/tasks/{id}/result` | Retrieve optimize result |
 | `GET` | `/health` | Health check (tests Ollama connectivity if applicable) |
+
+When `API_KEYS` is configured, write endpoints (`POST /tasks`, `/validate`, `/optimize`, `/optimize/tasks`) require an `x-api-key` header:
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: your_key" \
+  -d '{"dataset_name":"Current Population Survey"}'
+```
 
 Example:
 
