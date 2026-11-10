@@ -15,7 +15,14 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable
 
-from dataset_agent.adapters.fulltext_evidence import Evidence, PubVerdict, attribute_terms, term_in, term_in_quote
+from dataset_agent.adapters.fulltext_evidence import (
+    Evidence,
+    PubVerdict,
+    attribute_terms,
+    singular_variant,
+    term_in,
+    term_in_quote,
+)
 from dataset_agent.adapters.literature import _stem_text
 from dataset_agent.adapters.seed_mapping import QueryCandidate
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
@@ -164,7 +171,13 @@ def refine_candidate(
             if _covered(t, candidate.exclude_terms):
                 continue
             hit_fp = [v for v in evidence.false_positives if term_in(t, v)]
-            hit_gen = [v for v in evidence.genuine if term_in(t, v)]
+            # Over-matching the genuine side is the safe direction here: an exclude
+            # is blocked when the term, or its singular, occurs in a genuine paper.
+            singular = singular_variant(t)
+            hit_gen = [
+                v for v in evidence.genuine
+                if term_in(t, v) or (singular is not None and term_in(singular, v))
+            ]
             if hit_fp and not hit_gen:
                 new_excludes.append((t, hit_fp))
         # Flags need at least two genuine quotes (quote-only; titles never count).

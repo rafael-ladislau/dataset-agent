@@ -144,7 +144,12 @@ def _token_matches(term_token: str, text_token: str, plural_ok: bool) -> bool:
     (``ACE``, ``MEP``) only match exactly."""
     if text_token == term_token:
         return True
-    return plural_ok and len(term_token) > 3 and text_token in (term_token + "s", term_token + "es")
+    if not plural_ok or len(term_token) <= 3:
+        return False
+    plurals = {term_token + "s", term_token + "es"}
+    if term_token.endswith("y") and term_token[-2] not in "aeiou":
+        plurals.add(term_token[:-1] + "ies")  # study -> studies
+    return text_token in plurals
 
 
 def _phrase_in(term: str, text: str, *, plural_ok: bool = True) -> bool:
@@ -163,6 +168,25 @@ def _phrase_in(term: str, text: str, *, plural_ok: bool = True) -> bool:
 
 def term_in(term: str, verdict: PubVerdict) -> bool:
     return _phrase_in(term, f"{verdict.quote} {verdict.title}")
+
+
+def singular_variant(term: str) -> str | None:
+    """The term with a plural ending removed from its last word (len > 3), or None.
+    Only for checks where over-matching is the safe direction (exclude guard)."""
+    words = term.split()
+    if not words:
+        return None
+    last = words[-1]
+    low = last.lower()
+    if len(low) > 4 and low.endswith("ies"):
+        stem = last[:-3] + ("Y" if last[-3:].isupper() else "y")
+    elif len(low) > 4 and low.endswith(("ses", "xes", "zes")):
+        stem = last[:-2]
+    elif len(low) > 3 and low.endswith("s") and not low.endswith("ss"):
+        stem = last[:-1]
+    else:
+        return None
+    return " ".join([*words[:-1], stem])
 
 
 def term_in_quote(term: str, verdict: PubVerdict, *, exact: bool = False) -> bool:

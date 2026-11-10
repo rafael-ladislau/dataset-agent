@@ -209,3 +209,24 @@ def test_new_alias_must_occur_literally_in_a_genuine_quote():
                          dataset_name="X", count_fn=lambda t: 500, reference_count=100)
     added = [d.term for d in r.diffs if d.kind == "alias" and d.action == "add"]
     assert added == ["National Family Surveys"]
+
+
+def test_consonant_y_plural_in_text_counts_for_the_term():
+    from dataset_agent.adapters.fulltext_evidence import PubVerdict, term_in_quote
+
+    v = PubVerdict(publication_id="p", doi=None, title="", citation_count=1, verdict="used",
+                   quote="pooled Family Studies cohorts")
+    assert term_in_quote("Family Study", v)
+    assert not term_in_quote("Family Day", PubVerdict(**{**v.__dict__, "quote": "Family Daies"}))
+
+
+def test_exclude_blocked_by_a_genuine_singular_of_a_plural_term():
+    pubs = (
+        [pub(f"g{i}", 40 - i, True, "NHIS data from a clinical trial") for i in range(3)]
+        + [pub(f"f{i}", 20 - i, False, "NHIS clinical trials registry") for i in range(2)]
+    )
+    llm = FakeLLM({"exclude_terms": ["clinical trials", "registry"], "flag_terms": [],
+                   "new_aliases": [], "reasoning": ""})
+    r = refine_candidate(QueryCandidate("X", safe=["NHIS"]), ev(pubs), settings=S, agent=llm,
+                         dataset_name="X", count_fn=lambda t: 0, reference_count=100)
+    assert r.candidate.exclude_terms == ["registry"]
