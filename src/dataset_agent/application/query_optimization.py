@@ -734,21 +734,26 @@ class QueryOptimizationUseCase:
         if ft_enabled and ft_candidates:
             use_it = best_ft_iter if best_ft_iter is not None else 0
             order = sorted(i for i in ft_diffs if i < use_it)
-            proposal = build_proposal(
-                dataset_name=request.dataset_name,
-                initial=ft_candidates[0],
-                proposed=ft_candidates[use_it],
-                diffs=merge_diffs([ft_diffs[i] for i in order]),
-                iterations=ft_iterations,
-                settings=self._settings,
-                notes=[n for n in notes_parts if "full-text" in n or "refiner" in n],
-                seed_kw={"extra": {"home_url": request.dataset_url}},
-            )
-            if best_ft_iter is None:
+            try:
+                proposal = build_proposal(
+                    dataset_name=request.dataset_name,
+                    initial=ft_candidates[0],
+                    proposed=ft_candidates[use_it],
+                    diffs=merge_diffs([ft_diffs[i] for i in order]),
+                    iterations=ft_iterations,
+                    settings=self._settings,
+                    notes=[n for n in notes_parts if "full-text" in n or "refiner" in n],
+                    seed_kw={"extra": {"home_url": request.dataset_url}},
+                )
+            except ValueError as exc:
+                logger.warning("proposal_unbuildable run_id=%s error=%s", run_id, exc)
+                notes_parts.append(f"full-text proposal skipped: {exc}")
+                proposal = None
+            if proposal is not None and best_ft_iter is None:
                 proposal.notes.append(
                     "No full-text evidence was obtained; the proposal equals the initial query."
                 )
-            if self._proposal_repo is not None:
+            if proposal is not None and self._proposal_repo is not None:
                 self._proposal_repo.save(proposal)
 
         dsl_query = self._build_where_dsl(best.for_clause)

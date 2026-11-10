@@ -151,3 +151,18 @@ def test_proposal_created_and_persisted(tmp_path):
     assert "Another Long Title Here" in p.initial.seed["standalone_names"] + p.initial.seed["dataset_names"]
     assert "Another Long Title Here" not in p.start_payload["standalone_names"] + p.start_payload["dataset_names"]
     assert [m.iteration for m in p.iterations] == [0, 1]
+
+
+def test_unbuildable_proposal_does_not_abort_the_run(tmp_path, monkeypatch):
+    def boom(**_kw):
+        raise ValueError("raw dimensions_query does not contain aliases: ['The \"Big\" Survey']")
+
+    monkeypatch.setattr(qopt_mod, "build_proposal", boom)
+    good = [pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(4)]
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(),
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True),
+        extraction_client=FakeClient([{"publications": good}]))
+    out = asyncio.run(uc.execute(REQ))
+    assert out.success and out.proposal is None
+    assert any("proposal skipped" in n for n in (out.notes if isinstance(out.notes, list) else [out.notes or ""]))
