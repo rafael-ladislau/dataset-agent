@@ -890,10 +890,19 @@ def _build_for_clause_from_record(record: DatasetRecord) -> str:
     excludes = [t for t in (record.exclude_terms or []) if t and len(t) > 2]
     if not terms:
         return ""
+    # With flag terms the names are risky: they only count together with a flag
+    # (V4 drops flags that are not paired with risky terms).
+    if flags:
+        return build_for_clause(
+            safe=[],
+            risky=terms,
+            variant="V4",
+            flag_terms=flags,
+            exclusion_terms=excludes,
+        )
     return build_for_clause(
         safe=terms,
         variant="V4",
-        flag_terms=flags,
         exclusion_terms=excludes,
     )
 

@@ -42,3 +42,20 @@ def test_fp_rate_uses_classified_denominator(monkeypatch):
     assert out["matched_count"] == 500
     assert out["genuine_count"] == 0
     assert out["fp_rate_pct"] == 100.0
+
+
+def test_gate_for_clause_keeps_flag_terms():
+    from dataset_agent.domain.models import DatasetRecord, Group
+
+    rec = DatasetRecord(
+        engine="dimensions",
+        group=Group(name="default"),
+        main_dataset_name="Foo Survey",
+        dataset_names=["FS"],
+        flag_terms=["health"],
+        exclude_terms=["Foo Fighters"],
+    )
+    clause = lit._build_for_clause_from_record(rec)
+    assert "health" in clause
+    assert " AND " in clause
+    assert "NOT" in clause and "Foo Fighters" in clause
