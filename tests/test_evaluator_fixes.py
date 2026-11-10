@@ -45,7 +45,7 @@ def test_fp_rate_uses_classified_denominator(monkeypatch):
 
 
 def test_gate_for_clause_keeps_flag_terms():
-    from dataset_agent.domain.models import DatasetRecord, Group
+    from dataset_agent.domain.models import DatasetRecord, Group, YearsRange
 
     rec = DatasetRecord(
         engine="dimensions",
@@ -54,8 +54,23 @@ def test_gate_for_clause_keeps_flag_terms():
         dataset_names=["FS"],
         flag_terms=["health"],
         exclude_terms=["Foo Fighters"],
+        years_range=YearsRange(start_year=2015, end_year=2025),
     )
     clause = lit._build_for_clause_from_record(rec)
     assert "health" in clause
     assert " AND " in clause
     assert "NOT" in clause and "Foo Fighters" in clause
+
+
+def test_phase3_starts_from_lowest_fp_variant_with_real_label():
+    from dataset_agent.application.query_optimization import _pick_start_variant
+    from dataset_agent.domain.models import VariantTestedEntry
+
+    tested = [
+        VariantTestedEntry(label="V1", for_clause="a", expected_count=10, fp_rate_pct=20.0),
+        VariantTestedEntry(label="V3", for_clause="b", expected_count=10, fp_rate_pct=2.0),
+        VariantTestedEntry(label="V4", for_clause="c", expected_count=10, fp_rate_pct=2.0),
+        VariantTestedEntry(label="V2", for_clause="d", expected_count=0, fp_rate_pct=0.0),
+    ]
+    # V2 has 0 FP but zero hits so it loses; V4 wins the FP tie by preference order.
+    assert _pick_start_variant(tested).label == "V4"

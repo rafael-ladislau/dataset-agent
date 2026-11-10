@@ -69,6 +69,18 @@ def _alias_risk_label(c_alias: int, c_full: int, has_full_name: bool) -> Literal
     return "safe"
 
 
+def _pick_start_variant(tested: list[VariantTestedEntry]) -> VariantTestedEntry:
+    """Best Phase-2 variant: non-empty results first, then lowest FP, then variant preference."""
+    return min(
+        tested,
+        key=lambda v: (
+            0 if (v.expected_count or 0) > 0 else 1,
+            float(v.fp_rate_pct or 0.0),
+            _VARIANT_ORDER.get(v.label, 99),
+        ),
+    )
+
+
 def _fp_keywords_active(fp_keywords: dict[str, list[str]]) -> bool:
     return any(isinstance(v, list) and v for v in fp_keywords.values())
 
@@ -449,9 +461,11 @@ class QueryOptimizationUseCase:
         current_risky = list(risky)
         current_flags = list(flag_terms)
 
-        # Start with the best Phase-2 variant
-        best_variant = tested[0]
+        # Start with the best Phase-2 variant: lowest FP, then non-empty result,
+        # then the variant preference order (V4 > V3 > V2 > V1 > V5).
+        best_variant = _pick_start_variant(tested)
         current_for_clause = best_variant.for_clause
+        current_variant_label = best_variant.label.split("~", 1)[0]
 
         best_ev: dict | None = None
         best_variant_entry: VariantTestedEntry | None = None
@@ -480,7 +494,7 @@ class QueryOptimizationUseCase:
             expected_count = int(ev.get("publications_total") or 0)
             coverage = float(ev.get("coverage_pct") or 0.0)
 
-            label = f"V4~gate{iteration}"
+            label = f"{current_variant_label}~gate{iteration}"
             entry = VariantTestedEntry(
                 label=label,
                 for_clause=current_for_clause,
@@ -534,6 +548,7 @@ class QueryOptimizationUseCase:
                 notes_parts.append(f"gate_iter{iteration}: for_clause unchanged; stopping.")
                 break
             current_for_clause = new_fc
+            current_variant_label = "V4"
 
         logger.info(
             "optimize_phase run_id=%s phase=phase3_gate dims=%s elapsed_s=%.2f",

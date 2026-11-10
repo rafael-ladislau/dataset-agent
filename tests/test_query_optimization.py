@@ -94,7 +94,7 @@ def test_optimize_success_with_dataset_override(tmp_path) -> None:
 
     assert out.success is True
     # With the gate-evaluator loop, the selected variant is the best gate-evaluated one
-    assert out.selected_variant.startswith("V4~gate")
+    assert out.selected_variant.startswith("V1~gate")
     assert out.for_clause
     assert out.dsl_query and "where year in" in out.dsl_query
     assert out.expected_count == 100  # from fake evaluator publications_total
