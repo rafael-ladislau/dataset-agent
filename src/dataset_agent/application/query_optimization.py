@@ -40,6 +40,7 @@ from dataset_agent.adapters.query_heuristics import (
     platform_exclude_suggestions,
     rhetorical_exclusions,
 )
+from dataset_agent.application.proposal_service import build_proposal, merge_diffs
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
 from dataset_agent.domain.models import (
     AliasCountEntry,
@@ -126,7 +127,9 @@ class QueryOptimizationUseCase:
         agent: AgentPort,
         settings: Settings,
         extraction_client: ExtractionClient | None = None,
+        proposal_repo=None,
     ) -> None:
+        self._proposal_repo = proposal_repo
         self._dsl = dsl_port
         self._research = research
         self._agent = agent
@@ -727,6 +730,27 @@ class QueryOptimizationUseCase:
         else:
             confidence = ConfidenceLevel.LOW
 
+        proposal = None
+        if ft_enabled and ft_candidates:
+            use_it = best_ft_iter if best_ft_iter is not None else 0
+            order = sorted(i for i in ft_diffs if i < use_it)
+            proposal = build_proposal(
+                dataset_name=request.dataset_name,
+                initial=ft_candidates[0],
+                proposed=ft_candidates[use_it],
+                diffs=merge_diffs([ft_diffs[i] for i in order]),
+                iterations=ft_iterations,
+                settings=self._settings,
+                notes=[n for n in notes_parts if "full-text" in n or "refiner" in n],
+                seed_kw={"extra": {"home_url": request.dataset_url}},
+            )
+            if best_ft_iter is None:
+                proposal.notes.append(
+                    "No full-text evidence was obtained; the proposal equals the initial query."
+                )
+            if self._proposal_repo is not None:
+                self._proposal_repo.save(proposal)
+
         dsl_query = self._build_where_dsl(best.for_clause)
         elapsed = round(time.perf_counter() - t0, 2)
         notes_parts.append(f"dimensions_api_calls≈{self._dims_calls} elapsed_s={elapsed}")
@@ -752,5 +776,6 @@ class QueryOptimizationUseCase:
             exclusion_terms=exc_work,
             all_variants_tested=tested,
             fulltext_iterations=ft_iterations,
+            proposal=proposal,
             notes=" ".join(notes_parts),
         )

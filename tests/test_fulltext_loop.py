@@ -128,3 +128,26 @@ def test_loop_refines_with_evidence_and_selects_best_iteration(tmp_path):
     assert "Another Long Title Here" not in second["standalone_names"] + second["dataset_names"]
     assert out.selected_variant.endswith("~gate1")
     assert "Another Long Title Here" not in out.aliases.safe + out.aliases.risky
+
+
+def test_proposal_created_and_persisted(tmp_path):
+    from dataset_agent.adapters.proposals_json import JsonProposalRepository
+
+    bad = [pub(f"n{i}", 50 - i, False, "Another Long Title Here nursing") for i in range(4)] + [
+        pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(4)]
+    good = [pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(4)]
+    llm = MagicMock()
+    llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    s = make_settings(tmp_path, fulltext_refinement_enabled=True, fulltext_top_n=20)
+    repo = JsonProposalRepository(s.output_dir)
+    uc = QueryOptimizationUseCase(dsl_port=CountDSL(), research=MagicMock(), agent=llm, settings=s,
+                                  extraction_client=FakeClient([{"publications": bad}, {"publications": good}]),
+                                  proposal_repo=repo)
+    out = asyncio.run(uc.execute(REQ))
+    p = out.proposal
+    assert p is not None and repo.get(p.id) is not None
+    assert [d.action for d in p.diffs if d.term == "Another Long Title Here"] == ["drop"]
+    assert p.start_payload["probe"] is False
+    assert "Another Long Title Here" in p.initial.seed["standalone_names"] + p.initial.seed["dataset_names"]
+    assert "Another Long Title Here" not in p.start_payload["standalone_names"] + p.start_payload["dataset_names"]
+    assert [m.iteration for m in p.iterations] == [0, 1]

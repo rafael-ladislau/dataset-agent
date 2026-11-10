@@ -27,6 +27,7 @@ from dataset_agent.domain.models import (
     YearsRange,
 )
 from dataset_agent.domain.ports import TaskStatus
+from dataset_agent.domain.proposals import QueryProposal
 from dataset_agent.adapters.auth import APIKeyAuth
 from dataset_agent.adapters.literature import promote_dimensions_metrics_from_detail
 from dataset_agent.adapters.tasks_sqlite import SqliteTaskRepository
@@ -549,6 +550,69 @@ def get_optimize_task_result(
     if not p.is_file():
         raise HTTPException(status_code=500, detail="Result file missing")
     return QueryOptimizationRecord.model_validate_json(p.read_text(encoding="utf-8"))
+
+
+class ApproveBody(BaseModel):
+    approved_by: str | None = None
+
+
+def _proposal_service(settings: Settings):
+    from dataset_agent.adapters.proposals_json import JsonProposalRepository
+    from dataset_agent.application.proposal_service import ProposalService
+
+    return ProposalService(JsonProposalRepository(settings.output_dir), settings)
+
+
+def _proposal_call(fn, *args):
+    from dataset_agent.adapters.extraction_client import ExtractionError
+    from dataset_agent.application.proposal_service import ProposalError
+
+    try:
+        return fn(*args)
+    except ProposalError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc) or type(exc).__name__)
+    except ExtractionError as exc:
+        raise HTTPException(status_code=502, detail=f"extraction API error: {exc}")
+
+
+@app.get("/proposals/{proposal_id}", response_model=QueryProposal, summary="Read a query proposal")
+def get_proposal(
+    proposal_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> QueryProposal:
+    return _proposal_call(_proposal_service(settings).get, proposal_id)
+
+
+@app.post(
+    "/proposals/{proposal_id}/approve",
+    response_model=QueryProposal,
+    summary="Approve a query proposal (human gate)",
+)
+def approve_proposal(
+    proposal_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+    client_id: Annotated[str, Depends(verify_api_key)],
+    body: ApproveBody | None = None,
+) -> QueryProposal:
+    who = (body.approved_by if body and body.approved_by else None) or client_id
+    return _proposal_call(_proposal_service(settings).approve, proposal_id, who)
+
+
+@app.post(
+    "/proposals/{proposal_id}/submit",
+    response_model=QueryProposal,
+    summary="Create the real extraction task from an approved proposal",
+    description=(
+        "Refuses unapproved proposals. Target extraction instance is "
+        "`DATASET_AGENT_SUBMIT_TARGET` (default `dev`); `prod` must be set explicitly."
+    ),
+)
+def submit_proposal(
+    proposal_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+    _client: Annotated[str, Depends(verify_api_key)],
+) -> QueryProposal:
+    return _proposal_call(_proposal_service(settings).submit, proposal_id)
 
 
 @app.get("/health")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataset_agent.adapters.agent_anthropic import AnthropicAgent
 from dataset_agent.adapters.dimensions_dsl import AsyncThrottledDimensionsDsl
+from dataset_agent.adapters.proposals_json import JsonProposalRepository
 from dataset_agent.adapters.extractor import HeuristicTextExtractor
 from dataset_agent.adapters.literature import literature_gate_from_settings
 from dataset_agent.adapters.storage_json import JsonDatasetRepository
@@ -75,6 +76,7 @@ def build_optimize_use_case(
         research=research,
         agent=resolved,
         settings=settings,
+        proposal_repo=JsonProposalRepository(settings.output_dir),
     )
 
 
