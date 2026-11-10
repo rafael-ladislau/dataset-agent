@@ -177,7 +177,8 @@ def refine_candidate(
         for t in prop["new_aliases"]:
             if _covered(t, aliases):
                 continue
-            hit_gen = [v for v in evidence.genuine if term_in_quote(t, v)]
+            # A new alias must occur literally (no plural folding) in a genuine quote.
+            hit_gen = [v for v in evidence.genuine if term_in_quote(t, v, exact=True)]
             if hit_gen:
                 new_aliases.append((t, hit_gen))
 

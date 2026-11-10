@@ -134,36 +134,41 @@ def build_evidence(results: dict[str, Any], top_n: int) -> Evidence:
     return ev
 
 
-def _token(word: str) -> str:
-    """Light singular: drop a plural ``es``/``s`` from words longer than 3 letters,
-    so ``surveys``/``homes`` match ``survey``/``home``; short tokens (``ACE``, ``FS``,
-    ``NIS``) stay exact."""
-    if len(word) > 3 and word.endswith("es") and word[-3] in "sxz":
-        return word[:-2]
-    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
-        return word[:-1]
-    return word
+def _tokens(text: str) -> list[str]:
+    return _stem_text(unicodedata.normalize("NFKC", text or "")).split()
 
 
-def _tokens(text: str) -> str:
-    normalized = _stem_text(unicodedata.normalize("NFKC", text or ""))
-    return " ".join(_token(w) for w in normalized.split())
+def _token_matches(term_token: str, text_token: str, plural_ok: bool) -> bool:
+    """The term token itself, or (when allowed) its plural in the text. The term is
+    never altered, so ``NHIS`` never matches ``NHI``; tokens of 3 letters or fewer
+    (``ACE``, ``MEP``) only match exactly."""
+    if text_token == term_token:
+        return True
+    return plural_ok and len(term_token) > 3 and text_token in (term_token + "s", term_token + "es")
 
 
-def _phrase_in(term: str, text: str) -> bool:
+def _phrase_in(term: str, text: str, *, plural_ok: bool = True) -> bool:
     """Whole-word phrase match on normalized tokens: ``ACE`` never matches ``placebo``,
-    while ``Family Survey`` matches ``family surveys``."""
-    stem = _tokens(term)
-    return bool(stem) and f" {stem} " in f" {_tokens(text)} "
+    and ``Family Survey`` matches ``family surveys`` (text-side plural only)."""
+    want = _tokens(term)
+    have = _tokens(text)
+    if not want:
+        return False
+    n = len(want)
+    return any(
+        all(_token_matches(w, h, plural_ok) for w, h in zip(want, have[i : i + n]))
+        for i in range(len(have) - n + 1)
+    )
 
 
 def term_in(term: str, verdict: PubVerdict) -> bool:
     return _phrase_in(term, f"{verdict.quote} {verdict.title}")
 
 
-def term_in_quote(term: str, verdict: PubVerdict) -> bool:
-    """Quote-only match (the title never counts)."""
-    return _phrase_in(term, verdict.quote)
+def term_in_quote(term: str, verdict: PubVerdict, *, exact: bool = False) -> bool:
+    """Quote-only match (the title never counts). ``exact`` disables the text-side
+    plural, for checks that need the literal form (new aliases)."""
+    return _phrase_in(term, verdict.quote, plural_ok=not exact)
 
 
 @dataclass

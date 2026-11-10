@@ -188,10 +188,24 @@ def test_whole_word_match_tolerates_plurals_and_unicode_forms():
                           verdict="used", quote=quote)
 
     assert term_in_quote("Family Survey", v("data from the Family Surveys of 2010"))
-    assert term_in_quote("nursing homes", v("residents of a nursing home"))
     assert term_in_quote("nursing home", v("residents of nursing homes"))
     assert term_in_quote("Café Study", v("the Café Study cohort"))   # decomposed accent
     assert not term_in_quote("ACE", v("a placebo arm"))
     assert not term_in_quote("FS", v("FSS scores"))
     assert not term_in_quote("NIS", v("NI data only"))   # short tokens stay exact
-    assert term_in_quote("ACE", v("the ACEs questionnaire"))
+    assert not term_in_quote("ACE", v("the ACEs questionnaire"))   # short: exact only
+    assert not term_in_quote("NHIS", v("the NHI programme"))       # term never altered
+    assert term_in_quote("NHIS", v("we used NHIS data"))
+    assert not term_in_quote("MEP", v("we used MEPS data"))
+    assert term_in_quote("Family Survey", v("Family Surveys"), exact=False)
+    assert not term_in_quote("Family Survey", v("Family Surveys"), exact=True)
+
+
+def test_new_alias_must_occur_literally_in_a_genuine_quote():
+    pubs = [pub(f"g{i}", 40 - i, True, "we used the National Family Surveys microdata") for i in range(3)]
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": [],
+                   "new_aliases": ["National Family Survey", "National Family Surveys"], "reasoning": ""})
+    r = refine_candidate(QueryCandidate("X", safe=["NFS"]), ev(pubs), settings=S, agent=llm,
+                         dataset_name="X", count_fn=lambda t: 500, reference_count=100)
+    added = [d.term for d in r.diffs if d.kind == "alias" and d.action == "add"]
+    assert added == ["National Family Surveys"]
