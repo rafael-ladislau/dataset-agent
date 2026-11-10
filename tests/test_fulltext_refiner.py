@@ -7,10 +7,13 @@ from dataset_agent.domain.ports import AgentPort
 from dataset_agent.settings import Settings
 
 
-def pub(pid, cites, used, quote, title=""):
+def pub(pid, cites, used, quote, title="", mentioned=None):
+    # A paper that does not use the dataset is a false positive only when it does not
+    # mention it either; pass mentioned=True for a mentioned-but-not-used match.
+    mentioned = used if mentioned is None else mentioned
     return {"publication_id": pid, "doi": None, "title": title, "citation_count": cites,
             "fulltext": {"status": "delivered"}, "analyzed": True,
-            "validated_datasets": [{"name": "X", "is_used": used, "is_mentioned": True, "text_quote": quote}]}
+            "validated_datasets": [{"name": "X", "is_used": used, "is_mentioned": mentioned, "text_quote": quote}]}
 
 
 class FakeLLM(AgentPort):
@@ -265,3 +268,29 @@ def test_exclude_that_overlaps_an_alias_or_flag_is_rejected():
     r = refine_candidate(cand, ev(pubs), settings=S, agent=llm,
                          dataset_name="X", count_fn=lambda t: 0, reference_count=100)
     assert r.candidate.exclude_terms == ["registry"]
+
+
+def test_alias_mostly_mentioned_not_used_is_kept():
+    # The CPS-FSS case: most papers cite the survey without using it. They are
+    # correct matches for the query, so the official name must not be dropped.
+    c = QueryCandidate(main_dataset_name="Survey", safe=["Food Security Supplement", "FSS"],
+                       risky=[], flag_terms=["USDA"])
+    pubs = [pub("u0", 10, True, "we analysed the Food Security Supplement")] + [
+        pub(f"m{i}", 9 - i, False, "according to the Food Security Supplement", mentioned=True)
+        for i in range(5)]
+    r = refine_candidate(c, ev(pubs), settings=S, agent=None, dataset_name="Survey")
+    d = diff(r, "alias", "Food Security Supplement")
+    assert (d.action, d.status) == ("keep", "verified")
+    assert d.stats["matched"] == 6 and d.stats["used"] == 1 and d.stats["fp"] == 0
+    assert "Food Security Supplement" in r.candidate.safe
+
+
+def test_exclude_never_comes_from_a_mentioned_paper():
+    c = QueryCandidate(main_dataset_name="Survey", safe=["NHIS"], risky=[], flag_terms=[])
+    pubs = [pub("m0", 9, False, "NHIS nursing home index", mentioned=True),
+            pub("m1", 8, False, "NHIS cited", mentioned=True),
+            pub("n0", 7, False, "NHIS hospital ward", mentioned=False),
+            pub("u0", 6, True, "we use NHIS microdata")]
+    llm = FakeLLM({"exclude_terms": ["nursing home", "hospital ward"], "flag_terms": [], "new_aliases": []})
+    r = refine_candidate(c, ev(pubs), settings=S, agent=llm, dataset_name="Survey")
+    assert r.candidate.exclude_terms == ["hospital ward"]

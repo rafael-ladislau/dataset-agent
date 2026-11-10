@@ -14,11 +14,12 @@ from dataset_agent.domain.models import OptimizeRequest
 from dataset_agent.settings import Settings
 
 
-def pub(pid, cites, used, quote="", status="delivered"):
+def pub(pid, cites, used, quote="", status="delivered", mentioned=None):
+    mentioned = used if mentioned is None else mentioned
     return {
         "publication_id": pid, "doi": f"10/{pid}", "title": f"T {pid}", "citation_count": cites,
         "fulltext": {"status": status, "source": "pmc", "reason": None}, "analyzed": True,
-        "validated_datasets": [{"name": "X", "is_used": used, "is_mentioned": True, "text_quote": quote}],
+        "validated_datasets": [{"name": "X", "is_used": used, "is_mentioned": mentioned, "text_quote": quote}],
     }
 
 

@@ -1,9 +1,11 @@
 """Turn extraction ``llm-results`` into full-text evidence for a candidate query.
 
-Settled rules:
+Settled rules (the probe measures the *search query*, so a paper that mentions the
+dataset is a correct match even when it does not use it):
 
-* genuine paper = ``is_used == True``; false positive = ``is_used == False``
-  (``is_mentioned == False`` is also a false positive);
+* match (``genuine``) = the dataset is mentioned (``is_mentioned`` or ``is_used``);
+  false positive = the dataset is not mentioned at all (``not_mentioned``);
+* usage (``is_used``) is reported separately and never decides a term change;
 * publications without delivered full text, not analyzed, or with no verdict at
   all are excluded from the full-text metrics (they only lower OA coverage);
 * a term is attributed to a paper when its stem appears in the paper's evidence
@@ -31,6 +33,11 @@ class PubVerdict:
 
     @property
     def genuine(self) -> bool:
+        """Correct match for the query: the paper mentions the dataset (used or not)."""
+        return self.verdict in ("used", "mentioned")
+
+    @property
+    def used(self) -> bool:
         return self.verdict == "used"
 
     @property
@@ -87,17 +94,18 @@ class Evidence:
 
     def metrics(self, iteration: int, for_clause: str, abstract_fp_pct: float | None) -> IterationMetrics:
         n = self.n_evaluated
-        used = len(self.genuine)
-        mentioned = sum(1 for v in self.verdicts if v.verdict in ("used", "mentioned"))
+        used = sum(1 for v in self.verdicts if v.used)
+        matched = len(self.genuine)
         return IterationMetrics(
             iteration=iteration,
             for_clause=for_clause,
             n_publications=self.n_sampled,
             n_fulltext_delivered=self.n_delivered,
             n_evaluated=n,
-            fulltext_precision=(used / n) if n else None,
-            usage_rate=(used / mentioned) if mentioned else None,
-            mention_rate=(mentioned / n) if n else None,
+            fulltext_precision=(matched / n) if n else None,
+            usage_rate=(used / matched) if matched else None,
+            mention_rate=(matched / n) if n else None,
+            used_rate=(used / n) if n else None,
             oa_coverage=(self.n_delivered / self.n_sampled) if self.n_sampled else None,
             abstract_fp_rate_pct=abstract_fp_pct,
             fulltext_target=self.target,
@@ -230,23 +238,32 @@ def term_in_quote(term: str, verdict: PubVerdict, *, exact: bool = False) -> boo
 
 @dataclass
 class TermStats:
+    """Per-term counts. ``matched`` = papers that mention the dataset (correct
+    matches); ``used`` is the subset that uses it; ``fp`` = papers that do not
+    mention it at all."""
+
     term: str
+    matched: int = 0
     used: int = 0
     fp: int = 0
-    mentioned_only: int = 0
-    used_papers: list[PubVerdict] = field(default_factory=list)
+    matched_papers: list[PubVerdict] = field(default_factory=list)
     fp_papers: list[PubVerdict] = field(default_factory=list)
 
     @property
+    def mentioned_only(self) -> int:
+        return self.matched - self.used
+
+    @property
     def n(self) -> int:
-        return self.used + self.fp
+        return self.matched + self.fp
 
     @property
     def fp_share(self) -> float:
         return self.fp / self.n if self.n else 0.0
 
     def as_dict(self) -> dict[str, Any]:
-        return {"papers": self.n, "used": self.used, "fp": self.fp, "fp_share": round(self.fp_share, 3)}
+        return {"papers": self.n, "matched": self.matched, "used": self.used, "fp": self.fp,
+                "fp_share": round(self.fp_share, 3)}
 
 
 def attribute_terms(evidence: Evidence, terms: list[str]) -> dict[str, TermStats]:
@@ -257,11 +274,11 @@ def attribute_terms(evidence: Evidence, terms: list[str]) -> dict[str, TermStats
             if term_in(t, v):
                 st = out[t]
                 if v.genuine:
-                    st.used += 1
-                    st.used_papers.append(v)
+                    st.matched += 1
+                    st.matched_papers.append(v)
+                    if v.used:
+                        st.used += 1
                 else:
                     st.fp += 1
                     st.fp_papers.append(v)
-                    if v.verdict == "mentioned":
-                        st.mentioned_only += 1
     return out

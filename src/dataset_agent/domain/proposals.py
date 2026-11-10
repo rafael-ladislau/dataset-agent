@@ -29,9 +29,12 @@ class IterationMetrics(BaseModel):
     n_publications: int = 0
     n_fulltext_delivered: int = 0
     n_evaluated: int = 0
-    fulltext_precision: Optional[float] = Field(default=None, description="used / evaluated (0-1)")
+    fulltext_precision: Optional[float] = Field(
+        default=None, description="match precision: papers mentioning the dataset / evaluated (0-1)"
+    )
     usage_rate: Optional[float] = Field(default=None, description="used / mentioned-or-used (0-1)")
     mention_rate: Optional[float] = Field(default=None, description="(used|mentioned) / evaluated (0-1)")
+    used_rate: Optional[float] = Field(default=None, description="used / evaluated (0-1)")
     oa_coverage: Optional[float] = Field(default=None, description="delivered / attempted (0-1)")
     fulltext_target: Optional[int] = Field(default=None, description="delivered full texts aimed for")
     fulltext_batches: int = Field(default=0, description="analyze batches sent")

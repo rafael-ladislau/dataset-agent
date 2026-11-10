@@ -1,5 +1,8 @@
 """Full-text-driven query refiner.
 
+A *match* is a paper whose full text mentions the dataset (used or not); a false
+positive is one that does not mention it. Usage never decides a term change.
+
 Deterministic rules decide whether an existing alias is kept, dropped or demoted
 (safe -> risky, i.e. requires flag terms); the LLM only *proposes* exclude / flag /
 alias candidates from evidence quotes, and every proposal is validated against the
@@ -83,15 +86,15 @@ def propose_refinements(
     prompt = f"""Dataset: {dataset_name!r}.
 Current aliases: {aliases!r}; flag terms: {flag_terms!r}; exclude terms: {exclude_terms!r}.
 
-Papers whose full text GENUINELY USES the dataset (evidence quotes):
+Papers whose full text MENTIONS the dataset (correct matches, whether or not they use it; evidence quotes):
 {lines(genuine)}
 
-Papers that do NOT use it (false positives; evidence quotes):
+Papers matched by the query whose full text does NOT mention the dataset at all (false positives):
 {lines(false_positives)}
 
-Propose: (1) short exclude phrases that occur in the false-positive quotes/titles but NOT in the genuine ones;
-(2) flag terms: context words that occur around the genuine quotes; (3) new alias forms of the dataset name
-that appear in the genuine quotes but are missing from the current aliases.
+Propose: (1) short exclude phrases that occur in the false-positive quotes/titles but NOT in the matching ones;
+(2) flag terms: context words that occur around the matching quotes; (3) new alias forms of the dataset name
+that appear in the matching quotes but are missing from the current aliases.
 Only use words that literally occur in the quotes above.
 
 Use emit_refinement_candidates exactly once."""
@@ -125,7 +128,7 @@ def _exclude_reason(term: str, hits: list[PubVerdict]) -> str:
     where = f"{n_quote} evidence quote(s)"
     if n_title:
         where += f" and {n_title} title(s) only"
-    return f"occurs in {where} of {len(hits)} false-positive paper(s) and no genuine one"
+    return f"occurs in {where} of {len(hits)} false-positive paper(s) and no matching one"
 
 
 def _covered(term: str, existing: list[str]) -> bool:
@@ -223,21 +226,21 @@ def refine_candidate(
         if share >= settings.refine_drop_fp_share and n_remaining > 1:
             diffs.append(TermDiff(
                 kind="alias", term=a, action="drop", status="verified",
-                reason=f"{st.fp}/{st.n} verified papers with this term are false positives",
+                reason=f"{st.fp}/{st.n} verified papers with this term do not mention the dataset",
                 evidence=_quotes(st.fp_papers), **base))
             n_remaining -= 1
         elif share >= settings.refine_demote_fp_share and is_safe and flags:
             diffs.append(TermDiff(
                 kind="alias", term=a, action="demote", status="verified",
-                reason=f"{st.fp}/{st.n} verified papers are false positives; now requires flag terms",
+                reason=f"{st.fp}/{st.n} verified papers do not mention the dataset; now requires flag terms",
                 evidence=_quotes(st.fp_papers), **base))
             keep_risky.append(a)
         else:
-            reason = "verified usage in full text" if share < settings.refine_demote_fp_share else (
+            reason = "verified mentions in full text" if share < settings.refine_demote_fp_share else (
                 "high FP share but cannot be dropped/demoted (last alias or no flag terms)")
             diffs.append(TermDiff(
                 kind="alias", term=a, action="keep", status="verified", reason=reason,
-                evidence=_quotes(st.used_papers), **base))
+                evidence=_quotes(st.matched_papers), **base))
             (keep_safe if is_safe else keep_risky).append(a)
 
     # --- new aliases (re-probe Dimensions counts) ------------------------------------
@@ -259,9 +262,9 @@ def refine_candidate(
         added_aliases += 1
         diffs.append(TermDiff(
             kind="alias", term=t, action="add", status="verified",
-            reason=f"mention form in {len(hits)} genuine quote(s); {c} Dimensions hits"
+            reason=f"mention form in {len(hits)} matching quote(s); {c} Dimensions hits"
             + (" (risky: requires flags)" if risky else ""),
-            stats={"dimensions_count": c, "genuine_papers": len(hits)}, evidence=_quotes(hits)))
+            stats={"dimensions_count": c, "matching_papers": len(hits)}, evidence=_quotes(hits)))
 
     # --- flags / excludes --------------------------------------------------------------
     for f in candidate.flag_terms:
@@ -273,8 +276,8 @@ def refine_candidate(
     for t, hits in new_flags:
         diffs.append(TermDiff(
             kind="flag", term=t, action="add", status="verified",
-            reason=f"occurs in {len(hits)} genuine evidence quote(s)", evidence=_quotes(hits),
-            stats={"genuine_papers": len(hits)}))
+            reason=f"occurs in {len(hits)} matching evidence quote(s)", evidence=_quotes(hits),
+            stats={"matching_papers": len(hits)}))
     for e in candidate.exclude_terms:
         diffs.append(TermDiff(kind="exclude", term=e, action="keep", status="unverified", reason="unchanged"))
     for t, hits in new_excludes:

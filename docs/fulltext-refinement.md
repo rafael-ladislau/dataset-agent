@@ -42,13 +42,20 @@ batch(es))`).
 
 ### Definitions
 
-* genuine paper: `is_used == true`; false positive: `is_used == false`
-  (`is_mentioned == false` is also a false positive).
+The probe judges the **search query**, so the question is "did the query find a paper
+about this dataset?", not "does the paper use it?".
+
+* match (genuine paper): the full text mentions the dataset, whether it uses it
+  (`is_used == true`) or only mentions it (`is_mentioned == true`, `is_used == false`).
+* false positive: the full text does not mention the dataset at all.
+* Usage never decides a term change. A widely cited dataset is mentioned far more often
+  than it is used; counting "mentioned, not used" as a false positive would drop the
+  dataset's own official names.
 * Papers with no delivered full text, not analyzed, or without a verdict are **excluded**
   from the full-text metrics; they only lower OA coverage.
-* Primary metric: full-text precision = genuine / evaluated. Also reported: usage rate
-  (genuine / mentioned-or-used), mention rate, OA coverage (delivered / attempted) and the
-  abstract-based FP rate (secondary).
+* Primary metric: full-text precision = matches / evaluated. Also reported: used rate
+  (used / evaluated), usage rate (used / matches), mention rate (equal to precision), OA
+  coverage (delivered / attempted) and the abstract-based FP rate (secondary).
 * A term may be changed only with full-text evidence. Terms with fewer than
   `refine_min_alias_papers` verified papers are `unverified` and never changed; an
   abstract-only FP signal can at most mark a term `suspect`.
@@ -62,13 +69,13 @@ Deterministic rules (thresholds `refine_drop_fp_share`, `refine_demote_fp_share`
 
 LLM proposals (validated against the quotes before acceptance):
 
-* exclude terms: must occur in a false-positive quote or title and in no genuine one, and
+* exclude terms: must occur in a false-positive quote or title and in no matching one, and
   must not overlap the query's own terms (an exclude inside or containing an alias, or inside
   a flag, is rejected because `NOT` would drop the query's own matches)
   (the diff reason states how many matches were quotes and how many title-only);
-* flag terms: must occur in the evidence quotes of at least two genuine papers (titles
-  never count); with fewer than two genuine papers no flag is added;
-* new aliases: must occur in a genuine evidence quote (titles never count) and be absent
+* flag terms: must occur in the evidence quotes of at least two matching papers (titles
+  never count); with fewer than two matching papers no flag is added;
+* new aliases: must occur in a matching evidence quote (titles never count) and be absent
   from the query; Dimensions
   counts are re-probed (zero-hit aliases are rejected; very broad ones become risky).
 
@@ -130,5 +137,6 @@ The target extraction instance is `DATASET_AGENT_SUBMIT_TARGET` (`dev` by defaul
 ## Benchmark
 
 `scripts/benchmark_fulltext_refinement.py` compares initial and refined queries against
-human `is_used` labels (precision, recall); see its docstring for the input formats and how
+human `is_used` labels (precision, recall). It scores usage, which is stricter than the
+loop's match precision; see its docstring for the input formats and how
 to export human-validated data.
