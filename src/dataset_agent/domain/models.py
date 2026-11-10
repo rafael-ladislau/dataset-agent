@@ -7,6 +7,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from dataset_agent.domain.proposals import IterationMetrics, QueryProposal
+
 
 class AccessType(str, Enum):
     OPEN = "Open"
@@ -218,6 +220,12 @@ class QueryOptimizationRecord(BaseModel):
         ),
     )
     all_variants_tested: list[VariantTestedEntry] = Field(default_factory=list)
+    fulltext_iterations: list[IterationMetrics] = Field(
+        default_factory=list, description="Per-iteration full-text metrics (refinement enabled)"
+    )
+    proposal: Optional[QueryProposal] = Field(
+        default=None, description="Full-text-backed query proposal awaiting human approval"
+    )
     notes: str = ""
 
 

@@ -25,7 +25,10 @@ from dataset_agent.adapters.fp_analysis import (
     score_title_signal3,
     web_search_alias_meanings,
 )
+from dataset_agent.adapters.extraction_client import ExtractionClient, ExtractionError
+from dataset_agent.adapters.fulltext_evidence import Evidence, build_evidence
 from dataset_agent.adapters.literature import evaluate_for_clause_sync
+from dataset_agent.adapters.seed_mapping import QueryCandidate, candidate_clause, candidate_to_seed
 from dataset_agent.adapters.query_builder import build_for_clause, default_variant_build_order, run_variant
 from dataset_agent.adapters.query_heuristics import (
     _SUFFIX_CANDIDATES,
@@ -41,6 +44,7 @@ from dataset_agent.domain.models import (
     AliasCountEntry,
     ConfidenceLevel,
     DatasetRecord,
+    IterationMetrics,
     OptimizeRequest,
     QueryOptimizationAliases,
     QueryOptimizationRecord,
@@ -119,12 +123,41 @@ class QueryOptimizationUseCase:
         research: DatasetResearchUseCase,
         agent: AgentPort,
         settings: Settings,
+        extraction_client: ExtractionClient | None = None,
     ) -> None:
         self._dsl = dsl_port
         self._research = research
         self._agent = agent
         self._settings = settings
+        self._extraction = extraction_client
         self._dims_calls = 0
+
+    def _fulltext_enabled(self) -> bool:
+        return bool(self._settings.fulltext_refinement_enabled)
+
+    def _get_extraction(self) -> ExtractionClient:
+        if self._extraction is None:
+            self._extraction = ExtractionClient.for_target(
+                self._settings, self._settings.probe_target
+            )
+        return self._extraction
+
+    async def _probe_candidate(
+        self, candidate: QueryCandidate, request: OptimizeRequest
+    ) -> Evidence:
+        """Run one extraction probe for *candidate*; the probe task is cleaned up by the client."""
+        s = self._settings
+        seed = candidate_to_seed(
+            candidate,
+            group_name=s.default_group_name,
+            years=(s.default_years_start, s.default_years_end),
+            publication_types=list(s.default_publication_types),
+            filter_us_affiliation=s.default_filter_us_affiliation,
+            extra={"home_url": request.dataset_url},
+        )
+        client = self._get_extraction()
+        results = await asyncio.to_thread(client.run_probe, seed, s.fulltext_top_n, s.probe_pull_cap)
+        return build_evidence(results, s.fulltext_top_n)
 
     def _budget_left(self) -> bool:
         cap = int(self._settings.optimize_max_dimensions_calls)
@@ -488,6 +521,20 @@ class QueryOptimizationUseCase:
         max_iters = max(1, self._settings.optimize_max_iterations)
         threshold = float(self._settings.optimize_fp_threshold_pct)
 
+        ft_enabled = self._fulltext_enabled()
+        ft_iterations: list[IterationMetrics] = []
+        ft_candidate = QueryCandidate(
+            main_dataset_name=request.dataset_name,
+            safe=list(current_safe),
+            risky=list(current_risky),
+            flag_terms=list(current_flags),
+            exclude_terms=list(exc_work),
+            description=desc_for_signal3,
+        )
+        if ft_enabled:
+            current_for_clause = candidate_clause(ft_candidate)
+            current_variant_label = "V4"
+
         for iteration in range(max_iters):
             logger.info(
                 "optimize_phase run_id=%s gate_iter=%s for_clause=%s",
@@ -526,6 +573,26 @@ class QueryOptimizationUseCase:
             if best_ev is None or fp_rate < (best_ev.get("fp_rate_pct") or 100.0):
                 best_ev = ev
                 best_variant_entry = entry
+
+            if ft_enabled:
+                try:
+                    evidence = await self._probe_candidate(ft_candidate, request)
+                    ft_iterations.append(evidence.metrics(iteration, current_for_clause, fp_rate))
+                except (ExtractionError, ValueError) as exc:
+                    logger.warning("full-text probe failed: %s", exc)
+                    ft_iterations.append(
+                        IterationMetrics(
+                            iteration=iteration,
+                            for_clause=current_for_clause,
+                            abstract_fp_rate_pct=fp_rate,
+                            error=str(exc),
+                        )
+                    )
+                    notes_parts.append(f"gate_iter{iteration}: full-text probe failed: {exc}")
+                    break
+                # Term changes are driven by full-text evidence only (refiner), never by
+                # the abstract FP signal; the legacy abstract refinement below is skipped.
+                break
 
             if fp_rate <= threshold:
                 notes_parts.append(f"gate_iter{iteration}: FP rate within threshold.")
@@ -627,5 +694,6 @@ class QueryOptimizationUseCase:
             flag_terms=flag_terms,
             exclusion_terms=exc_work,
             all_variants_tested=tested,
+            fulltext_iterations=ft_iterations,
             notes=" ".join(notes_parts),
         )
