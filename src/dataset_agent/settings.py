@@ -179,6 +179,12 @@ class Settings(BaseSettings):
     refine_drop_fp_share: float = Field(default=0.8, ge=0.0, le=1.0)
     refine_demote_fp_share: float = Field(default=0.5, ge=0.0, le=1.0)
     refine_max_new_aliases: int = Field(default=3, ge=0, le=10)
+    #: Min false-positive papers an exclude must occur in (title or full-text snippet).
+    refine_min_exclude_papers: int = Field(default=2, ge=1)
+    #: Min share of matching papers whose quote/snippets carry a new flag term.
+    refine_flag_min_share: float = Field(default=0.2, ge=0.0, le=1.0)
+    #: Min false positives in one field of research before it is reported as a pattern.
+    refine_category_min_fp_papers: int = Field(default=3, ge=1)
 
     @field_validator("lmstudio_base_url", "openrouter_base_url")
     @classmethod

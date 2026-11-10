@@ -140,7 +140,7 @@ def test_exclude_reason_says_quote_versus_title():
     r = _refine_with(pubs, exclude_terms=["nursing home"])
     d = diff(r, "exclude", "nursing home")
     assert d.action == "add"
-    assert "1 evidence quote(s) and 1 title(s) only" in d.reason
+    assert "1 full-text snippet(s)/quote(s) and 1 title(s) only" in d.reason
 
 
 def test_llm_terms_are_unquoted_and_inner_quotes_dropped():
@@ -290,7 +290,88 @@ def test_exclude_never_comes_from_a_mentioned_paper():
     pubs = [pub("m0", 9, False, "NHIS nursing home index", mentioned=True),
             pub("m1", 8, False, "NHIS cited", mentioned=True),
             pub("n0", 7, False, "NHIS hospital ward", mentioned=False),
+            pub("n1", 5, False, "NHIS hospital ward staff", mentioned=False),
             pub("u0", 6, True, "we use NHIS microdata")]
     llm = FakeLLM({"exclude_terms": ["nursing home", "hospital ward"], "flag_terms": [], "new_aliases": []})
     r = refine_candidate(c, ev(pubs), settings=S, agent=llm, dataset_name="Survey")
     assert r.candidate.exclude_terms == ["hospital ward"]
+
+
+def ctx_pub(pid, cites, verdict, title, snippets, categories=(), quote=""):
+    """Production shape: a not-mentioned paper has no verdict entry and no quote;
+    what it carries is snippets of the query terms in its full text."""
+    vd = [] if verdict == "not_mentioned" else [
+        {"name": "X", "is_used": verdict == "used", "is_mentioned": True, "text_quote": quote}]
+    return {"publication_id": pid, "doi": None, "title": title, "citation_count": cites,
+            "fulltext": {"status": "delivered"}, "analyzed": True, "validated_datasets": vd,
+            "term_contexts": [{"term": t, "role": "alias", "part": "body", "text": x} for t, x in snippets],
+            "category_for": list(categories)}
+
+
+UI_PUBS = (
+    [ctx_pub(f"g{i}", 50 - i, "used", "Earnings after layoffs", [("UI", "linked UI wage records from the BLS")],
+             ["Economics"], quote="we use UI wage records") for i in range(3)]
+    + [ctx_pub(f"h{i}", 40 - i, "not_mentioned", f"App study {i}", [("UI", "the mobile app user interface (UI) design")],
+               ["Information and Computing Sciences"]) for i in range(4)]
+)
+
+
+def test_snippets_attribute_a_false_positive_to_the_alias_that_matched_it():
+    c = QueryCandidate(main_dataset_name="UI wage records", safe=["UI", "UI wage records"], risky=[],
+                       flag_terms=["BLS"])
+    r = refine_candidate(c, ev(UI_PUBS), settings=S, agent=None, dataset_name="UI wage records")
+    d = diff(r, "alias", "UI")
+    # Titles alone ("App study") never carry "UI"; the full-text snippets do.
+    assert d.stats["fp"] == 4 and d.stats["matched"] == 3
+    assert d.action == "demote"
+
+
+def test_groups_become_notes_and_excludes_need_two_papers_and_an_impact():
+    c = QueryCandidate(main_dataset_name="UI wage records", safe=["UI wage records"], risky=["UI"],
+                       flag_terms=["BLS"])
+    llm = FakeLLM({"false_positive_groups": [
+        {"label": "UI = user interface", "cause_term": "UI", "papers": 4,
+         "exclude_terms": ["user interface", "mobile app", "earnings"]}],
+        "exclude_terms": ["App study 1"], "flag_terms": ["wage records"], "new_aliases": [], "reasoning": ""})
+    impacts = {"user interface": 900, "mobile app": 0}
+    r = refine_candidate(c, ev(UI_PUBS), settings=S, agent=llm, dataset_name="UI wage records",
+                         impact_fn=lambda t: impacts[t])
+    added = {d.term: d for d in r.diffs if d.kind == "exclude" and d.action == "add"}
+    # "App study 1" is in one title only; "mobile app" removes nothing; "earnings" is in a match title.
+    assert list(added) == ["user interface"]
+    assert added["user interface"].stats == {"fp_papers": 4, "removes": 900}
+    assert "removes 900 of the current results" in added["user interface"].reason
+    assert any("false-positive group 'UI = user interface'" in n for n in r.notes)
+    assert any("'Information and Computing Sciences'" in n for n in r.notes)
+    flags = [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"]
+    assert flags == ["wage records"]
+
+
+def test_flag_needs_a_share_of_the_matching_papers():
+    pubs = [ctx_pub(f"g{i}", 50 - i, "used", "t", [("UI", "UI records")], quote="UI records") for i in range(10)]
+    pubs[0]["term_contexts"][0]["text"] = "UI records from the state agency"
+    pubs[1]["term_contexts"][0]["text"] = "UI records from the state agency"
+    c = QueryCandidate(main_dataset_name="UI", safe=["UI"], risky=[], flag_terms=[])
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": ["state agency"], "new_aliases": [], "reasoning": ""})
+    strict = Settings(refine_min_alias_papers=3, fulltext_min_evidence=3, refine_flag_min_share=0.3)
+    r = refine_candidate(c, ev(pubs), settings=strict, agent=llm, dataset_name="UI")
+    assert not [d for d in r.diffs if d.kind == "flag" and d.action == "add"]   # 2/10 < 30%
+    loose = Settings(refine_min_alias_papers=3, fulltext_min_evidence=3, refine_flag_min_share=0.2)
+    r = refine_candidate(c, ev(pubs), settings=loose, agent=llm, dataset_name="UI")
+    assert [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"] == ["state agency"]
+
+
+def test_prompt_shows_snippets_and_fields_for_false_positives():
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""})
+    seen = {}
+    orig = llm.get_structured
+
+    def capture(prompt, tool):
+        seen["p"] = prompt
+        return orig(prompt, tool)
+
+    llm.get_structured = capture
+    c = QueryCandidate(main_dataset_name="UI", safe=["UI"], risky=[], flag_terms=[])
+    refine_candidate(c, ev(UI_PUBS), settings=S, agent=llm, dataset_name="UI")
+    fp_part = seen["p"].split("does NOT mention")[1]
+    assert "user interface (UI) design" in fp_part and "Information and Computing Sciences" in fp_part

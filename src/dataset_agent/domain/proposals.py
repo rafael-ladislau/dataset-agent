@@ -17,7 +17,7 @@ class EvidenceQuote(BaseModel):
     doi: Optional[str] = None
     title: Optional[str] = None
     quote: str = ""
-    #: ``used`` (genuine), ``mentioned`` (mentioned, not used) or ``not_mentioned``.
+    #: ``used`` or ``mentioned`` (both correct matches) or ``not_mentioned`` (false positive).
     verdict: Literal["used", "mentioned", "not_mentioned"] = "used"
 
 

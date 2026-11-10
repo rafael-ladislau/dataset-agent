@@ -60,6 +60,25 @@ about this dataset?", not "does the paper use it?".
   `refine_min_alias_papers` verified papers are `unverified` and never changed; an
   abstract-only FP signal can at most mark a term `suspect`.
 
+### Pattern pass over all probe papers
+
+The final `llm-results` read asks for `?contexts=true`: for each delivered paper,
+extraction returns snippets (about 200 characters each side) around the query's aliases
+and flag terms in the full text (title, text parts, reference titles) and the paper's
+Dimensions fields of research. A paper that does not mention the dataset has no
+validator quote, so these snippets are what show which other meaning of a term matched
+it; they also count for per-term attribution (an alias is attributed to a paper when it
+occurs in its quote, title or snippets).
+
+One LLM call sees the papers together, up to 40 per side with two snippets each. It
+groups the false positives by the other meaning that pulled them in (for example "UI =
+user interface"), naming the query term that caused each group and exclude phrases for
+it, and reads the matching papers for shared context (flags) and alias forms. The
+groups are written to the iteration notes and the proposal. Fields of research that
+hold at least half of the false positives (and at least
+`refine_category_min_fp_papers`) but at most 10% of the matches are reported as a
+manual suggestion; they are never applied.
+
 ### Refinement actions
 
 Deterministic rules (thresholds `refine_drop_fp_share`, `refine_demote_fp_share`):
@@ -69,12 +88,15 @@ Deterministic rules (thresholds `refine_drop_fp_share`, `refine_demote_fp_share`
 
 LLM proposals (validated against the quotes before acceptance):
 
-* exclude terms: must occur in a false-positive quote or title and in no matching one, and
+* exclude terms: must occur in the title or full-text snippets of at least
+  `refine_min_exclude_papers` false positives and in no matching paper (quote, title or
+  snippets, singular forms included), must remove at least one current result (a
+  Dimensions count of the query AND the term; the diff states how many), and
   must not overlap the query's own terms (an exclude inside or containing an alias, or inside
   a flag, is rejected because `NOT` would drop the query's own matches)
   (the diff reason states how many matches were quotes and how many title-only);
-* flag terms: must occur in the evidence quotes of at least two matching papers (titles
-  never count); with fewer than two matching papers no flag is added;
+* flag terms: must occur in the quote or snippets of at least two matching papers and at
+  least `refine_flag_min_share` of them (titles never count);
 * new aliases: must occur in a matching evidence quote (titles never count) and be absent
   from the query; Dimensions
   counts are re-probed (zero-hit aliases are rejected; very broad ones become risky).
@@ -131,6 +153,9 @@ The target extraction instance is `DATASET_AGENT_SUBMIT_TARGET` (`dev` by defaul
 | `refine_min_alias_papers` | 3 | Min verified papers per alias |
 | `refine_drop_fp_share` / `refine_demote_fp_share` | 0.8 / 0.5 | Deterministic thresholds |
 | `refine_max_new_aliases` | 3 | Cap on added aliases per iteration |
+| `refine_min_exclude_papers` | 2 | Min false positives carrying a new exclude |
+| `refine_flag_min_share` | 0.2 | Min share of matching papers carrying a new flag |
+| `refine_category_min_fp_papers` | 3 | Min false positives in a field of research before it is reported |
 | `probe_target`, `submit_target` | `dev` | Extraction instance for probes / submit |
 | `extraction_{dev,prod}_url`, `_user`, `_password` | empty (must be set; extraction requires HTTP Basic auth) | Per-target connection. Do not point it at dataset-agent's own port. |
 

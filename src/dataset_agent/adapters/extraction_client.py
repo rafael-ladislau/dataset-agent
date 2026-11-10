@@ -271,8 +271,13 @@ class ExtractionClient:
             self._sleep(delay)
             delay = min(delay * 1.5, self._poll_max_interval)
 
-    def get_llm_results(self, task_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/pipelines/{task_id}/llm-results")
+    def get_llm_results(self, task_id: str, *, contexts: bool = False) -> dict[str, Any]:
+        """``contexts`` asks for per-publication ``term_contexts`` (snippets of the seed's
+        terms in the full text) and ``category_for``; servers without it ignore the flag."""
+        path = f"/pipelines/{task_id}/llm-results"
+        if contexts:
+            return self._request("GET", path, params={"contexts": "true"})
+        return self._request("GET", path)
 
     def run_probe_topup(
         self,
@@ -317,6 +322,10 @@ class ExtractionClient:
                 )
                 self.analyze_ids(task_id, batch)
                 results = self.wait_batch_done(task_id, batch)
+            if batches:
+                # One heavier read at the end: snippets of the seed's terms in each
+                # delivered paper show why the query matched it.
+                results = self.get_llm_results(task_id, contexts=True)
             pubs = _pubs(results)
             return TopupResult(
                 results=results,

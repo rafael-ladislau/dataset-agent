@@ -30,6 +30,10 @@ class PubVerdict:
     citation_count: int
     verdict: str  # used | mentioned | not_mentioned
     quote: str
+    #: Snippets of the query's terms in the full text (``term``, ``role``, ``part``, ``text``).
+    contexts: list[dict] = field(default_factory=list)
+    #: Dimensions field-of-research names.
+    categories: list[str] = field(default_factory=list)
 
     @property
     def genuine(self) -> bool:
@@ -41,8 +45,12 @@ class PubVerdict:
         return self.verdict == "used"
 
     @property
+    def context_text(self) -> str:
+        return " ".join(str(c.get("text") or "") for c in self.contexts)
+
+    @property
     def text(self) -> str:
-        return _stem_text(f"{self.quote} {self.title}")
+        return _stem_text(f"{self.quote} {self.title} {self.context_text}")
 
     @property
     def quote_text(self) -> str:
@@ -170,6 +178,8 @@ def build_evidence(results: dict[str, Any], top_n: int | None = None) -> Evidenc
                 citation_count=int(p.get("citation_count") or 0),
                 verdict=v[0],
                 quote=v[1],
+                contexts=[c for c in (p.get("term_contexts") or []) if isinstance(c, dict)],
+                categories=[c for c in (p.get("category_for") or []) if isinstance(c, str)],
             )
         )
     return ev
@@ -208,7 +218,13 @@ def _phrase_in(term: str, text: str, *, plural_ok: bool = True) -> bool:
 
 
 def term_in(term: str, verdict: PubVerdict) -> bool:
-    return _phrase_in(term, f"{verdict.quote} {verdict.title}")
+    """Quote, title or a full-text snippet of the query's terms."""
+    return _phrase_in(term, f"{verdict.quote} {verdict.title} {verdict.context_text}")
+
+
+def term_in_evidence(term: str, verdict: PubVerdict) -> bool:
+    """Quote or full-text snippets; the title never counts."""
+    return _phrase_in(term, f"{verdict.quote} {verdict.context_text}")
 
 
 def singular_variants(term: str) -> list[str]:

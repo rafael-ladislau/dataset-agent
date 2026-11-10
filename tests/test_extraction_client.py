@@ -88,6 +88,7 @@ class _PoolServer:
         self.done: set[str] = set()
         self.batches: list[list[str]] = []
         self.calls: list[tuple[str, str, object]] = []
+        self.context_reads = 0
 
     def _queued(self, pid):
         return pid in self.done and self.outcomes[pid] is True and self.enqueue_lag.get(pid, 0) <= 0
@@ -142,6 +143,8 @@ class _PoolServer:
                 self.pending[pid] = self.lag
             return httpx.Response(202, json={"status": "started"})
         if p == "/pipelines/T1/llm-results":
+            if req.url.params.get("contexts") == "true":
+                self.context_reads += 1
             self._tick()
             return httpx.Response(200, json={"task_id": "T1", "probe": True, "publications": [
                 self._pub(i, pid) for i, pid in enumerate(self.order)]})
@@ -295,3 +298,9 @@ def test_batch_result_is_read_after_the_completing_status():
     out = _topup(srv, target=1)
     assert out.stop_reason == "target_met"
     assert out.results["publications"][0]["analyzed"] is True
+
+
+def test_final_read_asks_for_term_contexts_once():
+    srv = _PoolServer({"p0": False, "p1": True, "p2": True, "p3": True})
+    _topup(srv)
+    assert srv.context_reads == 1

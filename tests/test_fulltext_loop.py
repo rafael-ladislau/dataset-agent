@@ -289,3 +289,34 @@ def test_legacy_fulltext_top_n_sets_batch_size(tmp_path):
     assert make_settings(tmp_path, fulltext_top_n=12).fulltext_batch_size == 12
     assert make_settings(tmp_path, fulltext_top_n=12, fulltext_batch_size=7).fulltext_batch_size == 7
     assert make_settings(tmp_path).fulltext_batch_size == 30
+
+
+def test_exclude_impact_is_counted_in_dimensions_and_patterns_reach_the_proposal(tmp_path):
+    def fp(pid, cites):
+        p = pub(pid, cites, False, "")
+        p["validated_datasets"] = []
+        p["term_contexts"] = [{"term": "Another Long Title Here", "role": "alias", "part": "body",
+                               "text": "Another Long Title Here in the nursing ward"}]
+        p["category_for"] = ["Nursing"]
+        return p
+
+    first = [fp(f"n{i}", 50 - i) for i in range(3)] + [
+        pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(3)]
+    good = [pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(4)]
+    llm = MagicMock()
+    llm.get_structured.return_value = {
+        "false_positive_groups": [{"label": "nursing wards", "cause_term": "Another Long Title Here",
+                                   "papers": 3, "exclude_terms": ["nursing ward"]}],
+        "exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    dsl = CountDSL()
+    uc = QueryOptimizationUseCase(
+        dsl_port=dsl, research=MagicMock(), agent=llm,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, optimize_max_iterations=2,
+                               refine_min_alias_papers=10),
+        extraction_client=FakeClient([{"publications": first}, {"publications": good}]))
+    out = asyncio.run(uc.execute(REQ))
+    d = next(x for x in out.proposal.diffs if x.kind == "exclude" and x.term == "nursing ward")
+    assert d.action == "add" and d.stats["removes"] == 100
+    assert any('AND \\"nursing ward\\"' in q for q in dsl.queries)
+    notes = " ".join(out.proposal.notes)
+    assert "false-positive group 'nursing wards'" in notes and "'Nursing'" in notes

@@ -593,26 +593,43 @@ TOOL_DISPATCH: dict[str, callable] = {
 EMIT_REFINEMENT_CANDIDATES: dict = {
     "name": "emit_refinement_candidates",
     "description": (
-        "Propose query refinements from full-text evidence quotes: exclude phrases from false "
-        "positives, flag (context) terms and new alias forms from genuine usages. Call exactly once."
+        "Propose query refinements from full-text evidence: group the false positives (papers "
+        "that do not mention the dataset) by the other meaning that pulled them in and give "
+        "exclude phrases per group; flag (context) terms and new alias forms from the papers "
+        "that mention the dataset. Call exactly once."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
+            "false_positive_groups": {
+                "type": "array",
+                "description": "Other meanings among the false positives, largest first (max 6).",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string", "description": "e.g. 'UI = user interface (HCI)'"},
+                        "cause_term": {"type": "string", "description": "Query term that matched them"},
+                        "papers": {"type": "integer", "description": "Number of false positives in the group"},
+                        "exclude_terms": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["label", "cause_term", "papers", "exclude_terms"],
+                    "additionalProperties": False,
+                },
+            },
             "exclude_terms": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Short phrases present in false-positive quotes/titles (max 10).",
+                "description": "Short phrases present in false-positive titles/snippets, never in matching papers (max 10).",
             },
             "flag_terms": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Context words/phrases found around genuine quotes (max 10).",
+                "description": "Context words/phrases shared by the matching papers' quotes/snippets (max 10).",
             },
             "new_aliases": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Mention forms of the dataset seen in genuine quotes (max 5).",
+                "description": "Mention forms of the dataset seen in matching quotes (max 5).",
             },
             "reasoning": {"type": "string", "description": "Brief rationale (max 40 words)."},
         },

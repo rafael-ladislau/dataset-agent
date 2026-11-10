@@ -12,7 +12,10 @@ from typing import TYPE_CHECKING, Literal
 from dataset_agent.adapters.dimensions_dsl import (
     AsyncThrottledDimensionsDsl,
     DimensionsDslError,
+    build_for_clause_count_dsl,
     fetch_top_n,
+    inner_quoted_term,
+    parse_total_count,
     publication_title,
     run_alias_count,
 )
@@ -205,6 +208,15 @@ class QueryOptimizationUseCase:
             return asyncio.run_coroutine_threadsafe(self._counted_execute(dsl), loop).result()
 
         return _run
+
+    async def _exclude_impact(self, for_clause: str, term: str) -> int:
+        """How many results of *for_clause* also contain *term* (what ``NOT term`` removes)."""
+        if not self._budget_left():
+            raise DimensionsDslError("Dimensions call budget exhausted")
+        self._dims_calls += 1
+        clause = f'({for_clause}) AND \\"{inner_quoted_term(term)}\\"'
+        result = await self._dsl.execute_dsl(build_for_clause_count_dsl(clause))
+        return parse_total_count(result)
 
     async def _count(self, alias: str, *, search_in: str = "full_data") -> int:
         if not self._budget_left():
@@ -664,8 +676,12 @@ class QueryOptimizationUseCase:
                     abstract_fp_aliases={
                         str(h.get("matched_alias") or "") for h in (ev.get("fp_hits") or [])
                     },
+                    impact_fn=lambda t, fc=current_for_clause: asyncio.run_coroutine_threadsafe(
+                        self._exclude_impact(fc, t), loop
+                    ).result(),
                 )
                 ft_diffs[iteration] = result.diffs
+                notes_parts.extend(f"gate_iter{iteration}: {n}" for n in result.notes)
                 if not result.changed:
                     notes_parts.append(f"gate_iter{iteration}: refiner found nothing to change.")
                     break
