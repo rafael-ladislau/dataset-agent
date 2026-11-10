@@ -213,8 +213,10 @@ class Settings(BaseSettings):
     def llm_endpoint(self) -> LLMEndpoint:
         """Resolve provider + API style into a base URL, model and key.
 
-        Raises ``ValueError`` when a provider that has no default model or base
-        URL (openllm, openai_compatible) is selected without them.
+        Raises ``ValueError`` when the selected provider's base URL or model is
+        empty: openllm and openai_compatible have no default model (nor, for
+        openai_compatible, base URL), and for the other providers an env var
+        set to an empty value overrides the default.
         """
         provider = self.llm_provider
         style = self.llm_api_style or DEFAULT_LLM_API_STYLE[provider]

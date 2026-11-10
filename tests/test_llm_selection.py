@@ -153,6 +153,12 @@ def test_empty_api_style_means_provider_default(monkeypatch):
     assert _settings().llm_endpoint().api_style == "anthropic"
 
 
+def test_env_example_works_for_every_provider_with_defaults():
+    env_example = Path(__file__).resolve().parents[1] / ".env.example"
+    for provider in ("lmstudio", "ollama", "openrouter"):
+        Settings(_env_file=env_example, llm_provider=provider).llm_endpoint()
+
+
 def test_invalid_api_style_rejected(monkeypatch):
     monkeypatch.setenv("DATASET_AGENT_LLM_API_STYLE", "grpc")
     with pytest.raises(ValueError):
