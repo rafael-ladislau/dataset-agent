@@ -11,6 +11,7 @@ See `DOCUMENTACAO_PROJETO.md` for a full technical reference and `docs/white-pap
   - **LM Studio** (default, local): [lmstudio.ai](https://lmstudio.ai)
   - **Ollama** (local): [ollama.com](https://ollama.com)
   - **OpenRouter** (cloud): requires `OPENROUTER_API_KEY`
+  - **OpenLLM**, or any other **OpenAI-compatible** server (vLLM, llama.cpp, hosted APIs)
 
 ## Installation
 
@@ -39,14 +40,22 @@ All variables use the `DATASET_AGENT_` prefix.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATASET_AGENT_LLM_PROVIDER` | `lmstudio` | `lmstudio`, `ollama`, or `openrouter` |
-| `LMSTUDIO_BASE_URL` | `http://127.0.0.1:1234` | LM Studio server URL |
-| `DATASET_AGENT_LMSTUDIO_MODEL` | `gemma-4-31b-it-mlx` | Model name as shown in LM Studio |
+| `DATASET_AGENT_LLM_PROVIDER` | `lmstudio` | `lmstudio`, `ollama`, `openrouter`, `openllm`, or `openai_compatible` |
+| `DATASET_AGENT_LLM_API_STYLE` | _(provider default)_ | `openai` (`/v1/chat/completions`) or `anthropic` (`/v1/messages`). Defaults to `openai` for `lmstudio`, `openllm` and `openai_compatible`; `anthropic` for `ollama` and `openrouter` |
+| `DATASET_AGENT_LLM_API_KEY` | `local` | API key for local servers (also read from `LMSTUDIO_API_KEY`); fallback for the provider keys below |
+| `LMSTUDIO_BASE_URL` | `http://127.0.0.1:1234` | LM Studio server URL (host root; `/v1` is added for the OpenAI style) |
+| `DATASET_AGENT_LMSTUDIO_MODEL` | `gemma-4-31b-it-mlx` | Model name as shown in LM Studio (also `DATASET_AGENT_LLM_MODEL`) |
 | `DATASET_AGENT_OLLAMA_MODEL` | `gemma4-31b` | Model name for Ollama |
 | `DATASET_AGENT_OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server URL |
 | `OPENROUTER_API_KEY` | _(empty)_ | **Sensitive** — get at [openrouter.ai/keys](https://openrouter.ai/keys) |
-| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter Anthropic-compatible endpoint |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter endpoint |
 | `DATASET_AGENT_OPENROUTER_MODEL` | `anthropic/claude-3.5-sonnet` | Model slug for OpenRouter |
+| `OPENLLM_BASE_URL` | `http://127.0.0.1:3000/v1` | OpenLLM OpenAI-compatible base URL (including `/v1`) |
+| `DATASET_AGENT_OPENLLM_MODEL` | _(empty, required)_ | Model id served by OpenLLM |
+| `OPENLLM_API_KEY` | _(empty)_ | Optional OpenLLM key (falls back to `DATASET_AGENT_LLM_API_KEY`) |
+| `DATASET_AGENT_OPENAI_COMPATIBLE_BASE_URL` | _(empty, required)_ | Base URL of any other OpenAI-compatible server, used as given |
+| `DATASET_AGENT_OPENAI_COMPATIBLE_MODEL` | _(empty, required)_ | Model id for that server |
+| `DATASET_AGENT_OPENAI_COMPATIBLE_API_KEY` | _(empty)_ | Optional key (falls back to `DATASET_AGENT_LLM_API_KEY`) |
 
 ##### Using LM Studio
 
@@ -61,6 +70,35 @@ All variables use the `DATASET_AGENT_` prefix.
    DATASET_AGENT_LMSTUDIO_MODEL=gemma-4-31b-it-mlx
    LMSTUDIO_BASE_URL=http://localhost:1234
    ```
+
+To use LM Studio's Anthropic-compatible endpoint instead, set `DATASET_AGENT_LLM_API_STYLE=anthropic`.
+
+##### Using OpenLLM or another OpenAI-compatible server
+
+```bash
+DATASET_AGENT_LLM_PROVIDER=openllm
+OPENLLM_BASE_URL=http://openllm-host:3000/v1
+DATASET_AGENT_OPENLLM_MODEL=gpt-oss-120b
+
+# or any other server
+DATASET_AGENT_LLM_PROVIDER=openai_compatible
+DATASET_AGENT_OPENAI_COMPATIBLE_BASE_URL=http://vllm-host:8000/v1
+DATASET_AGENT_OPENAI_COMPATIBLE_MODEL=qwen3.6-35b-a3b
+```
+
+##### Structured output and reasoning models
+
+Structured steps (aliases, flag terms, false-positive analysis, …) ask the model for a JSON object
+that matches a schema. The OpenAI-style adapter tries, in order: a `json_schema` response format,
+a forced tool call, and JSON parsed from the reply text. It validates every result against the
+schema and retries once with the validation error before moving to the next strategy. It
+remembers the strategy that worked for each server and model. When every strategy fails, the step
+gets an empty result and a `WARNING` is logged. The Anthropic-style adapter validates and retries
+its forced tool call the same way.
+
+Reasoning output (`reasoning_content` / `reasoning` fields and `<think>…</think>` blocks) is
+dropped before text is returned or parsed. Tool calls that a model writes into its reply text,
+instead of returning them as tool calls, are not executed.
 
 ##### Using OpenRouter
 
@@ -134,7 +172,7 @@ dataset-research-api
 | `POST` | `/optimize` | Optimize a Dimensions publications query (sync) |
 | `POST` | `/optimize/tasks` | Optimize query (async) |
 | `GET` | `/optimize/tasks/{id}/result` | Retrieve optimize result |
-| `GET` | `/health` | Health check (tests Ollama connectivity if applicable) |
+| `GET` | `/health` | Health check; probes the configured LLM provider (`GET <base>/models`, or `/api/tags` for Ollama) |
 
 When `API_KEYS` is configured, write endpoints (`POST /tasks`, `/validate`, `/optimize`, `/optimize/tasks`) require an `x-api-key` header:
 
@@ -166,6 +204,17 @@ The API is exposed on port `8000`. Data is persisted in `./data` (output JSON + 
 ```bash
 pytest
 ```
+
+Live LLM smoke tests are skipped by default. To run one tool call and one structured call against
+real OpenAI-compatible servers, list `<base_url>|<model>` pairs:
+
+```bash
+DATASET_AGENT_LIVE_LLM=1 \
+DATASET_AGENT_LIVE_LLM_TARGETS="http://127.0.0.1:1234/v1|qwen3.6-35b-a3b,http://openllm-host:3000/v1|gpt-oss-120b" \
+pytest tests/test_llm_live.py -s
+```
+
+The output shows which structured-output strategy each target used.
 
 Reference outputs from previous agent runs are stored in `results/` (70 datasets) and `workforce/` (11 datasets). These can be used to validate output format and compare quality against the refactored agent.
 
