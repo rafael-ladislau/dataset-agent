@@ -375,3 +375,52 @@ def test_prompt_shows_snippets_and_fields_for_false_positives():
     refine_candidate(c, ev(UI_PUBS), settings=S, agent=llm, dataset_name="UI")
     fp_part = seen["p"].split("does NOT mention")[1]
     assert "user interface (UI) design" in fp_part and "Information and Computing Sciences" in fp_part
+
+
+def _many_fp_pubs():
+    # e0 is in 4 false positives, e1 in 3, e2 in 2.
+    pubs = [ctx_pub(f"g{i}", 50 - i, "used", "t", [("UI", "UI wage records")], quote="UI wage records")
+            for i in range(3)]
+    for i in range(4):
+        words = ["e0"] + (["e1"] if i < 3 else []) + (["e2"] if i < 2 else [])
+        pubs.append(ctx_pub(f"h{i}", 20 - i, "not_mentioned", "x",
+                            [("UI", "UI " + " ".join(f"word{w}" for w in words))]))
+    return pubs
+
+
+def _ui_llm(excludes):
+    return FakeLLM({"exclude_terms": excludes, "flag_terms": [], "new_aliases": [], "reasoning": ""})
+
+
+def test_impact_checks_are_capped_strongest_first():
+    c = QueryCandidate(main_dataset_name="UI", safe=["UI"], risky=[], flag_terms=[])
+    checked = []
+
+    def impact(t):
+        checked.append(t)
+        return 10
+
+    capped = Settings(refine_min_alias_papers=3, fulltext_min_evidence=3, refine_max_exclude_checks=2)
+    r = refine_candidate(c, ev(_many_fp_pubs()), settings=capped, agent=_ui_llm(["worde2", "worde0", "worde1"]),
+                         dataset_name="UI", impact_fn=impact)
+    assert checked == ["worde0", "worde1"]
+    assert r.candidate.exclude_terms == ["worde0", "worde1"]
+
+
+def test_exclude_with_unknown_impact_is_rejected():
+    c = QueryCandidate(main_dataset_name="UI", safe=["UI"], risky=[], flag_terms=[])
+
+    def impact(t):
+        raise RuntimeError("Dimensions budget reserve reached")
+
+    r = refine_candidate(c, ev(_many_fp_pubs()), settings=S, agent=_ui_llm(["worde0"]),
+                         dataset_name="UI", impact_fn=impact)
+    assert r.candidate.exclude_terms == []
+
+
+def test_scalar_groups_are_ignored():
+    c = QueryCandidate(main_dataset_name="UI", safe=["UI"], risky=[], flag_terms=[])
+    llm = FakeLLM({"false_positive_groups": 3, "exclude_terms": [], "flag_terms": [], "new_aliases": [],
+                   "reasoning": ""})
+    r = refine_candidate(c, ev(_many_fp_pubs()), settings=S, agent=llm, dataset_name="UI")
+    assert not any("false-positive group" in n for n in r.notes)

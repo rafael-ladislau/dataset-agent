@@ -181,6 +181,10 @@ class Settings(BaseSettings):
     refine_max_new_aliases: int = Field(default=3, ge=0, le=10)
     #: Min false-positive papers an exclude must occur in (title or full-text snippet).
     refine_min_exclude_papers: int = Field(default=2, ge=1)
+    #: Max exclude candidates whose impact is checked in Dimensions per refine pass.
+    refine_max_exclude_checks: int = Field(default=5, ge=0, le=20)
+    #: Dimensions calls kept free for the next gate evaluation; impact checks stop here.
+    refine_impact_budget_reserve: int = Field(default=8, ge=0)
     #: Min share of matching papers whose quote/snippets carry a new flag term.
     refine_flag_min_share: float = Field(default=0.2, ge=0.0, le=1.0)
     #: Min false positives in one field of research before it is reported as a pattern.

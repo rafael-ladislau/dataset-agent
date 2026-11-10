@@ -140,7 +140,8 @@ Use emit_refinement_candidates exactly once."""
         )[:cap]
 
     groups = []
-    for g in raw.get("false_positive_groups") or []:
+    raw_groups = raw.get("false_positive_groups")
+    for g in raw_groups if isinstance(raw_groups, list) else []:
         if not isinstance(g, dict) or not isinstance(g.get("label"), str):
             continue
         groups.append({
@@ -213,9 +214,13 @@ def refine_candidate(
     abstract_fp_aliases: set[str] | None = None,
     impact_fn: Callable[[str], int] | None = None,
 ) -> RefineResult:
-    """*impact_fn(term)*: how many current query results also contain *term* (what an
-    exclude would remove); an exclude that removes nothing is rejected."""
-    """Return the refined candidate plus a per-term diff with evidence and reasons."""
+    """Return the refined candidate plus a per-term diff with evidence and reasons.
+
+    *impact_fn(term)*: how many current query results also contain *term* (what an
+    exclude would remove). At most ``refine_max_exclude_checks`` excludes are checked per
+    pass, most false-positive hits first; an exclude that removes nothing, or whose
+    impact is unknown (budget reserve reached, Dimensions error), is rejected.
+    """
     abstract_fp = {a.lower() for a in (abstract_fp_aliases or set())}
     aliases = candidate.all_aliases()
     safe_l = {a.lower() for a in candidate.safe}
@@ -249,6 +254,7 @@ def refine_candidate(
                 f"(~{g['papers']} paper(s), via '{g['cause_term']}')"
                 + (f"; candidate excludes {g['exclude_terms']}" if g["exclude_terms"] else "")
             )
+        candidates_ex: list[tuple[str, list[PubVerdict]]] = []
         for t in prop["exclude_terms"]:
             if _covered(t, candidate.exclude_terms):
                 continue
@@ -265,15 +271,19 @@ def refine_candidate(
             hit_gen = [v for v in evidence.genuine if any(term_in(f, v) for f in forms)]
             if len(hit_fp) < settings.refine_min_exclude_papers or hit_gen:
                 continue
+            candidates_ex.append((t, hit_fp))
+        # Each impact check is a Dimensions call: check the strongest candidates only.
+        candidates_ex.sort(key=lambda th: -len(th[1]))
+        for t, hit_fp in candidates_ex[: settings.refine_max_exclude_checks]:
             if impact_fn is not None:
                 try:
                     removed = int(impact_fn(t))
-                except Exception as exc:  # budget exhausted or Dimensions error
-                    logger.info("exclude %r impact unknown: %s", t, exc)
-                else:
-                    if removed <= 0:
-                        continue
-                    impacts[t] = removed
+                except Exception as exc:  # budget reserve reached or Dimensions error
+                    logger.info("exclude %r rejected, impact unknown: %s", t, exc)
+                    continue
+                if removed <= 0:
+                    continue
+                impacts[t] = removed
             new_excludes.append((t, hit_fp))
         # Flags need at least two matching papers and a minimum share of them, from
         # quotes or full-text snippets (titles never count).

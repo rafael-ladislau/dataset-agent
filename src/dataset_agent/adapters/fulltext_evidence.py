@@ -8,8 +8,8 @@ dataset is a correct match even when it does not use it):
 * usage (``is_used``) is reported separately and never decides a term change;
 * publications without delivered full text, not analyzed, or with no verdict at
   all are excluded from the full-text metrics (they only lower OA coverage);
-* a term is attributed to a paper when its stem appears in the paper's evidence
-  quote or title.
+* a term is attributed to a paper when it appears in the paper's evidence quote,
+  title or full-text snippets of the query's terms (``term_contexts``).
 """
 
 from __future__ import annotations
@@ -283,7 +283,7 @@ class TermStats:
 
 
 def attribute_terms(evidence: Evidence, terms: list[str]) -> dict[str, TermStats]:
-    """Per-term attribution: how many verified papers carry each term in quote/title."""
+    """Per-term attribution: how many verified papers carry each term in quote, title or snippets."""
     out = {t: TermStats(t) for t in terms}
     for v in evidence.verdicts:
         for t in terms:

@@ -90,8 +90,11 @@ LLM proposals (validated against the quotes before acceptance):
 
 * exclude terms: must occur in the title or full-text snippets of at least
   `refine_min_exclude_papers` false positives and in no matching paper (quote, title or
-  snippets, singular forms included), must remove at least one current result (a
-  Dimensions count of the query AND the term; the diff states how many), and
+  snippets, singular forms included), and must remove at least one current result (a
+  Dimensions count of the query AND the term; the diff states how many). At most
+  `refine_max_exclude_checks` candidates are checked per pass, most false-positive hits
+  first; checks stop when the call budget is down to `refine_impact_budget_reserve` (kept
+  for the next gate evaluation), and an exclude whose impact is unknown is rejected. It
   must not overlap the query's own terms (an exclude inside or containing an alias, or inside
   a flag, is rejected because `NOT` would drop the query's own matches)
   (the diff reason states how many matches were quotes and how many title-only);
@@ -154,6 +157,7 @@ The target extraction instance is `DATASET_AGENT_SUBMIT_TARGET` (`dev` by defaul
 | `refine_drop_fp_share` / `refine_demote_fp_share` | 0.8 / 0.5 | Deterministic thresholds |
 | `refine_max_new_aliases` | 3 | Cap on added aliases per iteration |
 | `refine_min_exclude_papers` | 2 | Min false positives carrying a new exclude |
+| `refine_max_exclude_checks` / `refine_impact_budget_reserve` | 5 / 8 | Impact checks per pass / Dimensions calls kept for the next gate evaluation |
 | `refine_flag_min_share` | 0.2 | Min share of matching papers carrying a new flag |
 | `refine_category_min_fp_papers` | 3 | Min false positives in a field of research before it is reported |
 | `probe_target`, `submit_target` | `dev` | Extraction instance for probes / submit |

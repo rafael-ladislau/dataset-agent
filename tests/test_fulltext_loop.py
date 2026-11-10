@@ -320,3 +320,16 @@ def test_exclude_impact_is_counted_in_dimensions_and_patterns_reach_the_proposal
     assert any('AND \\"nursing ward\\"' in q for q in dsl.queries)
     notes = " ".join(out.proposal.notes)
     assert "false-positive group 'nursing wards'" in notes and "'Nursing'" in notes
+
+
+def test_impact_checks_stop_at_the_budget_reserve(tmp_path):
+    import asyncio as _a
+
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(),
+        settings=make_settings(tmp_path, optimize_max_dimensions_calls=20, refine_impact_budget_reserve=8))
+    uc._dims_calls = 11
+    assert _a.run(uc._exclude_impact("A", "b")) == 100
+    assert uc._dims_calls == 12
+    with pytest.raises(Exception, match="reserve"):
+        _a.run(uc._exclude_impact("A", "b"))

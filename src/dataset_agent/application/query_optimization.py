@@ -210,9 +210,14 @@ class QueryOptimizationUseCase:
         return _run
 
     async def _exclude_impact(self, for_clause: str, term: str) -> int:
-        """How many results of *for_clause* also contain *term* (what ``NOT term`` removes)."""
-        if not self._budget_left():
-            raise DimensionsDslError("Dimensions call budget exhausted")
+        """How many results of *for_clause* also contain *term* (what ``NOT term`` removes).
+
+        Raises once the call budget is down to ``refine_impact_budget_reserve``, which is
+        kept for the next gate evaluation."""
+        cap = int(self._settings.optimize_max_dimensions_calls)
+        reserve = int(self._settings.refine_impact_budget_reserve)
+        if cap > 0 and self._dims_calls >= cap - reserve:
+            raise DimensionsDslError("Dimensions budget reserve reached")
         self._dims_calls += 1
         clause = f'({for_clause}) AND \\"{inner_quoted_term(term)}\\"'
         result = await self._dsl.execute_dsl(build_for_clause_count_dsl(clause))
