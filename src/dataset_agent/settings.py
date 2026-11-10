@@ -141,6 +141,35 @@ class Settings(BaseSettings):
     #: Batch size for reference-id resolution queries (Dimensions limit).
     gate_ref_batch_size: int = Field(default=512, ge=1, le=1000)
 
+    # --- Full-text query refinement (extraction pipeline probes) ---------------
+    #: Run full-text probes against the extraction pipeline during Phase 3.
+    fulltext_refinement_enabled: bool = False
+    #: Top-cited probe publications whose open full text is analyzed (flat top-N).
+    fulltext_top_n: int = Field(default=30, ge=1, le=2000)
+    #: Max publications pulled from Dimensions by a probe task (extraction ``probe_pull_cap``).
+    probe_pull_cap: int = Field(default=200, ge=1, le=1000)
+    #: Wall-clock budget for one probe (search + full text + LLM validation).
+    probe_poll_timeout_seconds: float = Field(default=900.0, gt=0.0)
+    probe_poll_interval_seconds: float = Field(default=3.0, gt=0.0)
+    probe_poll_max_interval_seconds: float = Field(default=20.0, gt=0.0)
+    #: Min full-text-delivered probe papers needed before a term may be changed.
+    fulltext_min_evidence: int = Field(default=3, ge=1)
+    #: Extraction instance used for probes ("dev" or "prod"; probes never publish).
+    probe_target: Literal["dev", "prod"] = "dev"
+    #: Extraction instance a proposal is submitted to. "prod" also requires an approved proposal.
+    submit_target: Literal["dev", "prod"] = "dev"
+    extraction_dev_url: str = "http://127.0.0.1:8000"
+    extraction_dev_user: str = ""
+    extraction_dev_password: str = ""
+    extraction_prod_url: str = ""
+    extraction_prod_user: str = ""
+    extraction_prod_password: str = ""
+    #: Deterministic refinement thresholds (see docs/fulltext-refinement.md).
+    refine_min_alias_papers: int = Field(default=3, ge=1)
+    refine_drop_fp_share: float = Field(default=0.8, ge=0.0, le=1.0)
+    refine_demote_fp_share: float = Field(default=0.5, ge=0.0, le=1.0)
+    refine_max_new_aliases: int = Field(default=3, ge=0, le=10)
+
     @field_validator("lmstudio_base_url", "openrouter_base_url")
     @classmethod
     def _normalize_lmstudio_base_url(cls, v: str) -> str:
