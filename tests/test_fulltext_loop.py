@@ -106,3 +106,25 @@ def test_probe_failure_is_recorded_not_fatal(tmp_path):
         settings=make_settings(tmp_path, fulltext_refinement_enabled=True), extraction_client=client)
     out = asyncio.run(uc.execute(REQ))
     assert out.success and out.fulltext_iterations[0].error == "down"
+
+
+def test_loop_refines_with_evidence_and_selects_best_iteration(tmp_path):
+    bad = [pub(f"n{i}", 50 - i, False, "Another Long Title Here nursing") for i in range(4)] + [
+        pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(4)]
+    good = [pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(4)]
+    client = FakeClient([{"publications": bad}, {"publications": good}])
+    llm = MagicMock()
+    llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=llm,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, fulltext_top_n=20,
+                               optimize_max_iterations=3, refine_min_alias_papers=3),
+        extraction_client=client)
+    out = asyncio.run(uc.execute(REQ))
+    assert [m.fulltext_precision for m in out.fulltext_iterations] == [0.5, 1.0]
+    assert len(client.seeds) == 2
+    # the dropped alias is gone from the second seed and from the selected output
+    second = client.seeds[1]
+    assert "Another Long Title Here" not in second["standalone_names"] + second["dataset_names"]
+    assert out.selected_variant.endswith("~gate1")
+    assert "Another Long Title Here" not in out.aliases.safe + out.aliases.risky

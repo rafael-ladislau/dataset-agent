@@ -589,3 +589,34 @@ TOOL_DISPATCH: dict[str, callable] = {
     "web_search": lambda args: web_search(args.get("query", "")),
     "make_request": lambda args: make_request(args.get("url", "")),
 }
+
+EMIT_REFINEMENT_CANDIDATES: dict = {
+    "name": "emit_refinement_candidates",
+    "description": (
+        "Propose query refinements from full-text evidence quotes: exclude phrases from false "
+        "positives, flag (context) terms and new alias forms from genuine usages. Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "exclude_terms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Short phrases present in false-positive quotes/titles (max 10).",
+            },
+            "flag_terms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Context words/phrases found around genuine quotes (max 10).",
+            },
+            "new_aliases": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Mention forms of the dataset seen in genuine quotes (max 5).",
+            },
+            "reasoning": {"type": "string", "description": "Brief rationale (max 40 words)."},
+        },
+        "required": ["exclude_terms", "flag_terms", "new_aliases", "reasoning"],
+        "additionalProperties": False,
+    },
+}

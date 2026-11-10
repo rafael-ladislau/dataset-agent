@@ -27,6 +27,7 @@ from dataset_agent.adapters.fp_analysis import (
 )
 from dataset_agent.adapters.extraction_client import ExtractionClient, ExtractionError
 from dataset_agent.adapters.fulltext_evidence import Evidence, build_evidence
+from dataset_agent.adapters.fulltext_refiner import refine_candidate
 from dataset_agent.adapters.literature import evaluate_for_clause_sync
 from dataset_agent.adapters.seed_mapping import QueryCandidate, candidate_clause, candidate_to_seed
 from dataset_agent.adapters.query_builder import build_for_clause, default_variant_build_order, run_variant
@@ -51,6 +52,7 @@ from dataset_agent.domain.models import (
     ResearchRequest,
     VariantTestedEntry,
 )
+from dataset_agent.domain.proposals import TermDiff
 from dataset_agent.domain.ports import AgentPort, DimensionsDslPort
 
 if TYPE_CHECKING:
@@ -531,6 +533,9 @@ class QueryOptimizationUseCase:
             exclude_terms=list(exc_work),
             description=desc_for_signal3,
         )
+        ft_entries: dict[int, VariantTestedEntry] = {}
+        ft_candidates: dict[int, QueryCandidate] = {}
+        ft_diffs: dict[int, list[TermDiff]] = {}
         if ft_enabled:
             current_for_clause = candidate_clause(ft_candidate)
             current_variant_label = "V4"
@@ -575,9 +580,10 @@ class QueryOptimizationUseCase:
                 best_variant_entry = entry
 
             if ft_enabled:
+                ft_entries[iteration] = entry
+                ft_candidates[iteration] = ft_candidate
                 try:
                     evidence = await self._probe_candidate(ft_candidate, request)
-                    ft_iterations.append(evidence.metrics(iteration, current_for_clause, fp_rate))
                 except (ExtractionError, ValueError) as exc:
                     logger.warning("full-text probe failed: %s", exc)
                     ft_iterations.append(
@@ -590,9 +596,42 @@ class QueryOptimizationUseCase:
                     )
                     notes_parts.append(f"gate_iter{iteration}: full-text probe failed: {exc}")
                     break
-                # Term changes are driven by full-text evidence only (refiner), never by
-                # the abstract FP signal; the legacy abstract refinement below is skipped.
-                break
+                metrics = evidence.metrics(iteration, current_for_clause, fp_rate)
+                ft_iterations.append(metrics)
+                prec = metrics.fulltext_precision
+                if prec is not None and prec >= 1.0 - threshold / 100.0:
+                    notes_parts.append(f"gate_iter{iteration}: full-text precision within threshold.")
+                    break
+                if iteration == max_iters - 1:
+                    break
+                # Term changes are driven by full-text evidence only; the abstract FP
+                # signal can at most mark an alias "suspect".
+                loop = asyncio.get_running_loop()
+                result = await asyncio.to_thread(
+                    refine_candidate,
+                    ft_candidate,
+                    evidence,
+                    settings=self._settings,
+                    agent=self._agent,
+                    dataset_name=request.dataset_name,
+                    count_fn=lambda t: asyncio.run_coroutine_threadsafe(
+                        self._count(t), loop
+                    ).result(),
+                    reference_count=c_full,
+                    abstract_fp_aliases={
+                        str(h.get("matched_alias") or "") for h in (ev.get("fp_hits") or [])
+                    },
+                )
+                ft_diffs[iteration] = result.diffs
+                if not result.changed:
+                    notes_parts.append(f"gate_iter{iteration}: refiner found nothing to change.")
+                    break
+                ft_candidate = result.candidate
+                new_fc = candidate_clause(ft_candidate)
+                if not new_fc.strip() or new_fc == current_for_clause:
+                    break
+                current_for_clause = new_fc
+                continue
 
             if fp_rate <= threshold:
                 notes_parts.append(f"gate_iter{iteration}: FP rate within threshold.")
@@ -639,6 +678,24 @@ class QueryOptimizationUseCase:
             self._dims_calls,
             time.perf_counter() - t_phase3,
         )
+
+        best_ft_iter: int | None = None
+        if ft_enabled:
+            scored = [
+                (m.fulltext_precision, -m.iteration)
+                for m in ft_iterations
+                if m.fulltext_precision is not None and m.iteration in ft_entries
+            ]
+            if scored:
+                best_ft_iter = -max(scored)[1]
+                best_variant_entry = ft_entries[best_ft_iter]
+                bc = ft_candidates[best_ft_iter]
+                safe, risky = list(bc.safe), list(bc.risky)
+                flag_terms, exc_work = list(bc.flag_terms), list(bc.exclude_terms)
+                notes_parts.append(
+                    f"Selected iteration {best_ft_iter} by full-text precision "
+                    f"({max(scored)[0]:.2f})."
+                )
 
         # Prefer best gate-evaluated variant; fall back to lowest-FP among all tested
         if best_variant_entry is not None:
