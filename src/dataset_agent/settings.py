@@ -253,6 +253,14 @@ class Settings(BaseSettings):
             api_key=api_key,
         )
 
+    @field_validator("llm_api_style", mode="before")
+    @classmethod
+    def _empty_api_style_is_unset(cls, v: object) -> object:
+        """``DATASET_AGENT_LLM_API_STYLE=`` (empty) means "use the provider default"."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     @field_validator("fp_sample_size")
     @classmethod
     def _fp_sample_size_bounds(cls, v: int) -> int:

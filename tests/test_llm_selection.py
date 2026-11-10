@@ -146,6 +146,13 @@ def test_generic_openai_compatible_provider(monkeypatch):
     assert endpoint.api_key == "local"
 
 
+def test_empty_api_style_means_provider_default(monkeypatch):
+    monkeypatch.setenv("DATASET_AGENT_LLM_API_STYLE", "")
+    assert _settings().llm_endpoint().api_style == "openai"
+    monkeypatch.setenv("DATASET_AGENT_LLM_PROVIDER", "ollama")
+    assert _settings().llm_endpoint().api_style == "anthropic"
+
+
 def test_invalid_api_style_rejected(monkeypatch):
     monkeypatch.setenv("DATASET_AGENT_LLM_API_STYLE", "grpc")
     with pytest.raises(ValueError):
