@@ -255,7 +255,7 @@ def test_exclude_that_overlaps_an_alias_or_flag_is_rejected():
     pubs = (
         [pub(f"g{i}", 40 - i, True, "we used NHIS 2015 data") for i in range(3)]
         + [pub(f"f{i}", 20 - i, False,
-               "the National Health Interview Survey reported in a cohort registry") for i in range(2)]
+               "the National Health Interview Survey reported in a NHIS registry cohort") for i in range(2)]
     )
     llm = FakeLLM({"exclude_terms": ["Health Interview", "National Health Interview Survey",
                                      "NHIS registry", "cohort", "registry"],
