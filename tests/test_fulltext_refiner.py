@@ -100,3 +100,41 @@ def test_too_little_evidence_changes_nothing():
     llm = FakeLLM({"exclude_terms": ["nursing"], "flag_terms": [], "new_aliases": [], "reasoning": ""})
     r = refine_candidate(QueryCandidate("X", safe=["NHIS", "Other"]), ev(pubs), settings=S, agent=llm, dataset_name="X")
     assert not r.changed and llm.calls == 0
+
+
+def _refine_with(pubs, **proposal):
+    out = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    out.update(proposal)
+    return refine_candidate(QueryCandidate("X", safe=["NHIS"]), ev(pubs), settings=S, agent=FakeLLM(out),
+                            dataset_name="X", count_fn=lambda t: 5, reference_count=100)
+
+
+def test_title_only_flag_is_rejected():
+    pubs = [pub(f"g{i}", 40 - i, True, "we used NHIS data", title="A cohort study") for i in range(3)] + [
+        pub("f0", 5, False, "NHIS nursing"), pub("f1", 4, False, "NHIS nursing")]
+    r = _refine_with(pubs, flag_terms=["cohort study"])
+    assert not [d for d in r.diffs if d.kind == "flag" and d.action == "add"]
+
+
+def test_flag_needs_two_genuine_quotes_even_with_one_genuine_paper():
+    pubs = [pub("g0", 40, True, "we used NHIS microdata")] + [
+        pub(f"f{i}", 5 - i, False, "NHIS nursing") for i in range(3)]
+    r = _refine_with(pubs, flag_terms=["microdata"])
+    assert not [d for d in r.diffs if d.kind == "flag" and d.action == "add"]
+
+
+def test_title_only_new_alias_is_rejected():
+    pubs = [pub(f"g{i}", 40 - i, True, "we used NHIS data", title="NHANES III survey") for i in range(3)] + [
+        pub("f0", 5, False, "NHIS nursing")]
+    r = _refine_with(pubs, new_aliases=["NHANES III"])
+    assert not [d for d in r.diffs if d.kind == "alias" and d.action == "add"]
+
+
+def test_exclude_reason_says_quote_versus_title():
+    pubs = [pub(f"g{i}", 40 - i, True, "we used NHIS data") for i in range(3)] + [
+        pub("f0", 5, False, "NHIS staffing", title="nursing home study"),
+        pub("f1", 4, False, "NHIS nursing home staffing")]
+    r = _refine_with(pubs, exclude_terms=["nursing home"])
+    d = diff(r, "exclude", "nursing home")
+    assert d.action == "add"
+    assert "1 evidence quote(s) and 1 title(s) only" in d.reason

@@ -6,8 +6,10 @@ submit then creates the real extraction task.
 
 ## The loop (optimizer Phase 3)
 
-Enabled with `DATASET_AGENT_FULLTEXT_REFINEMENT_ENABLED=true` (default `false`; when
-disabled the optimizer behaves exactly as before). Bounded by `optimize_max_iterations`
+Enabled with `DATASET_AGENT_FULLTEXT_REFINEMENT_ENABLED=true` (default `false`). When
+disabled, no probes run and no proposal is built, but Phase 3 still differs from earlier
+releases: the starting variant, the false-positive denominator and the Dimensions call
+budget changed with this feature. Bounded by `optimize_max_iterations`
 (default 3).
 
 For each iteration the current candidate is mapped to an extraction seed and **probed**:
@@ -45,9 +47,12 @@ Deterministic rules (thresholds `refine_drop_fp_share`, `refine_demote_fp_share`
 
 LLM proposals (validated against the quotes before acceptance):
 
-* exclude terms: must occur in a false-positive quote/title and in no genuine one;
-* flag terms: must occur in at least two genuine quotes;
-* new aliases: must occur in a genuine quote and be absent from the query; Dimensions
+* exclude terms: must occur in a false-positive quote or title and in no genuine one
+  (the diff reason states how many matches were quotes and how many title-only);
+* flag terms: must occur in the evidence quotes of at least two genuine papers (titles
+  never count); with fewer than two genuine papers no flag is added;
+* new aliases: must occur in a genuine evidence quote (titles never count) and be absent
+  from the query; Dimensions
   counts are re-probed (zero-hit aliases are rejected; very broad ones become risky).
 
 The loop stops when full-text precision reaches `1 - optimize_fp_threshold_pct/100`, when

@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Callable
 
-from dataset_agent.adapters.fulltext_evidence import Evidence, PubVerdict, attribute_terms, term_in
+from dataset_agent.adapters.fulltext_evidence import Evidence, PubVerdict, attribute_terms, term_in, term_in_quote
 from dataset_agent.adapters.literature import _stem_text
 from dataset_agent.adapters.seed_mapping import QueryCandidate
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
@@ -93,6 +93,15 @@ Use emit_refinement_candidates exactly once."""
     }
 
 
+def _exclude_reason(term: str, hits: list[PubVerdict]) -> str:
+    n_quote = sum(1 for v in hits if term_in_quote(term, v))
+    n_title = len(hits) - n_quote
+    where = f"{n_quote} evidence quote(s)"
+    if n_title:
+        where += f" and {n_title} title(s) only"
+    return f"occurs in {where} of {len(hits)} false-positive paper(s) and no genuine one"
+
+
 def _covered(term: str, existing: list[str]) -> bool:
     stem = _stem_text(term)
     return any(_stem_text(e) == stem for e in existing)
@@ -140,17 +149,17 @@ def refine_candidate(
             hit_gen = [v for v in evidence.genuine if term_in(t, v)]
             if hit_fp and not hit_gen:
                 new_excludes.append((t, hit_fp))
-        need = min(2, len(evidence.genuine))
+        # Flags need at least two genuine quotes (quote-only; titles never count).
         for t in prop["flag_terms"]:
-            if _covered(t, candidate.flag_terms) or need == 0:
+            if _covered(t, candidate.flag_terms):
                 continue
-            hit_gen = [v for v in evidence.genuine if term_in(t, v)]
-            if len(hit_gen) >= need:
+            hit_gen = [v for v in evidence.genuine if term_in_quote(t, v)]
+            if len(hit_gen) >= 2:
                 new_flags.append((t, hit_gen))
         for t in prop["new_aliases"]:
             if _covered(t, aliases):
                 continue
-            hit_gen = [v for v in evidence.genuine if term_in(t, v)]
+            hit_gen = [v for v in evidence.genuine if term_in_quote(t, v)]
             if hit_gen:
                 new_aliases.append((t, hit_gen))
 
@@ -228,14 +237,14 @@ def refine_candidate(
     for t, hits in new_flags:
         diffs.append(TermDiff(
             kind="flag", term=t, action="add", status="verified",
-            reason=f"occurs in {len(hits)} genuine quote(s)", evidence=_quotes(hits),
+            reason=f"occurs in {len(hits)} genuine evidence quote(s)", evidence=_quotes(hits),
             stats={"genuine_papers": len(hits)}))
     for e in candidate.exclude_terms:
         diffs.append(TermDiff(kind="exclude", term=e, action="keep", status="unverified", reason="unchanged"))
     for t, hits in new_excludes:
         diffs.append(TermDiff(
             kind="exclude", term=t, action="add", status="verified",
-            reason=f"occurs in {len(hits)} false-positive paper(s) and no genuine one",
+            reason=_exclude_reason(t, hits),
             evidence=_quotes(hits), stats={"fp_papers": len(hits)}))
 
     refined = QueryCandidate(

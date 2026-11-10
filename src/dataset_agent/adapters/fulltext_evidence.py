@@ -36,6 +36,10 @@ class PubVerdict:
     def text(self) -> str:
         return _stem_text(f"{self.quote} {self.title}")
 
+    @property
+    def quote_text(self) -> str:
+        return _stem_text(self.quote)
+
     def as_quote(self) -> EvidenceQuote:
         return EvidenceQuote(
             publication_id=self.publication_id,
@@ -131,6 +135,12 @@ def build_evidence(results: dict[str, Any], top_n: int) -> Evidence:
 def term_in(term: str, verdict: PubVerdict) -> bool:
     stem = _stem_text(term)
     return bool(stem) and stem in verdict.text
+
+
+def term_in_quote(term: str, verdict: PubVerdict) -> bool:
+    """Quote-only match (the title never counts)."""
+    stem = _stem_text(term)
+    return bool(stem) and stem in verdict.quote_text
 
 
 @dataclass
