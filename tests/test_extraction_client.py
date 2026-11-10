@@ -91,3 +91,21 @@ def test_submit_forces_probe_false():
     out = _client(srv).submit({"main_dataset_name": "X", "probe": True})
     assert out == {"task_id": "T1"}
     assert srv.calls[0][2]["probe"] is False
+
+
+def test_parse_status_fetch_running_llm_completed_is_not_done():
+    st = parse_status({
+        "status": "DONE",
+        "llm_analysis": {"status": "completed", "pending": 0},
+        "fulltext": {"selected": 30, "attempted": 5, "delivered": 5},
+    })
+    assert not st.llm_done
+
+
+def test_parse_status_fetch_finished_llm_completed_is_done():
+    st = parse_status({
+        "status": "DONE",
+        "llm_analysis": {"status": "completed", "pending": 0},
+        "fulltext": {"selected": 30, "attempted": 30, "delivered": 12},
+    })
+    assert st.llm_done
