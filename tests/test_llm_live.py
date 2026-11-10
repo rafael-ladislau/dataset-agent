@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 
 from dataset_agent.adapters import tools
-from dataset_agent.adapters.agent_openai import _TIER_CACHE, OpenAICompatibleAgent
+from dataset_agent.adapters.agent_openai import OpenAICompatibleAgent
 from dataset_agent.adapters.tools import EMIT_DATASET_NAMES
 
 LIVE = os.environ.get("DATASET_AGENT_LIVE_LLM") == "1"
@@ -94,7 +94,8 @@ def test_live_structured_call(base_url: str, model: str) -> None:
         "(official title and acronym).",
         EMIT_DATASET_NAMES,
     )
-    tier = _TIER_CACHE.get((base_url.rstrip("/"), model))
+    tier = agent.last_structured_tier
     print(f"\n[{model} @ {base_url}] structured tier={tier} result={result}")
     assert agent.structured_failures == 0
+    assert tier is not None
     assert result.get("dataset_names")

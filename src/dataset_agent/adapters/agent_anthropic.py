@@ -13,6 +13,7 @@ from dataset_agent.adapters.agent_common import (
     NO_OUTPUT_TEXT,
     SYSTEM_PROMPT,
     prompt_head,
+    repair_near_miss,
     retry_prompt,
     run_tool,
     strip_think,
@@ -58,7 +59,8 @@ class AnthropicAgent(AgentPort):
         self._http_client = http_client
         self._max_retries = max_retries
         self._client: Anthropic | None = None
-        #: Number of ``get_structured`` calls that ended in the ``{}`` fallback.
+        #: Number of ``get_structured`` calls that got no schema-valid tool call
+        #: (the result was a coerced near-miss or ``{}``).
         self.structured_failures = 0
 
     def _get_client(self) -> Anthropic:
@@ -220,9 +222,9 @@ class AnthropicAgent(AgentPort):
         The input is validated against ``input_schema``; a missing or invalid
         tool call is retried once with a message naming the error.  If both
         attempts fail, ``structured_failures`` is incremented, a WARNING is
-        logged, and the last non-empty tool input is returned even though it
-        failed validation (callers coerce near-misses); ``{}`` is returned only
-        when no tool input was obtained, so callers can apply their own defaults.
+        logged, and the last non-empty tool input is repaired with
+        :func:`coerce_to_schema`; it is returned if it then validates, otherwise
+        ``{}`` so callers can apply their own defaults.
         """
         client = self._get_client()
         tool_name = result_tool["name"]
@@ -239,7 +241,6 @@ class AnthropicAgent(AgentPort):
         attempt_prompt = prompt
         error = ""
         near_miss: dict | None = None
-        near_miss_error = ""
         for attempt in (1, 2):
             try:
                 response = client.messages.create(
@@ -253,7 +254,7 @@ class AnthropicAgent(AgentPort):
                 )
             except Exception:
                 logger.exception("get_structured failed (tool=%s)", tool_name)
-                return self._structured_fallback(tool_name, near_miss, near_miss_error)
+                return self._structured_fallback(tool_name, schema, near_miss)
             result, error = self._structured_from_response(response, tool_name, schema)
             if result is not None and not error:
                 logger.info(
@@ -265,7 +266,7 @@ class AnthropicAgent(AgentPort):
                 )
                 return result
             if result:
-                near_miss, near_miss_error = result, error
+                near_miss = result
             logger.info(
                 "LLM structured call attempt %s rejected (tool=%s): %s",
                 attempt,
@@ -275,21 +276,25 @@ class AnthropicAgent(AgentPort):
             attempt_prompt = retry_prompt(prompt, tool_name, error)
 
         logger.info("LLM structured call failed after retry (tool=%s): %s", tool_name, error)
-        return self._structured_fallback(tool_name, near_miss, near_miss_error)
+        return self._structured_fallback(tool_name, schema, near_miss)
 
-    def _structured_fallback(self, tool_name: str, near_miss: dict | None, error: str) -> dict:
-        """Count the failure; return the last tool input that failed validation, or ``{}``."""
+    def _structured_fallback(
+        self, tool_name: str, schema: dict | None, near_miss: dict | None
+    ) -> dict:
+        """Count the failure; return the coerced near-miss if it validates, else ``{}``."""
         self.structured_failures += 1
-        if near_miss:
+        repaired, error = repair_near_miss(near_miss, schema)
+        if repaired is not None:
             logger.warning(
                 "LLM structured call (tool=%s) returned no valid result; using the last tool "
-                "input despite %s",
+                "input coerced to the schema",
                 tool_name,
-                error,
             )
-            return near_miss
+            return repaired
         logger.warning(
-            "LLM structured call (tool=%s) produced no tool input; returning {}", tool_name
+            "LLM structured call (tool=%s) returned no usable result (%s); returning {}",
+            tool_name,
+            error,
         )
         return {}
 

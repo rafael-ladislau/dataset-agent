@@ -16,6 +16,7 @@ from dataset_agent.adapters.agent_common import (
     extract_json_object,
     json_only_prompt,
     prompt_head,
+    repair_near_miss,
     retry_prompt,
     run_tool,
     strip_think,
@@ -83,8 +84,11 @@ class OpenAICompatibleAgent(AgentPort):
         self._http_client = http_client
         self._max_retries = max_retries
         self._client: OpenAI | None = None
-        #: Number of ``get_structured`` calls that ended in the ``{}`` fallback.
+        #: Number of ``get_structured`` calls that got no schema-valid reply (the
+        #: result was a coerced near-miss or ``{}``).
         self.structured_failures = 0
+        #: Tier that produced the last ``get_structured`` result (``None`` for ``{}``).
+        self.last_structured_tier: str | None = None
 
     def _get_client(self) -> OpenAI:
         if self._client is None:
@@ -253,18 +257,21 @@ class OpenAICompatibleAgent(AgentPort):
 
         Tiers, starting at the one cached for this (base_url, model):
         ``json_schema`` response format → forced tool call → JSON parsed from
-        text.  Each tier retries once on a parse/validation error; a tier the
-        server rejects as unsupported is skipped without retry and the cache is
-        lowered past it (content failures never change the cache).
+        text.  Each tier retries once on a parse/validation error.  A tier the
+        server rejects with a 4xx/501 is skipped without retry; the cache is
+        lowered past it only once a lower tier gets a 2xx reply, so a
+        request-level error that every tier hits leaves the cache unchanged.
 
-        When every attempt fails, ``structured_failures`` is incremented, a
-        WARNING is logged, and the last parsed non-empty object is returned even
-        though it failed validation (callers coerce near-misses); ``{}`` is
-        returned only when nothing parseable was obtained.
+        When no reply validates, ``structured_failures`` is incremented, a
+        WARNING is logged, and the last parsed non-empty object is repaired with
+        :func:`coerce_to_schema`; it is returned if it then validates, otherwise
+        ``{}``.  ``last_structured_tier`` names the tier that produced the
+        result (``None`` for ``{}``).
         """
         tool_name = result_tool["name"]
         schema = result_tool.get("input_schema")
         cache_key = (self._base_url, self._model_name)
+        self.last_structured_tier = None
         with _TIER_CACHE_LOCK:
             cached = _TIER_CACHE.get(cache_key)
         first = STRUCTURED_TIERS.index(cached) if cached in STRUCTURED_TIERS else 0
@@ -278,27 +285,32 @@ class OpenAICompatibleAgent(AgentPort):
         )
         start = time.time()
         errors: list[str] = []
+        rejected = False
         near_miss: dict[str, Any] | None = None
-        near_miss_error = ""
+        near_miss_tier: str | None = None
         for tier in STRUCTURED_TIERS[first:]:
             attempt_prompt = prompt
             for attempt in (1, 2):
                 try:
                     result, error = self._run_tier(tier, attempt_prompt, result_tool)
                 except _TierUnsupportedError as exc:
-                    logger.info("Structured tier %s unsupported by server: %s", tier, exc)
-                    errors.append(f"{tier}: unsupported ({exc})")
-                    self._demote_cached_tier(cache_key, tier)
+                    logger.info("Structured tier %s rejected by server: %s", tier, exc)
+                    errors.append(f"{tier}: rejected ({exc})")
+                    rejected = True
                     break
                 except Exception:
                     logger.exception("get_structured failed (tool=%s tier=%s)", tool_name, tier)
-                    return self._structured_fallback(tool_name, near_miss, near_miss_error)
+                    return self._structured_fallback(tool_name, schema, near_miss, near_miss_tier)
+                if rejected:
+                    # A lower tier answered 2xx: the higher ones are really unsupported.
+                    self._demote_cached_tier(cache_key, tier)
+                    rejected = False
                 if result is not None and not error:
                     error = validate_against_schema(result, schema) or ""
                     if error:
                         error = f"schema validation failed: {error}"
                         if result:
-                            near_miss, near_miss_error = result, error
+                            near_miss, near_miss_tier = result, tier
                 if result is not None and not error:
                     logger.info(
                         "LLM structured call finished in %.2fs (tool=%s tier=%s attempt=%s "
@@ -309,6 +321,7 @@ class OpenAICompatibleAgent(AgentPort):
                         attempt,
                         list(result.keys()),
                     )
+                    self.last_structured_tier = tier
                     return result
                 logger.info(
                     "Structured tier %s attempt %s rejected (tool=%s): %s",
@@ -326,40 +339,44 @@ class OpenAICompatibleAgent(AgentPort):
             self._model_name,
             "; ".join(errors),
         )
-        return self._structured_fallback(tool_name, near_miss, near_miss_error)
+        return self._structured_fallback(tool_name, schema, near_miss, near_miss_tier)
 
     def _structured_fallback(
-        self, tool_name: str, near_miss: dict[str, Any] | None, near_miss_error: str
+        self,
+        tool_name: str,
+        schema: dict | None,
+        near_miss: dict[str, Any] | None,
+        near_miss_tier: str | None,
     ) -> dict[str, Any]:
-        """Count the failure; return the last parsed near-miss, or ``{}``."""
+        """Count the failure; return the coerced near-miss if it validates, else ``{}``."""
         self.structured_failures += 1
-        if near_miss:
+        repaired, error = repair_near_miss(near_miss, schema)
+        if repaired is not None:
             logger.warning(
                 "LLM structured call (tool=%s model=%s) returned no valid result; using the "
-                "last parsed object despite %s",
+                "last parsed object coerced to the schema",
                 tool_name,
                 self._model_name,
-                near_miss_error,
             )
-            return near_miss
+            self.last_structured_tier = near_miss_tier
+            return repaired
         logger.warning(
-            "LLM structured call (tool=%s model=%s) produced nothing parseable; returning {}",
+            "LLM structured call (tool=%s model=%s) returned no usable result (%s); returning {}",
             tool_name,
             self._model_name,
+            error,
         )
         return {}
 
     @staticmethod
-    def _demote_cached_tier(cache_key: tuple[str, str], unsupported_tier: str) -> None:
-        """Start later calls below a tier the server rejected as unsupported."""
-        index = STRUCTURED_TIERS.index(unsupported_tier) + 1
-        if index >= len(STRUCTURED_TIERS):
-            return
+    def _demote_cached_tier(cache_key: tuple[str, str], working_tier: str) -> None:
+        """Start later calls at *working_tier*, below tiers the server rejected."""
+        index = STRUCTURED_TIERS.index(working_tier)
         with _TIER_CACHE_LOCK:
             current = _TIER_CACHE.get(cache_key)
             current_index = STRUCTURED_TIERS.index(current) if current in STRUCTURED_TIERS else 0
             if index > current_index:
-                _TIER_CACHE[cache_key] = STRUCTURED_TIERS[index]
+                _TIER_CACHE[cache_key] = working_tier
 
     def _run_tier(
         self, tier: str, prompt: str, result_tool: dict

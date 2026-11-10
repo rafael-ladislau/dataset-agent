@@ -29,8 +29,8 @@ class AgentPort(ABC):
         Adapters obtain a JSON object for ``input_schema`` (a forced tool call,
         a JSON-schema response format, or JSON parsed from the reply text) and
         validate it, retrying once on errors. If no valid object is obtained,
-        the last parsed non-empty object is returned as-is so callers can
-        coerce near-misses; ``{}`` means nothing parseable was obtained.
+        the last parsed object is leniently coerced to the schema and returned
+        when it then validates; otherwise the result is ``{}``.
         """
         pass
 

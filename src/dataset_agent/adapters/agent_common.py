@@ -177,6 +177,77 @@ def validate_against_schema(value: Any, schema: dict[str, Any] | None) -> str | 
     return f"{error.message} (at '{path}')" if path else error.message
 
 
+_INT_RE = re.compile(r"[+-]?\d+")
+_NUMBER_RE = re.compile(r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?")
+
+
+def _schema_types(schema: dict[str, Any]) -> list[str]:
+    declared = schema.get("type")
+    if isinstance(declared, list):
+        return [t for t in declared if isinstance(t, str)]
+    return [declared] if isinstance(declared, str) else []
+
+
+def _coerce_scalar_string(value: str, types: list[str]) -> Any:
+    text = value.strip()
+    if "string" in types:
+        return value
+    if "boolean" in types and text.lower() in ("true", "false"):
+        return text.lower() == "true"
+    if "integer" in types and _INT_RE.fullmatch(text):
+        return int(text)
+    if "number" in types and _NUMBER_RE.fullmatch(text):
+        return int(text) if _INT_RE.fullmatch(text) else float(text)
+    return value
+
+
+def coerce_to_schema(value: Any, schema: dict[str, Any] | None) -> Any:
+    """Lenient, schema-guided repair of a near-miss structured result.
+
+    Applies only safe conversions: ``"true"``/``"false"`` (any case) to booleans,
+    numeric strings to integers/numbers, a lone string to a one-item array of
+    strings, and dropping keys outside ``properties`` when
+    ``additionalProperties`` is false.  Anything else is returned unchanged so
+    that schema validation still rejects it.
+    """
+    if not isinstance(schema, dict):
+        return value
+    types = _schema_types(schema)
+    if isinstance(value, dict) and (not types or "object" in types):
+        properties = schema.get("properties") or {}
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in properties:
+                out[key] = coerce_to_schema(item, properties[key])
+            elif schema.get("additionalProperties") is not False:
+                out[key] = item
+        return out
+    if isinstance(value, list) and "array" in types:
+        items = schema.get("items")
+        return [coerce_to_schema(v, items) for v in value] if isinstance(items, dict) else value
+    if isinstance(value, str):
+        if "array" in types and "string" not in types:
+            items = schema.get("items")
+            if isinstance(items, dict) and "string" in _schema_types(items):
+                return [value]
+            return value
+        return _coerce_scalar_string(value, types)
+    return value
+
+
+def repair_near_miss(
+    value: dict[str, Any] | None, schema: dict[str, Any] | None
+) -> tuple[dict[str, Any] | None, str]:
+    """Coerce a near-miss and re-validate; return ``(object, "")`` or ``(None, error)``."""
+    if not value:
+        return None, "nothing parseable was obtained"
+    coerced = coerce_to_schema(value, schema)
+    error = validate_against_schema(coerced, schema)
+    if error or not isinstance(coerced, dict):
+        return None, error or "not a JSON object"
+    return coerced, ""
+
+
 def retry_prompt(prompt: str, tool_name: str, error: str) -> str:
     """Original prompt plus a note that names the previous structured-output error."""
     return (

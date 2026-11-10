@@ -6,6 +6,7 @@ import pytest
 
 from dataset_agent.adapters import tools
 from dataset_agent.adapters.agent_common import (
+    coerce_to_schema,
     extract_json_object,
     run_tool,
     strip_think,
@@ -82,3 +83,47 @@ def test_run_tool_reports_unknown_and_failing_tools(monkeypatch):
     monkeypatch.setitem(tools.TOOL_DISPATCH, "boom", _boom)
     assert run_tool("missing", {}) == "Unknown tool: missing"
     assert run_tool("boom", {}) == "Tool error (boom): down"
+
+
+COERCE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "used": {"type": "boolean"},
+        "score": {"type": "integer"},
+        "ratio": {"type": "number"},
+        "names": {"type": "array", "items": {"type": "string"}},
+        "nested": {
+            "type": "object",
+            "properties": {"ok": {"type": "boolean"}},
+            "additionalProperties": False,
+        },
+    },
+    "additionalProperties": False,
+}
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ({"used": "false"}, {"used": False}),
+        ({"used": "TRUE"}, {"used": True}),
+        ({"score": "7"}, {"score": 7}),
+        ({"score": " -3 "}, {"score": -3}),
+        ({"ratio": "0.25"}, {"ratio": 0.25}),
+        ({"ratio": "2"}, {"ratio": 2}),
+        ({"names": "ACS"}, {"names": ["ACS"]}),
+        ({"names": ["ACS"], "extra": 1}, {"names": ["ACS"]}),
+        ({"nested": {"ok": "true", "junk": 1}}, {"nested": {"ok": True}}),
+        # Not coercible: left as-is for validation to reject.
+        ({"used": "maybe"}, {"used": "maybe"}),
+        ({"score": "7.5"}, {"score": "7.5"}),
+        ({"names": 5}, {"names": 5}),
+    ],
+)
+def test_coerce_to_schema(raw, expected):
+    assert coerce_to_schema(raw, COERCE_SCHEMA) == expected
+
+
+def test_coerce_keeps_extra_keys_when_additional_properties_allowed():
+    schema = {"type": "object", "properties": {"a": {"type": "integer"}}}
+    assert coerce_to_schema({"a": "1", "b": "x"}, schema) == {"a": 1, "b": "x"}

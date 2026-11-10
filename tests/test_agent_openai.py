@@ -279,3 +279,38 @@ def test_tool_call_arguments_as_dict_are_accepted(server, monkeypatch):
     assert agent.get_information("Search.") == "done"
     assert calls == [{"query": "acs"}]
     assert agent.get_structured("Names?", RESULT_TOOL) == VALID
+
+
+def test_every_tier_rejected_leaves_cache_untouched(server):
+    agent = make_agent(OPENAI, server)
+    server.push(server.error(400), server.error(400), server.error(400))
+
+    assert agent.get_structured("Names?", RESULT_TOOL) == {}
+    assert CACHE_KEY not in _TIER_CACHE
+    assert agent.last_structured_tier is None
+
+
+def test_demotion_commits_on_lower_tier_2xx_whatever_the_content(server):
+    agent = make_agent(OPENAI, server)
+    server.push(
+        server.error(400),
+        server.text("no tool call"),
+        server.text("no tool call"),
+        server.text(json.dumps(VALID)),
+    )
+
+    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
+    assert _TIER_CACHE[CACHE_KEY] == TIER_TOOL_CALL
+    assert agent.last_structured_tier == TIER_TEXT_JSON
+
+
+def test_last_structured_tier_tracks_the_returned_object(server):
+    agent = make_agent(OPENAI, server)
+    assert agent.last_structured_tier is None
+    server.push(server.text(json.dumps(VALID)))
+    agent.get_structured("Names?", RESULT_TOOL)
+    assert agent.last_structured_tier == TIER_JSON_SCHEMA
+
+    server.push(server.error(500))
+    assert agent.get_structured("Names?", RESULT_TOOL) == {}
+    assert agent.last_structured_tier is None

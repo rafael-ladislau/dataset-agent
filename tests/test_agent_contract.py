@@ -212,31 +212,45 @@ def test_structured_requires_named_result_tool(server, style):
         agent.get_structured("Suffix?", {"type": "string"})
 
 
-NEAR_MISS = {"names": ["ACS"], "note": "extra key the schema forbids"}
+NEAR_MISS = {"names": "ACS", "note": "extra key the schema forbids"}
+COERCED = {"names": ["ACS"]}
+HOPELESS = {"names": 5}
 
 
-def test_structured_near_miss_returns_last_parsed_object(server, style, caplog):
+def _near_miss_replies(server: FakeLLMServer, obj: dict[str, Any]) -> list[Any]:
+    """Replies where every attempt yields *obj* or nothing parseable."""
+    if server.style == ANTHROPIC:
+        return [server.tool_call("emit_names", obj) for _ in range(2)]
+    return [
+        server.text(json.dumps(obj)),
+        server.text(json.dumps(obj)),
+        server.text("no tool call"),
+        server.text("no tool call"),
+        server.text("still nothing parseable"),
+        server.text("still nothing parseable"),
+    ]
+
+
+def test_structured_near_miss_is_coerced_to_schema(server, style, caplog):
     agent = make_agent(style, server)
-    if style == ANTHROPIC:
-        server.push(*[server.tool_call("emit_names", NEAR_MISS) for _ in range(2)])
-    else:
-        server.push(
-            server.text(json.dumps(NEAR_MISS)),
-            server.text(json.dumps(NEAR_MISS)),
-            server.text("no tool call"),
-            server.text("no tool call"),
-            server.text("still nothing parseable"),
-            server.text("still nothing parseable"),
-        )
+    server.push(*_near_miss_replies(server, NEAR_MISS))
 
     with caplog.at_level(logging.WARNING):
-        assert agent.get_structured("Names?", RESULT_TOOL) == NEAR_MISS
+        assert agent.get_structured("Names?", RESULT_TOOL) == COERCED
 
     assert agent.structured_failures == 1
-    assert any(
-        r.levelno == logging.WARNING and "schema validation failed" in r.getMessage()
-        for r in caplog.records
-    )
+    assert any(r.levelno == logging.WARNING and "coerced" in r.getMessage() for r in caplog.records)
+
+
+def test_structured_near_miss_still_invalid_returns_empty(server, style, caplog):
+    agent = make_agent(style, server)
+    server.push(*_near_miss_replies(server, HOPELESS))
+
+    with caplog.at_level(logging.WARNING):
+        assert agent.get_structured("Names?", RESULT_TOOL) == {}
+
+    assert agent.structured_failures == 1
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
 def test_temperature_reaches_request_body(server, style):

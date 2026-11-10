@@ -92,11 +92,13 @@ Structured steps (aliases, flag terms, false-positive analysis, …) ask the mod
 that matches a schema. The OpenAI-style adapter tries, in order: a `json_schema` response format,
 a forced tool call, and JSON parsed from the reply text. It validates every result against the
 schema and retries once with the validation error before moving to the next strategy. A strategy
-the server rejects as unsupported is skipped, and later calls to that server and model start
-below it. When every attempt fails, a `WARNING` is logged and the step gets the last parsed
-object even though it failed validation (callers coerce near-misses such as `"7"` for `7`); the
-result is empty only when nothing parseable came back. The Anthropic-style adapter validates and
-retries its forced tool call the same way.
+the server rejects (HTTP 4xx) is skipped; later calls to that server and model start below it only
+once a lower strategy has answered, so an error every strategy hits (for example an oversized
+prompt) does not change the starting point. When no reply validates, a `WARNING` is logged and the
+last parsed object is repaired against the schema (`"true"`/`"false"` to booleans, numeric
+strings to numbers, a lone string to a one-item list, unknown keys dropped when the schema forbids
+them). The step gets the repaired object if it now validates, otherwise an empty result. The
+Anthropic-style adapter validates, retries and repairs its forced tool call the same way.
 
 Reasoning output (`reasoning_content` / `reasoning` fields and `<think>…</think>` blocks) is
 dropped before text is returned or parsed. Tool calls that a model writes into its reply text,
