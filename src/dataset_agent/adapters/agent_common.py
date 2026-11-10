@@ -89,8 +89,8 @@ def strip_think(text: str | None) -> str:
     return out.strip()
 
 
-def _first_balanced_object(text: str) -> str | None:
-    """Return the first balanced ``{...}`` substring, honoring JSON strings."""
+def _balanced_objects(text: str):
+    """Yield each balanced ``{...}`` substring in order, honoring JSON strings."""
     start = text.find("{")
     while start != -1:
         depth = 0
@@ -113,8 +113,17 @@ def _first_balanced_object(text: str) -> str | None:
             elif ch == "}":
                 depth -= 1
                 if depth == 0:
-                    return text[start : i + 1]
+                    yield text[start : i + 1]
+                    break
         start = text.find("{", start + 1)
+
+
+def _first_object_in(text: str) -> dict[str, Any] | None:
+    """First balanced ``{...}`` in *text* that parses as a JSON object."""
+    for candidate in _balanced_objects(text):
+        parsed = _loads_object(candidate)
+        if parsed is not None:
+            return parsed
     return None
 
 
@@ -129,8 +138,8 @@ def _loads_object(candidate: str) -> dict[str, Any] | None:
 def extract_json_object(text: str | None) -> dict[str, Any] | None:
     """Parse a JSON object from model text (think blocks stripped).
 
-    Tries, in order: the whole text, each fenced code block, then the first
-    balanced ``{...}`` object found anywhere in the text.
+    Tries, in order: the whole text, each fenced code block, then each
+    balanced ``{...}`` substring until one parses as a JSON object.
     """
     cleaned = strip_think(text)
     if not cleaned:
@@ -142,13 +151,10 @@ def extract_json_object(text: str | None) -> dict[str, Any] | None:
         parsed = _loads_object(block.strip())
         if parsed is not None:
             return parsed
-        inner = _first_balanced_object(block)
-        if inner is not None and (parsed := _loads_object(inner)) is not None:
-            return parsed
-    candidate = _first_balanced_object(cleaned)
-    if candidate is not None:
-        return _loads_object(candidate)
-    return None
+        inner = _first_object_in(block)
+        if inner is not None:
+            return inner
+    return _first_object_in(cleaned)
 
 
 def validate_against_schema(value: Any, schema: dict[str, Any] | None) -> str | None:

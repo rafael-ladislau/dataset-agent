@@ -40,6 +40,7 @@ def test_strip_think(raw, expected):
         ('Result: {"a": "x}y", "b": {"c": 2}} trailing', {"a": "x}y", "b": {"c": 2}}),
         ('<think>{"draft": true}</think>{"final": true}', {"final": True}),
         ('{broken {"a": 1}', {"a": 1}),
+        ('for {dataset}: {"names": ["a"]}', {"names": ["a"]}),
         ("[1, 2]", None),
         ("no json here", None),
         ("", None),
