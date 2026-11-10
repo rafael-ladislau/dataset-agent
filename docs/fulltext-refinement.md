@@ -47,7 +47,9 @@ Deterministic rules (thresholds `refine_drop_fp_share`, `refine_demote_fp_share`
 
 LLM proposals (validated against the quotes before acceptance):
 
-* exclude terms: must occur in a false-positive quote or title and in no genuine one
+* exclude terms: must occur in a false-positive quote or title and in no genuine one, and
+  must not overlap the query's own terms (an exclude inside or containing an alias, or inside
+  a flag, is rejected because `NOT` would drop the query's own matches)
   (the diff reason states how many matches were quotes and how many title-only);
 * flag terms: must occur in the evidence quotes of at least two genuine papers (titles
   never count); with fewer than two genuine papers no flag is added;

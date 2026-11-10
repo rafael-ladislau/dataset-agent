@@ -247,3 +247,21 @@ def test_exclude_guard_tries_every_plausible_singular():
     r = refine_candidate(QueryCandidate("X", safe=["NHIS"]), ev(pubs), settings=S, agent=llm,
                          dataset_name="X", count_fn=lambda t: 0, reference_count=100)
     assert r.candidate.exclude_terms == ["registry"]
+
+
+def test_exclude_that_overlaps_an_alias_or_flag_is_rejected():
+    # Genuine quotes use only the acronym; one FP spells the name out. An exclude
+    # inside (or containing) an alias, or inside a flag, would silently drop it.
+    pubs = (
+        [pub(f"g{i}", 40 - i, True, "we used NHIS 2015 data") for i in range(3)]
+        + [pub(f"f{i}", 20 - i, False,
+               "the National Health Interview Survey reported in a cohort registry") for i in range(2)]
+    )
+    llm = FakeLLM({"exclude_terms": ["Health Interview", "National Health Interview Survey",
+                                     "NHIS registry", "cohort", "registry"],
+                   "flag_terms": [], "new_aliases": [], "reasoning": ""})
+    cand = QueryCandidate("X", safe=["NHIS"], risky=["National Health Interview Survey"],
+                          flag_terms=["cohort study"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=llm,
+                         dataset_name="X", count_fn=lambda t: 0, reference_count=100)
+    assert r.candidate.exclude_terms == ["registry"]

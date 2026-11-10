@@ -18,6 +18,7 @@ from typing import Callable
 from dataset_agent.adapters.fulltext_evidence import (
     Evidence,
     PubVerdict,
+    _phrase_in,
     attribute_terms,
     singular_variants,
     term_in,
@@ -169,6 +170,12 @@ def refine_candidate(
         )
         for t in prop["exclude_terms"]:
             if _covered(t, candidate.exclude_terms):
+                continue
+            # NOT ("term") runs over all of full_data: an exclude inside or containing a
+            # kept alias, or inside a flag, would silently drop the query's own matches.
+            if any(_phrase_in(t, a) or _phrase_in(a, t) for a in aliases) or any(
+                _phrase_in(t, f) for f in candidate.flag_terms
+            ):
                 continue
             hit_fp = [v for v in evidence.false_positives if term_in(t, v)]
             # Over-matching the genuine side is the safe direction here: an exclude
