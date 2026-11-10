@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -209,3 +210,40 @@ def test_structured_requires_named_result_tool(server, style):
 
     with pytest.raises(KeyError):
         agent.get_structured("Suffix?", {"type": "string"})
+
+
+NEAR_MISS = {"names": ["ACS"], "note": "extra key the schema forbids"}
+
+
+def test_structured_near_miss_returns_last_parsed_object(server, style, caplog):
+    agent = make_agent(style, server)
+    if style == ANTHROPIC:
+        server.push(*[server.tool_call("emit_names", NEAR_MISS) for _ in range(2)])
+    else:
+        server.push(
+            server.text(json.dumps(NEAR_MISS)),
+            server.text(json.dumps(NEAR_MISS)),
+            server.text("no tool call"),
+            server.text("no tool call"),
+            server.text("still nothing parseable"),
+            server.text("still nothing parseable"),
+        )
+
+    with caplog.at_level(logging.WARNING):
+        assert agent.get_structured("Names?", RESULT_TOOL) == NEAR_MISS
+
+    assert agent.structured_failures == 1
+    assert any(
+        r.levelno == logging.WARNING and "schema validation failed" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_temperature_reaches_request_body(server, style):
+    agent = make_agent(style, server, temperature=0.2)
+    server.push(server.text("ok"), server.structured("emit_names", VALID))
+
+    agent.get_information("Q?", tools=[])
+    agent.get_structured("Names?", RESULT_TOOL)
+
+    assert [r["temperature"] for r in server.requests] == [0.2, 0.2]

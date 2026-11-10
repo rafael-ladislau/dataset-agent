@@ -69,7 +69,7 @@ def test_json_schema_tier_request_shape(server):
         },
     }
     assert body["messages"][0]["role"] == "system"
-    assert _TIER_CACHE[CACHE_KEY] == TIER_JSON_SCHEMA
+    assert CACHE_KEY not in _TIER_CACHE
 
 
 def test_400_on_json_schema_falls_through_to_tool_call(server):
@@ -215,3 +215,67 @@ def test_tool_loop_strips_think_from_assistant_history(server, monkeypatch):
     assert assistant["role"] == "assistant"
     assert assistant.get("content") is None
     assert assistant["tool_calls"][0]["function"]["name"] == "web_search"
+
+
+OTHER_TOOL = {
+    "name": "emit_terms",
+    "description": "Return terms.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"terms": {"type": "array", "items": {"type": "string"}}},
+        "required": ["terms"],
+    },
+}
+
+
+def test_content_failure_does_not_demote_cached_tier(server):
+    agent = make_agent(OPENAI, server)
+    server.push(
+        server.text('{"names": 3}'),
+        server.text("not json"),
+        server.tool_call("emit_names", VALID),
+    )
+    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
+
+    server.requests.clear()
+    server.push(server.text('{"terms": ["a"]}'))
+    assert agent.get_structured("Terms?", OTHER_TOOL) == {"terms": ["a"]}
+    assert [_tier_of(b) for b in server.requests] == [TIER_JSON_SCHEMA]
+    assert CACHE_KEY not in _TIER_CACHE
+
+
+def test_truncated_reply_does_not_demote_cached_tier(server):
+    agent = make_agent(OPENAI, server)
+    truncated = server.text('{"names": ["AC')
+    payload = truncated.json()
+    payload["choices"][0]["finish_reason"] = "length"
+    server.push(
+        type(truncated)(200, json=payload),
+        type(truncated)(200, json=payload),
+        server.tool_call("emit_names", VALID),
+    )
+
+    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
+    assert CACHE_KEY not in _TIER_CACHE
+
+
+def _with_dict_arguments(reply, args):
+    payload = reply.json()
+    payload["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] = args
+    return type(reply)(200, json=payload)
+
+
+def test_tool_call_arguments_as_dict_are_accepted(server, monkeypatch):
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setitem(tools.TOOL_DISPATCH, "web_search", lambda a: calls.append(a) or "r")
+    agent = make_agent(OPENAI, server)
+    server.push(
+        _with_dict_arguments(server.tool_call("web_search", {}), {"query": "acs"}),
+        server.text("done"),
+        server.error(400),
+        _with_dict_arguments(server.tool_call("emit_names", {}), VALID),
+    )
+
+    assert agent.get_information("Search.") == "done"
+    assert calls == [{"query": "acs"}]
+    assert agent.get_structured("Names?", RESULT_TOOL) == VALID

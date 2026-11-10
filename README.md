@@ -91,10 +91,12 @@ DATASET_AGENT_OPENAI_COMPATIBLE_MODEL=qwen3.6-35b-a3b
 Structured steps (aliases, flag terms, false-positive analysis, …) ask the model for a JSON object
 that matches a schema. The OpenAI-style adapter tries, in order: a `json_schema` response format,
 a forced tool call, and JSON parsed from the reply text. It validates every result against the
-schema and retries once with the validation error before moving to the next strategy. It
-remembers the strategy that worked for each server and model. When every strategy fails, the step
-gets an empty result and a `WARNING` is logged. The Anthropic-style adapter validates and retries
-its forced tool call the same way.
+schema and retries once with the validation error before moving to the next strategy. A strategy
+the server rejects as unsupported is skipped, and later calls to that server and model start
+below it. When every attempt fails, a `WARNING` is logged and the step gets the last parsed
+object even though it failed validation (callers coerce near-misses such as `"7"` for `7`); the
+result is empty only when nothing parseable came back. The Anthropic-style adapter validates and
+retries its forced tool call the same way.
 
 Reasoning output (`reasoning_content` / `reasoning` fields and `<think>…</think>` blocks) is
 dropped before text is returned or parsed. Tool calls that a model writes into its reply text,

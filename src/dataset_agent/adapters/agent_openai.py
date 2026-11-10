@@ -185,7 +185,7 @@ class OpenAICompatibleAgent(AgentPort):
                                 "type": "function",
                                 "function": {
                                     "name": tc.function.name,
-                                    "arguments": tc.function.arguments or "{}",
+                                    "arguments": self._arguments_text(tc.function.arguments),
                                 },
                             }
                             for tc in tool_calls
@@ -221,14 +221,23 @@ class OpenAICompatibleAgent(AgentPort):
             return f"Error in agent execution: {exc}"
 
     @staticmethod
-    def _parse_arguments(raw: str | None) -> dict[str, Any]:
+    def _parse_arguments(raw: Any) -> dict[str, Any]:
+        """Tool-call arguments: a JSON string (the spec) or a dict (some local servers)."""
+        if isinstance(raw, dict):
+            return raw
         if not raw:
             return {}
         try:
             value = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            return extract_json_object(raw) or {}
+        except (json.JSONDecodeError, ValueError, TypeError):
+            return extract_json_object(raw) if isinstance(raw, str) else {}
         return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _arguments_text(raw: Any) -> str:
+        if isinstance(raw, dict):
+            return json.dumps(raw, ensure_ascii=False)
+        return raw or "{}"
 
     @staticmethod
     def _extract_text(message: Any) -> str:
@@ -245,8 +254,13 @@ class OpenAICompatibleAgent(AgentPort):
         Tiers, starting at the one cached for this (base_url, model):
         ``json_schema`` response format → forced tool call → JSON parsed from
         text.  Each tier retries once on a parse/validation error; a tier the
-        server rejects as unsupported is skipped without retry.  Returns ``{}``
-        (WARNING log, ``structured_failures`` incremented) when every tier fails.
+        server rejects as unsupported is skipped without retry and the cache is
+        lowered past it (content failures never change the cache).
+
+        When every attempt fails, ``structured_failures`` is incremented, a
+        WARNING is logged, and the last parsed non-empty object is returned even
+        though it failed validation (callers coerce near-misses); ``{}`` is
+        returned only when nothing parseable was obtained.
         """
         tool_name = result_tool["name"]
         schema = result_tool.get("input_schema")
@@ -264,6 +278,8 @@ class OpenAICompatibleAgent(AgentPort):
         )
         start = time.time()
         errors: list[str] = []
+        near_miss: dict[str, Any] | None = None
+        near_miss_error = ""
         for tier in STRUCTURED_TIERS[first:]:
             attempt_prompt = prompt
             for attempt in (1, 2):
@@ -272,18 +288,18 @@ class OpenAICompatibleAgent(AgentPort):
                 except _TierUnsupportedError as exc:
                     logger.info("Structured tier %s unsupported by server: %s", tier, exc)
                     errors.append(f"{tier}: unsupported ({exc})")
+                    self._demote_cached_tier(cache_key, tier)
                     break
                 except Exception:
                     logger.exception("get_structured failed (tool=%s tier=%s)", tool_name, tier)
-                    self.structured_failures += 1
-                    return {}
+                    return self._structured_fallback(tool_name, near_miss, near_miss_error)
                 if result is not None and not error:
                     error = validate_against_schema(result, schema) or ""
                     if error:
                         error = f"schema validation failed: {error}"
+                        if result:
+                            near_miss, near_miss_error = result, error
                 if result is not None and not error:
-                    with _TIER_CACHE_LOCK:
-                        _TIER_CACHE[cache_key] = tier
                     logger.info(
                         "LLM structured call finished in %.2fs (tool=%s tier=%s attempt=%s "
                         "keys=%s)",
@@ -304,14 +320,46 @@ class OpenAICompatibleAgent(AgentPort):
                 errors.append(f"{tier}#{attempt}: {error}")
                 attempt_prompt = retry_prompt(prompt, tool_name, error)
 
-        self.structured_failures += 1
-        logger.warning(
-            "LLM structured call failed in every tier (tool=%s model=%s): %s; returning {}",
+        logger.info(
+            "LLM structured call exhausted every tier (tool=%s model=%s): %s",
             tool_name,
             self._model_name,
             "; ".join(errors),
         )
+        return self._structured_fallback(tool_name, near_miss, near_miss_error)
+
+    def _structured_fallback(
+        self, tool_name: str, near_miss: dict[str, Any] | None, near_miss_error: str
+    ) -> dict[str, Any]:
+        """Count the failure; return the last parsed near-miss, or ``{}``."""
+        self.structured_failures += 1
+        if near_miss:
+            logger.warning(
+                "LLM structured call (tool=%s model=%s) returned no valid result; using the "
+                "last parsed object despite %s",
+                tool_name,
+                self._model_name,
+                near_miss_error,
+            )
+            return near_miss
+        logger.warning(
+            "LLM structured call (tool=%s model=%s) produced nothing parseable; returning {}",
+            tool_name,
+            self._model_name,
+        )
         return {}
+
+    @staticmethod
+    def _demote_cached_tier(cache_key: tuple[str, str], unsupported_tier: str) -> None:
+        """Start later calls below a tier the server rejected as unsupported."""
+        index = STRUCTURED_TIERS.index(unsupported_tier) + 1
+        if index >= len(STRUCTURED_TIERS):
+            return
+        with _TIER_CACHE_LOCK:
+            current = _TIER_CACHE.get(cache_key)
+            current_index = STRUCTURED_TIERS.index(current) if current in STRUCTURED_TIERS else 0
+            if index > current_index:
+                _TIER_CACHE[cache_key] = STRUCTURED_TIERS[index]
 
     def _run_tier(
         self, tier: str, prompt: str, result_tool: dict
@@ -357,10 +405,15 @@ class OpenAICompatibleAgent(AgentPort):
     def _object_from_tool_call(message: Any, tool_name: str) -> tuple[dict[str, Any] | None, str]:
         for tc in message.tool_calls or []:
             if getattr(tc, "type", "") == "function" and tc.function.name == tool_name:
+                raw = tc.function.arguments
+                if isinstance(raw, dict):
+                    return raw, ""
                 try:
-                    value = json.loads(tc.function.arguments or "{}")
-                except (json.JSONDecodeError, ValueError) as exc:
+                    value = json.loads(raw or "{}")
+                except json.JSONDecodeError as exc:
                     return None, f"the tool arguments were not valid JSON ({exc.msg})"
+                except (TypeError, ValueError) as exc:
+                    return None, f"the tool arguments were not valid JSON ({exc})"
                 if not isinstance(value, dict):
                     return None, "the tool arguments were not a JSON object"
                 return value, ""

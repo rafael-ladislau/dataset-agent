@@ -218,9 +218,11 @@ class AnthropicAgent(AgentPort):
         so callers get a typed dict without any regex parsing.
 
         The input is validated against ``input_schema``; a missing or invalid
-        tool call is retried once with a message naming the error.  Falls back
-        to ``{}`` (WARNING log, ``structured_failures`` incremented) so callers
-        can apply their own defaults.
+        tool call is retried once with a message naming the error.  If both
+        attempts fail, ``structured_failures`` is incremented, a WARNING is
+        logged, and the last non-empty tool input is returned even though it
+        failed validation (callers coerce near-misses); ``{}`` is returned only
+        when no tool input was obtained, so callers can apply their own defaults.
         """
         client = self._get_client()
         tool_name = result_tool["name"]
@@ -236,6 +238,8 @@ class AnthropicAgent(AgentPort):
         start = time.time()
         attempt_prompt = prompt
         error = ""
+        near_miss: dict | None = None
+        near_miss_error = ""
         for attempt in (1, 2):
             try:
                 response = client.messages.create(
@@ -249,10 +253,9 @@ class AnthropicAgent(AgentPort):
                 )
             except Exception:
                 logger.exception("get_structured failed (tool=%s)", tool_name)
-                self.structured_failures += 1
-                return {}
+                return self._structured_fallback(tool_name, near_miss, near_miss_error)
             result, error = self._structured_from_response(response, tool_name, schema)
-            if result is not None:
+            if result is not None and not error:
                 logger.info(
                     "LLM structured call finished in %.2fs (tool=%s keys=%s attempt=%s)",
                     time.time() - start,
@@ -261,6 +264,8 @@ class AnthropicAgent(AgentPort):
                     attempt,
                 )
                 return result
+            if result:
+                near_miss, near_miss_error = result, error
             logger.info(
                 "LLM structured call attempt %s rejected (tool=%s): %s",
                 attempt,
@@ -269,11 +274,22 @@ class AnthropicAgent(AgentPort):
             )
             attempt_prompt = retry_prompt(prompt, tool_name, error)
 
+        logger.info("LLM structured call failed after retry (tool=%s): %s", tool_name, error)
+        return self._structured_fallback(tool_name, near_miss, near_miss_error)
+
+    def _structured_fallback(self, tool_name: str, near_miss: dict | None, error: str) -> dict:
+        """Count the failure; return the last tool input that failed validation, or ``{}``."""
         self.structured_failures += 1
+        if near_miss:
+            logger.warning(
+                "LLM structured call (tool=%s) returned no valid result; using the last tool "
+                "input despite %s",
+                tool_name,
+                error,
+            )
+            return near_miss
         logger.warning(
-            "LLM structured call failed after retry (tool=%s): %s; returning {}",
-            tool_name,
-            error,
+            "LLM structured call (tool=%s) produced no tool input; returning {}", tool_name
         )
         return {}
 
@@ -281,14 +297,15 @@ class AnthropicAgent(AgentPort):
     def _structured_from_response(
         response: Any, tool_name: str, schema: dict | None
     ) -> tuple[dict | None, str]:
-        """Return ``(input, "")`` for a valid tool call, else ``(None, error)``."""
+        """Return ``(input, "")`` for a valid call, ``(input, error)`` when the input
+        fails validation, or ``(None, error)`` when there is no usable input."""
         for block in response.content:
             if block.type == "tool_use" and block.name == tool_name:
                 if not isinstance(block.input, dict):
                     return None, "the tool input was not a JSON object"
                 error = validate_against_schema(block.input, schema)
                 if error:
-                    return None, f"schema validation failed: {error}"
+                    return block.input, f"schema validation failed: {error}"
                 return block.input, ""
         return None, (f"the tool '{tool_name}' was not called (stop_reason={response.stop_reason})")
 
