@@ -200,3 +200,53 @@ def test_small_fulltext_sample_does_not_win_selection(tmp_path):
     assert "n_evaluated=1" in str(out.notes)
     # A 1-paper sample must not trigger the early stop.
     assert "gate_iter1: full-text precision within threshold." not in str(out.notes)
+
+
+@pytest.fixture
+def _zero_abstract_fp(monkeypatch):
+    """Abstract evaluator says 0% FP, which alone would mean HIGH confidence."""
+    monkeypatch.setattr(
+        qopt_mod, "evaluate_for_clause_sync",
+        lambda *a, **k: {"fp_rate_pct": 0.0, "genuine_count": 10, "fp_count": 0, "matched_count": 10,
+                         "total_pubs": 100, "coverage_pct": 100.0, "for_clause": k.get("for_clause", ""),
+                         "publications_total": 100, "fp_hits": []},
+    )
+
+
+def _ft_uc(tmp_path, results_seq, **kw):
+    llm = MagicMock()
+    llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    return QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=llm,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, fulltext_top_n=20,
+                               optimize_max_iterations=1, **kw),
+        extraction_client=FakeClient(results_seq))
+
+
+def test_confidence_follows_low_fulltext_precision(tmp_path, _zero_abstract_fp):
+    bad = [pub(f"n{i}", 50 - i, False, "My Long Dataset Alpha mentioned") for i in range(3)]
+    out = asyncio.run(_ft_uc(tmp_path, [{"publications": bad}]).execute(REQ))
+    assert out.fulltext_iterations[0].fulltext_precision == 0.0
+    assert out.confidence.value == "low"
+
+
+def test_confidence_high_when_fulltext_precision_meets_threshold(tmp_path, _zero_abstract_fp):
+    good = [pub(f"g{i}", 50 - i, True, "My Long Dataset Alpha data") for i in range(3)]
+    out = asyncio.run(_ft_uc(tmp_path, [{"publications": good}]).execute(REQ))
+    assert out.confidence.value == "high"
+
+
+def test_confidence_low_below_min_evidence(tmp_path, _zero_abstract_fp):
+    one = [pub("g0", 50, True, "My Long Dataset Alpha data")]
+    out = asyncio.run(_ft_uc(tmp_path, [{"publications": one}]).execute(REQ))
+    assert out.fulltext_iterations[0].n_evaluated == 1
+    assert out.confidence.value == "low"
+    assert any("below the minimum sample" in n for n in out.proposal.notes)
+
+
+def test_confidence_low_when_probe_fails(tmp_path, _zero_abstract_fp):
+    from dataset_agent.adapters.extraction_client import ExtractionError
+
+    out = asyncio.run(_ft_uc(tmp_path, [ExtractionError("down")]).execute(REQ))
+    assert out.fulltext_iterations[0].error == "down"
+    assert out.confidence.value == "low"

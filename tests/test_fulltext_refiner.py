@@ -138,3 +138,22 @@ def test_exclude_reason_says_quote_versus_title():
     d = diff(r, "exclude", "nursing home")
     assert d.action == "add"
     assert "1 evidence quote(s) and 1 title(s) only" in d.reason
+
+
+def test_llm_terms_are_unquoted_and_inner_quotes_dropped():
+    pubs = (
+        [pub(f"g{i}", 40 - i, True, 'we used the NHIS "public use" microdata files') for i in range(3)]
+        + [pub(f"f{i}", 20 - i, False, "NHIS nursing home staffing") for i in range(2)]
+    )
+    llm = FakeLLM({
+        "exclude_terms": ['"nursing home"'],
+        "flag_terms": ['"microdata"', 'NHIS "public use" microdata'],
+        "new_aliases": [],
+        "reasoning": "",
+    })
+    r = refine_candidate(QueryCandidate("X", safe=["NHIS"]), ev(pubs), settings=S, agent=llm,
+                         dataset_name="X", count_fn=lambda t: 0, reference_count=100)
+    assert r.candidate.exclude_terms == ["nursing home"]
+    assert r.candidate.flag_terms == ["microdata"]
+    for term in [*r.candidate.exclude_terms, *r.candidate.flag_terms, *r.candidate.safe, *r.candidate.risky]:
+        assert '"' not in term

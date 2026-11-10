@@ -522,6 +522,7 @@ class QueryOptimizationUseCase:
 
         best_ev: dict | None = None
         phase3_error: str | None = None
+        ft_probe_error: str | None = None
         best_variant_entry: VariantTestedEntry | None = None
 
         max_iters = max(1, self._settings.optimize_max_iterations)
@@ -599,6 +600,7 @@ class QueryOptimizationUseCase:
                     evidence = await self._probe_candidate(ft_candidate, request)
                 except (ExtractionError, ValueError) as exc:
                     logger.warning("full-text probe failed: %s", exc)
+                    ft_probe_error = str(exc)
                     ft_iterations.append(
                         IterationMetrics(
                             iteration=iteration,
@@ -753,6 +755,20 @@ class QueryOptimizationUseCase:
             confidence = ConfidenceLevel.LOW
         if phase3_error is not None:
             confidence = ConfidenceLevel.LOW
+        if ft_enabled:
+            # Full-text precision is the primary metric: the reported confidence
+            # never exceeds what the selected iteration's full-text evidence supports.
+            ft_conf = ConfidenceLevel.LOW
+            if best_ft_iter is not None:
+                sel = next(m for m in ft_iterations if m.iteration == best_ft_iter)
+                prec = float(sel.fulltext_precision or 0.0)
+                if prec >= 1.0 - threshold / 100.0:
+                    ft_conf = ConfidenceLevel.HIGH
+                elif prec >= 0.5:
+                    ft_conf = ConfidenceLevel.MEDIUM
+            rank = {ConfidenceLevel.LOW: 0, ConfidenceLevel.MEDIUM: 1, ConfidenceLevel.HIGH: 2}
+            if rank[ft_conf] < rank[confidence]:
+                confidence = ft_conf
 
         proposal = None
         if ft_enabled and ft_candidates:
@@ -774,8 +790,22 @@ class QueryOptimizationUseCase:
                 notes_parts.append(f"full-text proposal skipped: {exc}")
                 proposal = None
             if proposal is not None and best_ft_iter is None:
+                most = max((m.n_evaluated for m in ft_iterations), default=0)
+                if most > 0:
+                    proposal.notes.append(
+                        f"Full-text evidence stayed below the minimum sample (at most {most} "
+                        f"evaluated paper(s), fulltext_min_evidence="
+                        f"{self._settings.fulltext_min_evidence}); the proposal equals the "
+                        "initial query. Confidence is LOW."
+                    )
+                else:
+                    proposal.notes.append(
+                        "No full-text evidence was obtained; the proposal equals the initial "
+                        "query. Confidence is LOW."
+                    )
+            if proposal is not None and ft_probe_error is not None:
                 proposal.notes.append(
-                    "No full-text evidence was obtained; the proposal equals the initial query."
+                    f"A full-text probe failed ({ft_probe_error}); later iterations were not probed."
                 )
             if proposal is not None and self._proposal_repo is not None:
                 self._proposal_repo.save(proposal)

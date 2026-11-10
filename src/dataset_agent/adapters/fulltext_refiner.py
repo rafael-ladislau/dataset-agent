@@ -82,8 +82,11 @@ Use emit_refinement_candidates exactly once."""
         v = raw.get(key)
         if not isinstance(v, list):
             return []
+        # Strip wrapping quotes the LLM may add; a term that still contains a double
+        # quote cannot be sent to extraction (seed terms reject it), so drop it.
+        terms = [x.strip().strip("\"'“”").strip() for x in v if isinstance(x, str)]
         return dedupe_strings_ci_preserve_order(
-            [str(x).strip() for x in v if isinstance(x, str) and len(x.strip()) > 2]
+            [t for t in terms if len(t) > 2 and '"' not in t]
         )[:cap]
 
     return {

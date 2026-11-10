@@ -63,6 +63,12 @@ best full-text precision among those with at least `fulltext_min_evidence` evalu
 papers (ties go to the earlier iteration); each iteration notes its `n_evaluated`. A
 refinement produced on the last iteration is not probed and is therefore not proposed.
 
+With full text enabled, the reported confidence never exceeds what the selected
+iteration's full-text precision supports: HIGH needs precision at or above
+`1 - optimize_fp_threshold_pct/100`, MEDIUM needs at least 0.5, anything lower is LOW. When
+no iteration reaches `fulltext_min_evidence` (including a probe that failed on the first
+iteration), the proposal equals the initial query, its notes say why, and confidence is LOW.
+
 ## Seed mapping
 
 safe aliases -> `standalone_names`; risky aliases -> `dataset_names` (+ `flag_terms`);
