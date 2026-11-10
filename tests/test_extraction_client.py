@@ -71,17 +71,26 @@ class _PoolServer:
     batch-done check that trusts stale counters would return too early.
     """
 
-    def __init__(self, outcomes, lag=2, fail_analyze_on=None):
+    def __init__(self, outcomes, lag=2, fail_analyze_on=None, enqueue_lag=None):
         self.outcomes = dict(outcomes)
         self.order = list(outcomes)  # citation order
         self.lag = lag
         self.fail_analyze_on = fail_analyze_on
+        # pid -> llm-results reads before a delivered paper is queued for the LLM
+        # (ledger row written first, enqueue later, as extraction's fetch worker does).
+        self.enqueue_lag = dict(enqueue_lag or {})
         self.pending: dict[str, int] = {}
         self.done: set[str] = set()
         self.batches: list[list[str]] = []
         self.calls: list[tuple[str, str, object]] = []
 
+    def _queued(self, pid):
+        return pid in self.done and self.outcomes[pid] is True and self.enqueue_lag.get(pid, 0) <= 0
+
     def _tick(self):
+        for pid in list(self.enqueue_lag):
+            if pid in self.done:
+                self.enqueue_lag[pid] -= 1
         for pid in list(self.pending):
             self.pending[pid] -= 1
             if self.pending[pid] <= 0:
@@ -98,7 +107,7 @@ class _PoolServer:
             ft = {"status": "missing", "source": None, "reason": reason}
         delivered = ft["status"] == "delivered"
         return {"publication_id": pid, "citation_count": 1000 - i, "fulltext": ft,
-                "analyzed": delivered, "validation_failed": False,
+                "analyzed": self._queued(pid), "validation_failed": False,
                 "validated_datasets": [{"name": "X", "is_used": True, "is_mentioned": True}] if delivered else []}
 
     def __call__(self, req):
@@ -109,12 +118,14 @@ class _PoolServer:
             return httpx.Response(202, json={"task_id": "T1"})
         if p == "/pipelines/T1/status":
             delivered = sum(1 for pid in self.done if self.outcomes[pid] is True)
-            # Mimic extraction: `selected` is the LAST batch size, `attempted` accumulates.
+            queued = sum(1 for pid in self.done if self._queued(pid))
+            # Mimic extraction: `selected` is the LAST batch size, `attempted` accumulates,
+            # `total_queued` is cumulative over the run's selective requests.
             last = len(self.batches[-1]) if self.batches else 0
             return httpx.Response(200, json={
                 "status": "DONE",
                 "fulltext": {"selected": last, "attempted": len(self.done), "delivered": delivered},
-                "llm_analysis": {"status": "completed", "total_queued": delivered, "pending": 0},
+                "llm_analysis": {"status": "completed", "total_queued": queued, "pending": 0},
             })
         if p == "/pipelines/T1/full-publications/analyze":
             if self.fail_analyze_on == len(self.batches) + 1:
@@ -260,3 +271,14 @@ def test_dev_url_has_no_default_so_a_probe_fails_clearly(tmp_path, monkeypatch):
     assert s.extraction_dev_url == ""
     with pytest.raises(ExtractionError, match="not configured"):
         ExtractionClient.for_target(s, "dev")
+
+
+def test_batch_two_waits_for_a_delivered_paper_still_being_enqueued():
+    # p4 is delivered in the ledger but not yet queued for the LLM; batch 1's queued
+    # papers alone would satisfy a batch-local total_queued check.
+    outcomes = {"p0": True, "p1": True, "p2": False, "p3": False, "p4": True, "p5": False}
+    srv = _PoolServer(outcomes, enqueue_lag={"p4": 3})
+    out = _topup(srv)
+    assert out.stop_reason == "target_met" and out.delivered == 3
+    p4 = next(p for p in out.results["publications"] if p["publication_id"] == "p4")
+    assert p4["analyzed"] is True

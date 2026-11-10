@@ -30,14 +30,14 @@ For each iteration the current candidate is mapped to an extraction seed and **p
    but does not stop the loop, because PMC and Europe PMC may still deliver.
 3. A batch is done when every one of its publications has a full-text outcome in
    `llm-results` and `/status` `llm_analysis` is completed with nothing pending and
-   `total_queued` covering the batch's delivered papers. `fulltext.selected` is not
+   `total_queued` (cumulative over the probe's batches) covering every delivered paper. `fulltext.selected` is not
    used: extraction overwrites it per analyze call while `attempted` accumulates.
    `probe_poll_timeout_seconds` applies to the search and to each batch.
 4. The final `llm-results` gives per-publication `is_used`, `is_mentioned` and
    `text_quote`. `POST /pipelines/cleanup` removes the probe task once, also on failure.
 
 When fewer than the target papers have full text, the iteration notes and the proposal
-say so (for example `18/30 papers with full text (pool_exhausted; 300 attempted in 8
+say so (for example `18/30 papers with full text (pool_exhausted; 212 attempted in 8
 batch(es))`).
 
 ### Definitions

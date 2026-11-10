@@ -217,7 +217,8 @@ class ExtractionClient:
 
         Done = each id has a recorded full-text outcome in ``llm-results`` (not
         ``not_attempted``), and ``/status`` ``llm_analysis`` is completed with nothing
-        pending and ``total_queued`` covering the batch's delivered papers. The
+        pending and ``total_queued`` (cumulative over the run) covering every delivered
+        paper of the probe. The
         ``fulltext.selected`` counter is not used: extraction overwrites it per
         analyze call while ``attempted`` accumulates, so it is wrong from batch 2 on.
         Returns the last ``llm-results`` body.
@@ -230,9 +231,13 @@ class ExtractionClient:
             batch = [p for p in _pubs(results) if str(p.get("publication_id")) in wanted]
             fetched = len(batch) >= len(wanted) and all(is_attempted(p) for p in batch)
             if fetched:
-                delivered = sum(1 for p in batch if is_delivered(p))
-                if delivered == 0:
+                if not any(is_delivered(p) for p in batch):
                     return results
+                # total_queued is cumulative over the run's analyze calls, so it is
+                # compared with every delivered paper, not only this batch's: a paper
+                # whose ledger row is written but whose LLM enqueue is still in
+                # flight keeps the batch open.
+                delivered = sum(1 for p in _pubs(results) if is_delivered(p))
                 raw = self._request("GET", f"/pipelines/{task_id}/status")
                 llm = raw.get("llm_analysis") if isinstance(raw, dict) else None
                 if (
