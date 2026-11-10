@@ -230,3 +230,20 @@ def test_exclude_blocked_by_a_genuine_singular_of_a_plural_term():
     r = refine_candidate(QueryCandidate("X", safe=["NHIS"]), ev(pubs), settings=S, agent=llm,
                          dataset_name="X", count_fn=lambda t: 0, reference_count=100)
     assert r.candidate.exclude_terms == ["registry"]
+
+
+def test_exclude_guard_tries_every_plausible_singular():
+    from dataset_agent.adapters.fulltext_evidence import singular_variants
+
+    for plural, singular in [("rare diseases", "rare disease"), ("boxes", "box"), ("analyses", "analysis"),
+                             ("cohort studies", "cohort study"), ("censuses", "census")]:
+        assert singular in singular_variants(plural), plural
+    pubs = (
+        [pub(f"g{i}", 40 - i, True, "NHIS data on a rare disease") for i in range(3)]
+        + [pub(f"f{i}", 20 - i, False, "NHIS rare diseases registry") for i in range(2)]
+    )
+    llm = FakeLLM({"exclude_terms": ["rare diseases", "registry"], "flag_terms": [],
+                   "new_aliases": [], "reasoning": ""})
+    r = refine_candidate(QueryCandidate("X", safe=["NHIS"]), ev(pubs), settings=S, agent=llm,
+                         dataset_name="X", count_fn=lambda t: 0, reference_count=100)
+    assert r.candidate.exclude_terms == ["registry"]

@@ -19,7 +19,7 @@ from dataset_agent.adapters.fulltext_evidence import (
     Evidence,
     PubVerdict,
     attribute_terms,
-    singular_variant,
+    singular_variants,
     term_in,
     term_in_quote,
 )
@@ -173,11 +173,8 @@ def refine_candidate(
             hit_fp = [v for v in evidence.false_positives if term_in(t, v)]
             # Over-matching the genuine side is the safe direction here: an exclude
             # is blocked when the term, or its singular, occurs in a genuine paper.
-            singular = singular_variant(t)
-            hit_gen = [
-                v for v in evidence.genuine
-                if term_in(t, v) or (singular is not None and term_in(singular, v))
-            ]
+            forms = [t, *singular_variants(t)]
+            hit_gen = [v for v in evidence.genuine if any(term_in(f, v) for f in forms)]
             if hit_fp and not hit_gen:
                 new_excludes.append((t, hit_fp))
         # Flags need at least two genuine quotes (quote-only; titles never count).

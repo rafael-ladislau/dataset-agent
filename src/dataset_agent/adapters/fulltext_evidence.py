@@ -170,23 +170,23 @@ def term_in(term: str, verdict: PubVerdict) -> bool:
     return _phrase_in(term, f"{verdict.quote} {verdict.title}")
 
 
-def singular_variant(term: str) -> str | None:
-    """The term with a plural ending removed from its last word (len > 3), or None.
-    Only for checks where over-matching is the safe direction (exclude guard)."""
+def singular_variants(term: str) -> list[str]:
+    """Every plausible singular of the term's last word (len > 3): drop ``s``, drop
+    ``es``, ``ies``->``y``, ``es``->``is``. Over-generating is deliberate: this is only
+    for checks where over-matching is the safe direction (the exclude guard)."""
     words = term.split()
     if not words:
-        return None
+        return []
     last = words[-1]
     low = last.lower()
+    stems: list[str] = []
+    if len(low) > 3 and low.endswith("s") and not low.endswith("ss"):
+        stems.append(last[:-1])
+    if len(low) > 4 and low.endswith("es"):
+        stems += [last[:-2], last[:-2] + "is"]
     if len(low) > 4 and low.endswith("ies"):
-        stem = last[:-3] + ("Y" if last[-3:].isupper() else "y")
-    elif len(low) > 4 and low.endswith(("ses", "xes", "zes")):
-        stem = last[:-2]
-    elif len(low) > 3 and low.endswith("s") and not low.endswith("ss"):
-        stem = last[:-1]
-    else:
-        return None
-    return " ".join([*words[:-1], stem])
+        stems.append(last[:-3] + "y")
+    return [" ".join([*words[:-1], s]) for s in dict.fromkeys(stems)]
 
 
 def term_in_quote(term: str, verdict: PubVerdict, *, exact: bool = False) -> bool:
