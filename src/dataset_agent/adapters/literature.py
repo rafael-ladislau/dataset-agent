@@ -1070,17 +1070,20 @@ def evaluate_for_clause_sync(
                 }
             )
 
-    # Assume unclassified matched pubs are genuine (conservative)
-    unclassified = max(0, len(matched) - max_classify)
-    genuine_count += unclassified
+    # Matched pubs beyond the classification cap are unclassified: they are
+    # neither genuine nor FP, so the rate is computed over classified pubs only.
+    classified_count = genuine_count + fp_count
+    unclassified = max(0, len(matched) - classified_count)
 
     matched_count = len(matched)
-    fp_rate_pct = 100.0 * fp_count / matched_count if matched_count else 0.0
+    fp_rate_pct = 100.0 * fp_count / classified_count if classified_count else 0.0
 
     return {
         "fp_rate_pct": fp_rate_pct,
         "genuine_count": genuine_count,
         "fp_count": fp_count,
+        "classified_count": classified_count,
+        "unclassified_count": unclassified,
         "matched_count": matched_count,
         "total_pubs": len(pubs),
         "coverage_pct": coverage,
