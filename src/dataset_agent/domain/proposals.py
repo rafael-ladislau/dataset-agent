@@ -32,7 +32,15 @@ class IterationMetrics(BaseModel):
     fulltext_precision: Optional[float] = Field(default=None, description="used / evaluated (0-1)")
     usage_rate: Optional[float] = Field(default=None, description="used / mentioned-or-used (0-1)")
     mention_rate: Optional[float] = Field(default=None, description="(used|mentioned) / evaluated (0-1)")
-    oa_coverage: Optional[float] = Field(default=None, description="delivered / sampled (0-1)")
+    oa_coverage: Optional[float] = Field(default=None, description="delivered / attempted (0-1)")
+    fulltext_target: Optional[int] = Field(default=None, description="delivered full texts aimed for")
+    fulltext_batches: int = Field(default=0, description="analyze batches sent")
+    fulltext_stop_reason: Optional[str] = Field(
+        default=None, description="target_met | pool_exhausted | max_batches"
+    )
+    fulltext_budget_exhausted: bool = Field(
+        default=False, description="OpenAlex refused at least one file for budget"
+    )
     abstract_fp_rate_pct: Optional[float] = Field(default=None, description="secondary signal")
     error: Optional[str] = None
 

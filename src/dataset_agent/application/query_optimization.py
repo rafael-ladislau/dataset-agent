@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import time
 import uuid
@@ -161,8 +162,22 @@ class QueryOptimizationUseCase:
             extra={"home_url": request.dataset_url},
         )
         client = self._get_extraction()
-        results = await asyncio.to_thread(client.run_probe, seed, s.fulltext_top_n, s.probe_pull_cap)
-        return build_evidence(results, s.fulltext_top_n)
+        out = await asyncio.to_thread(
+            functools.partial(
+                client.run_probe_topup,
+                seed,
+                target=s.fulltext_target_delivered,
+                batch_size=s.fulltext_batch_size,
+                max_batches=s.fulltext_max_batches,
+                pull_cap=s.probe_pull_cap,
+            )
+        )
+        ev = build_evidence(out.results)
+        ev.target = out.target
+        ev.batches = out.batches
+        ev.stop_reason = out.stop_reason
+        ev.budget_exhausted = out.budget_exhausted
+        return ev
 
     def _budget_left(self) -> bool:
         cap = int(self._settings.optimize_max_dimensions_calls)
@@ -613,6 +628,9 @@ class QueryOptimizationUseCase:
                     break
                 metrics = evidence.metrics(iteration, current_for_clause, fp_rate)
                 ft_iterations.append(metrics)
+                shortfall = evidence.shortfall_note
+                if shortfall:
+                    notes_parts.append(f"gate_iter{iteration}: full-text shortfall: {shortfall}")
                 prec = metrics.fulltext_precision
                 min_ev = self._settings.fulltext_min_evidence
                 if prec is not None:

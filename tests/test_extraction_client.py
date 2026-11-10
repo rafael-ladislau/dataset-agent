@@ -55,29 +55,149 @@ def _client(server, **kw):
 DONE_LLM = {"status": "DONE", "llm_analysis": {"status": "completed", "total_queued": 0, "analyzed": 0, "failed": 0, "pending": 0}}
 
 
-def test_run_probe_happy_path_and_cleanup():
-    srv = _Server([{"status": "PROCESSING"}, {"status": "DONE"}, DONE_LLM])
-    res = _client(srv).run_probe({"main_dataset_name": "X"}, 30, 200)
-    assert res["probe"] is True
-    paths = [c[1] for c in srv.calls]
-    assert paths[0] == "/pipelines/start" and srv.calls[0][2]["probe"] is True
-    assert srv.calls[0][2]["probe_pull_cap"] == 200
-    analyze = next(c for c in srv.calls if c[1].endswith("/analyze"))
-    assert analyze[2] == {"fulltext_source": "open", "top_n": 30, "steps": {"validate_datasets": True}}
+def test_start_search_sends_probe_and_cleans_up_on_timeout():
+    srv = _Server([{"status": "PROCESSING"}])
+    with pytest.raises(ExtractionError, match="timed out"):
+        _client(srv).start_search({"main_dataset_name": "X"}, 300)
+    assert srv.calls[0][2]["probe"] is True and srv.calls[0][2]["probe_pull_cap"] == 300
     assert srv.calls[-1] == ("POST", "/pipelines/cleanup", ["T1"])
 
 
-def test_cleanup_on_analyze_failure():
-    srv = _Server([{"status": "DONE"}], fail_analyze=True)
+class _PoolServer:
+    """Stateful fake: a probe pool whose full-text outcomes appear after an analyze.
+
+    *outcomes* maps publication id -> True (delivered) / False (miss) / "budget".
+    Outcomes of a batch become visible only after *lag* llm-results reads, so a
+    batch-done check that trusts stale counters would return too early.
+    """
+
+    def __init__(self, outcomes, lag=2, fail_analyze_on=None):
+        self.outcomes = dict(outcomes)
+        self.order = list(outcomes)  # citation order
+        self.lag = lag
+        self.fail_analyze_on = fail_analyze_on
+        self.pending: dict[str, int] = {}
+        self.done: set[str] = set()
+        self.batches: list[list[str]] = []
+        self.calls: list[tuple[str, str, object]] = []
+
+    def _tick(self):
+        for pid in list(self.pending):
+            self.pending[pid] -= 1
+            if self.pending[pid] <= 0:
+                del self.pending[pid]
+                self.done.add(pid)
+
+    def _pub(self, i, pid):
+        if pid not in self.done:
+            ft = {"status": "missing", "source": None, "reason": "not_attempted"}
+        elif self.outcomes[pid] is True:
+            ft = {"status": "delivered", "source": "pmc_s3", "reason": None}
+        else:
+            reason = "budget_exhausted" if self.outcomes[pid] == "budget" else "not_found"
+            ft = {"status": "missing", "source": None, "reason": reason}
+        delivered = ft["status"] == "delivered"
+        return {"publication_id": pid, "citation_count": 1000 - i, "fulltext": ft,
+                "analyzed": delivered, "validation_failed": False,
+                "validated_datasets": [{"name": "X", "is_used": True, "is_mentioned": True}] if delivered else []}
+
+    def __call__(self, req):
+        body = json.loads(req.content) if req.content else None
+        self.calls.append((req.method, req.url.path, body))
+        p = req.url.path
+        if p == "/pipelines/start":
+            return httpx.Response(202, json={"task_id": "T1"})
+        if p == "/pipelines/T1/status":
+            delivered = sum(1 for pid in self.done if self.outcomes[pid] is True)
+            # Mimic extraction: `selected` is the LAST batch size, `attempted` accumulates.
+            last = len(self.batches[-1]) if self.batches else 0
+            return httpx.Response(200, json={
+                "status": "DONE",
+                "fulltext": {"selected": last, "attempted": len(self.done), "delivered": delivered},
+                "llm_analysis": {"status": "completed", "total_queued": delivered, "pending": 0},
+            })
+        if p == "/pipelines/T1/full-publications/analyze":
+            if self.fail_analyze_on == len(self.batches) + 1:
+                return httpx.Response(500, json={"detail": "boom"})
+            ids = body["publication_ids"]
+            self.batches.append(ids)
+            for pid in ids:
+                self.pending[pid] = self.lag
+            return httpx.Response(202, json={"status": "started"})
+        if p == "/pipelines/T1/llm-results":
+            self._tick()
+            return httpx.Response(200, json={"task_id": "T1", "probe": True, "publications": [
+                self._pub(i, pid) for i, pid in enumerate(self.order)]})
+        if p == "/pipelines/cleanup":
+            return httpx.Response(202, json=[])
+        return httpx.Response(404)
+
+
+def _topup(srv, target=3, batch_size=3, max_batches=8):
+    return _client(srv).run_probe_topup({"main_dataset_name": "X"}, target=target,
+                                        batch_size=batch_size, max_batches=max_batches, pull_cap=300)
+
+
+def test_topup_target_met_in_first_batch():
+    srv = _PoolServer({f"p{i}": True for i in range(6)})
+    out = _topup(srv)
+    assert (out.batches, out.delivered, out.stop_reason) == (1, 3, "target_met")
+    assert srv.batches == [["p0", "p1", "p2"]]
+    analyze = next(c for c in srv.calls if c[1].endswith("/analyze"))
+    assert analyze[2] == {"fulltext_source": "open", "publication_ids": ["p0", "p1", "p2"],
+                          "steps": {"validate_datasets": True}}
+    assert [c for c in srv.calls if c[1] == "/pipelines/cleanup"] == [("POST", "/pipelines/cleanup", ["T1"])]
+
+
+def test_topup_shortfall_sends_next_untried_batch():
+    outcomes = {"p0": False, "p1": True, "p2": False, "p3": True, "p4": False, "p5": True, "p6": True}
+    srv = _PoolServer(outcomes)
+    out = _topup(srv)
+    assert srv.batches == [["p0", "p1", "p2"], ["p3", "p4", "p5"]]
+    assert (out.batches, out.attempted, out.delivered, out.stop_reason) == (2, 6, 3, "target_met")
+    assert out.results["publications"][1]["fulltext"]["status"] == "delivered"
+
+
+def test_topup_pool_exhausted():
+    srv = _PoolServer({"p0": False, "p1": True, "p2": False, "p3": False})
+    out = _topup(srv)
+    assert srv.batches == [["p0", "p1", "p2"], ["p3"]]
+    assert (out.delivered, out.attempted, out.stop_reason) == (1, 4, "pool_exhausted")
+
+
+def test_topup_max_batches():
+    srv = _PoolServer({f"p{i}": False for i in range(20)})
+    out = _topup(srv, max_batches=2)
+    assert len(srv.batches) == 2 and (out.stop_reason, out.attempted) == ("max_batches", 6)
+
+
+def test_topup_budget_miss_is_reported_but_does_not_stop():
+    srv = _PoolServer({"p0": "budget", "p1": True, "p2": "budget", "p3": True, "p4": True})
+    out = _topup(srv)
+    assert out.stop_reason == "target_met" and out.budget_exhausted is True
+    assert len(srv.batches) == 2
+
+
+def test_batch_two_not_done_while_its_ids_are_not_attempted():
+    # After batch 2 is sent, /status already says attempted(3) >= selected(3) and the
+    # LLM is completed; only the per-id outcomes tell that batch 2 is still running.
+    srv = _PoolServer({f"p{i}": (i >= 3) for i in range(6)}, lag=4)
+    out = _topup(srv)
+    assert srv.batches == [["p0", "p1", "p2"], ["p3", "p4", "p5"]]
+    assert out.delivered == 3 and out.stop_reason == "target_met"
+
+
+def test_topup_cleans_up_once_when_batch_two_fails():
+    srv = _PoolServer({f"p{i}": False for i in range(6)}, fail_analyze_on=2)
     with pytest.raises(ExtractionError):
-        _client(srv).start_probe({}, 30, 200)
-    assert srv.calls[-1][1] == "/pipelines/cleanup"
+        _topup(srv)
+    assert [c[1] for c in srv.calls].count("/pipelines/cleanup") == 1
 
 
-def test_poll_timeout_cleans_up():
-    srv = _Server([{"status": "DONE"}, {"status": "DONE", "llm_analysis": {"status": "in_progress", "pending": 5}}])
-    with pytest.raises(ExtractionError, match="timed out"):
-        _client(srv).run_probe({}, 30, 200)
+def test_topup_batch_timeout_raises_and_cleans_up():
+    srv = _PoolServer({"p0": True}, lag=10_000)
+    with pytest.raises(ExtractionError, match="batch timed out"):
+        _topup(srv, target=1)
     assert srv.calls[-1][1] == "/pipelines/cleanup"
 
 

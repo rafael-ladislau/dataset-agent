@@ -23,16 +23,27 @@ def pub(pid, cites, used, quote="", status="delivered"):
 
 
 class FakeClient:
-    def __init__(self, results_seq):
+    def __init__(self, results_seq, stop_reason="target_met", batches=1):
         self.results_seq = list(results_seq)
         self.seeds: list[dict] = []
+        self.kwargs: list[dict] = []
+        self.stop_reason = stop_reason
+        self.batches = batches
 
-    def run_probe(self, seed, top_n, pull_cap):
+    def run_probe_topup(self, seed, *, target, batch_size, max_batches, pull_cap):
+        from dataset_agent.adapters.extraction_client import TopupResult, is_attempted, is_delivered
+
         self.seeds.append(seed)
+        self.kwargs.append(dict(target=target, batch_size=batch_size, max_batches=max_batches,
+                                pull_cap=pull_cap))
         r = self.results_seq.pop(0) if len(self.results_seq) > 1 else self.results_seq[0]
         if isinstance(r, Exception):
             raise r
-        return r
+        pubs = r.get("publications") or []
+        return TopupResult(results=r, batches=self.batches,
+                           attempted=sum(1 for p in pubs if is_attempted(p)),
+                           delivered=sum(1 for p in pubs if is_delivered(p)),
+                           target=target, stop_reason=self.stop_reason)
 
 
 class CountDSL:
@@ -250,3 +261,30 @@ def test_confidence_low_when_probe_fails(tmp_path, _zero_abstract_fp):
     out = asyncio.run(_ft_uc(tmp_path, [ExtractionError("down")]).execute(REQ))
     assert out.fulltext_iterations[0].error == "down"
     assert out.confidence.value == "low"
+
+
+def test_topup_settings_reach_the_client_and_shortfall_is_noted(tmp_path, _zero_abstract_fp):
+    few = [pub(f"g{i}", 50 - i, True, "My Long Dataset Alpha data") for i in range(3)] + [
+        pub("m0", 10, True, "", status="missing")]
+    client = FakeClient([{"publications": few}], stop_reason="pool_exhausted", batches=2)
+    llm = MagicMock()
+    llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=llm,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, optimize_max_iterations=1,
+                               fulltext_target_delivered=30, fulltext_batch_size=25,
+                               fulltext_max_batches=4, probe_pull_cap=150),
+        extraction_client=client)
+    out = asyncio.run(uc.execute(REQ))
+    assert client.kwargs[0] == dict(target=30, batch_size=25, max_batches=4, pull_cap=150)
+    m = out.fulltext_iterations[0]
+    assert (m.n_publications, m.n_fulltext_delivered, m.n_evaluated) == (4, 3, 3)
+    assert (m.fulltext_target, m.fulltext_batches, m.fulltext_stop_reason) == (30, 2, "pool_exhausted")
+    assert "full-text shortfall: 3/30 papers with full text (pool_exhausted" in str(out.notes)
+    assert any("shortfall" in n for n in out.proposal.notes)
+
+
+def test_legacy_fulltext_top_n_sets_batch_size(tmp_path):
+    assert make_settings(tmp_path, fulltext_top_n=12).fulltext_batch_size == 12
+    assert make_settings(tmp_path, fulltext_top_n=12, fulltext_batch_size=7).fulltext_batch_size == 7
+    assert make_settings(tmp_path).fulltext_batch_size == 30

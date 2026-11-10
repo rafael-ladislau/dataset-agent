@@ -1,7 +1,8 @@
 """Client for the extraction pipeline's task API (probe, full-text analysis, submit).
 
 A *probe* is a throw-away extraction task: it pulls the top-cited Dimensions hits for a
-candidate query, fetches open-access full text for the top-N and runs only the
+candidate query, fetches open-access full text in citation-ordered batches until enough
+papers have full text (:meth:`ExtractionClient.run_probe_topup`) and runs only the
 dataset-validation LLM step. The per-publication verdicts are read back with
 :meth:`ExtractionClient.get_llm_results`. Probe tasks are removed with :meth:`cleanup`.
 
@@ -24,8 +25,56 @@ logger = logging.getLogger(__name__)
 _SEARCH_DONE = {"DONE", "COMPLETED", "COMPLETE"}
 
 
+_NOT_ATTEMPTED = "not_attempted"
+_BUDGET_EXHAUSTED = "budget_exhausted"
+
+STOP_TARGET_MET = "target_met"
+STOP_POOL_EXHAUSTED = "pool_exhausted"
+STOP_MAX_BATCHES = "max_batches"
+
+
 class ExtractionError(RuntimeError):
     """Extraction API call failed or timed out."""
+
+
+def _pubs(results: dict[str, Any]) -> list[dict[str, Any]]:
+    return [p for p in (results.get("publications") or []) if isinstance(p, dict) and p.get("publication_id")]
+
+
+def _ft(pub: dict[str, Any]) -> dict[str, Any]:
+    ft = pub.get("fulltext")
+    return ft if isinstance(ft, dict) else {}
+
+
+def is_attempted(pub: dict[str, Any]) -> bool:
+    """True once extraction recorded a full-text outcome (delivered or a real miss)."""
+    ft = _ft(pub)
+    return ft.get("status") == "delivered" or (
+        bool(ft) and ft.get("reason") != _NOT_ATTEMPTED
+    )
+
+
+def is_delivered(pub: dict[str, Any]) -> bool:
+    return _ft(pub).get("status") == "delivered"
+
+
+def _citation_order(pubs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Stable sort: ties keep the server's order (citation desc, year desc, id asc).
+    return sorted(pubs, key=lambda p: -(p.get("citation_count") or 0))
+
+
+@dataclass
+class TopupResult:
+    """Outcome of :meth:`ExtractionClient.run_probe_topup`."""
+
+    results: dict[str, Any]
+    batches: int
+    attempted: int
+    delivered: int
+    target: int
+    stop_reason: str
+    #: OpenAlex refused at least one file for budget; PMC / Europe PMC kept going.
+    budget_exhausted: bool = False
 
 
 @dataclass
@@ -136,8 +185,8 @@ class ExtractionClient:
             return {}
 
     # -- probe lifecycle ---------------------------------------------------
-    def start_probe(self, seed: dict[str, Any], top_n: int, pull_cap: int) -> str:
-        """Start a probe task, wait for its Dimensions search, then queue full-text analysis."""
+    def start_search(self, seed: dict[str, Any], pull_cap: int) -> str:
+        """Start a probe task and wait for its Dimensions search. Cleans up on failure."""
         body = dict(seed)
         body["probe"] = True
         body["probe_pull_cap"] = int(pull_cap)
@@ -146,19 +195,59 @@ class ExtractionClient:
             raise ExtractionError("POST /pipelines/start returned no task_id")
         try:
             self.poll_status(task_id, lambda s: s.search_done)
-            self._request(
-                "POST",
-                f"/pipelines/{task_id}/full-publications/analyze",
-                json={
-                    "fulltext_source": "open",
-                    "top_n": int(top_n),
-                    "steps": {"validate_datasets": True},
-                },
-            )
         except Exception:
             self.cleanup(task_id)
             raise
         return task_id
+
+    def analyze_ids(self, task_id: str, publication_ids: list[str]) -> dict[str, Any]:
+        """Queue open full-text fetch + dataset validation for explicit publications."""
+        return self._request(
+            "POST",
+            f"/pipelines/{task_id}/full-publications/analyze",
+            json={
+                "fulltext_source": "open",
+                "publication_ids": list(publication_ids),
+                "steps": {"validate_datasets": True},
+            },
+        )
+
+    def wait_batch_done(self, task_id: str, publication_ids: list[str]) -> dict[str, Any]:
+        """Poll until every id in the batch has a full-text outcome and the LLM is idle.
+
+        Done = each id has a recorded full-text outcome in ``llm-results`` (not
+        ``not_attempted``), and ``/status`` ``llm_analysis`` is completed with nothing
+        pending and ``total_queued`` covering the batch's delivered papers. The
+        ``fulltext.selected`` counter is not used: extraction overwrites it per
+        analyze call while ``attempted`` accumulates, so it is wrong from batch 2 on.
+        Returns the last ``llm-results`` body.
+        """
+        wanted = set(publication_ids)
+        deadline = self._clock() + self._poll_timeout
+        delay = self._poll_interval
+        while True:
+            results = self.get_llm_results(task_id)
+            batch = [p for p in _pubs(results) if str(p.get("publication_id")) in wanted]
+            fetched = len(batch) >= len(wanted) and all(is_attempted(p) for p in batch)
+            if fetched:
+                delivered = sum(1 for p in batch if is_delivered(p))
+                if delivered == 0:
+                    return results
+                raw = self._request("GET", f"/pipelines/{task_id}/status")
+                llm = raw.get("llm_analysis") if isinstance(raw, dict) else None
+                if (
+                    isinstance(llm, dict)
+                    and str(llm.get("status") or "").lower() == "completed"
+                    and int(llm.get("pending") or 0) == 0
+                    and int(llm.get("total_queued") or 0) >= delivered
+                ):
+                    return results
+            if self._clock() + delay > deadline:
+                raise ExtractionError(
+                    f"probe {task_id} batch timed out after {self._poll_timeout:.0f}s"
+                )
+            self._sleep(delay)
+            delay = min(delay * 1.5, self._poll_max_interval)
 
     def poll_status(
         self, task_id: str, until: Callable[[ProbeStatus], bool]
@@ -175,18 +264,62 @@ class ExtractionClient:
             self._sleep(delay)
             delay = min(delay * 1.5, self._poll_max_interval)
 
-    def wait_llm_done(self, task_id: str) -> ProbeStatus:
-        return self.poll_status(task_id, lambda s: s.llm_done)
-
     def get_llm_results(self, task_id: str) -> dict[str, Any]:
         return self._request("GET", f"/pipelines/{task_id}/llm-results")
 
-    def run_probe(self, seed: dict[str, Any], top_n: int, pull_cap: int) -> dict[str, Any]:
-        """Start, wait, read verdicts; always cleans the probe task up (also on failure)."""
-        task_id = self.start_probe(seed, top_n, pull_cap)
+    def run_probe_topup(
+        self,
+        seed: dict[str, Any],
+        *,
+        target: int,
+        batch_size: int,
+        max_batches: int,
+        pull_cap: int,
+    ) -> TopupResult:
+        """Probe until *target* papers have delivered full text, batch by batch.
+
+        Each batch is the next *batch_size* publications in citation order that have
+        no full-text outcome yet, sent as explicit ``publication_ids``. Stops when the
+        target is met, the probe's pool is exhausted or *max_batches* were sent. An
+        OpenAlex budget miss does not stop the loop (the free providers may still
+        deliver) but is reported in ``budget_exhausted``. The probe task is always cleaned up,
+        exactly once, also on failure.
+        """
+        task_id = self.start_search(seed, pull_cap)
         try:
-            self.wait_llm_done(task_id)
-            return self.get_llm_results(task_id)
+            results = self.get_llm_results(task_id)
+            batches = 0
+            while True:
+                pubs = _citation_order(_pubs(results))
+                delivered = sum(1 for p in pubs if is_delivered(p))
+                if delivered >= target:
+                    stop = STOP_TARGET_MET
+                    break
+                todo = [str(p["publication_id"]) for p in pubs if not is_attempted(p)]
+                if not todo:
+                    stop = STOP_POOL_EXHAUSTED
+                    break
+                if batches >= max_batches:
+                    stop = STOP_MAX_BATCHES
+                    break
+                batch = todo[:batch_size]
+                batches += 1
+                logger.info(
+                    "probe %s batch %d: %d id(s), delivered so far %d/%d",
+                    task_id, batches, len(batch), delivered, target,
+                )
+                self.analyze_ids(task_id, batch)
+                results = self.wait_batch_done(task_id, batch)
+            pubs = _pubs(results)
+            return TopupResult(
+                results=results,
+                batches=batches,
+                attempted=sum(1 for p in pubs if is_attempted(p)),
+                delivered=sum(1 for p in pubs if is_delivered(p)),
+                target=int(target),
+                stop_reason=stop,
+                budget_exhausted=any(_ft(p).get("reason") == _BUDGET_EXHAUSTED for p in pubs),
+            )
         finally:
             self.cleanup(task_id)
 

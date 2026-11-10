@@ -60,3 +60,24 @@ def test_validation_failed_is_no_verdict_not_not_mentioned():
     ev = build_evidence({"publications": [failed, ok]}, 10)
     assert ev.n_delivered == 2
     assert [v.publication_id for v in ev.verdicts] == ["y"]
+
+
+def test_topup_sample_is_every_attempted_publication():
+    not_tried = _pub("x", 1000, status="missing")
+    not_tried["fulltext"]["reason"] = "not_attempted"
+    miss = _pub("m", 500, status="missing")
+    miss["fulltext"]["reason"] = "not_found"
+    r = {"publications": [not_tried, miss] + RESULTS["publications"]}
+    ev = build_evidence(r)
+    # attempted = m + a..h (x never sent); delivered = a,b,c,d,f,g,h; evaluated = a,b,c,d,h
+    assert (ev.n_sampled, ev.n_delivered, ev.n_evaluated) == (9, 7, 5)
+    assert ev.metrics(0, "q", None).oa_coverage == 7 / 9
+
+
+def test_shortfall_note():
+    ev = build_evidence(RESULTS)
+    assert ev.shortfall_note is None
+    ev.target, ev.batches, ev.stop_reason = 30, 3, "max_batches"
+    assert ev.shortfall_note == "7/30 papers with full text (max_batches; 8 attempted in 3 batch(es))"
+    ev.budget_exhausted = True
+    assert ev.shortfall_note.endswith("; OpenAlex budget exhausted)")

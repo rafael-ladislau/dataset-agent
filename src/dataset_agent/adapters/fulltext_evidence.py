@@ -54,8 +54,24 @@ class PubVerdict:
 @dataclass
 class Evidence:
     verdicts: list[PubVerdict] = field(default_factory=list)
+    #: Publications with a full-text outcome (delivered or a real miss).
     n_sampled: int = 0
     n_delivered: int = 0
+    target: int | None = None
+    batches: int = 0
+    stop_reason: str | None = None
+    budget_exhausted: bool = False
+
+    @property
+    def shortfall_note(self) -> str | None:
+        """Human note when fewer than the target papers had full text, else None."""
+        if self.target is None or self.n_delivered >= self.target:
+            return None
+        return (
+            f"{self.n_delivered}/{self.target} papers with full text "
+            f"({self.stop_reason or 'stopped'}; {self.n_sampled} attempted in "
+            f"{self.batches} batch(es){'; OpenAlex budget exhausted' if self.budget_exhausted else ''})"
+        )
 
     @property
     def n_evaluated(self) -> int:
@@ -84,6 +100,10 @@ class Evidence:
             mention_rate=(mentioned / n) if n else None,
             oa_coverage=(self.n_delivered / self.n_sampled) if self.n_sampled else None,
             abstract_fp_rate_pct=abstract_fp_pct,
+            fulltext_target=self.target,
+            fulltext_batches=self.batches,
+            fulltext_stop_reason=self.stop_reason,
+            fulltext_budget_exhausted=self.budget_exhausted,
         )
 
 
@@ -104,11 +124,24 @@ def _verdict_for(pub: dict[str, Any]) -> tuple[str, str] | None:
     return ("not_mentioned", str(entries[0].get("text_quote") or ""))
 
 
-def build_evidence(results: dict[str, Any], top_n: int) -> Evidence:
-    """Build :class:`Evidence` from a ``GET /pipelines/{id}/llm-results`` body."""
+def _attempted(pub: dict[str, Any]) -> bool:
+    ft = pub.get("fulltext") or {}
+    return ft.get("status") == "delivered" or (bool(ft) and ft.get("reason") != "not_attempted")
+
+
+def build_evidence(results: dict[str, Any], top_n: int | None = None) -> Evidence:
+    """Build :class:`Evidence` from a ``GET /pipelines/{id}/llm-results`` body.
+
+    With *top_n* ``None`` (the top-up probe), the sample is every publication that has a
+    full-text outcome; publications never sent for full text are not part of it. An
+    explicit *top_n* keeps the legacy flat top-N sample.
+    """
     pubs = [p for p in (results.get("publications") or []) if isinstance(p, dict)]
     pubs.sort(key=lambda p: -(p.get("citation_count") or 0))
-    sample = pubs[: max(1, int(top_n))]
+    if top_n is None:
+        sample = [p for p in pubs if _attempted(p)]
+    else:
+        sample = pubs[: max(1, int(top_n))]
     ev = Evidence(n_sampled=len(sample))
     for p in sample:
         ft = p.get("fulltext") or {}
