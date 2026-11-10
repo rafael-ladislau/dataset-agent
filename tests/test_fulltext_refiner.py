@@ -178,3 +178,20 @@ def test_terms_match_whole_words_only():
     assert term_in_quote("ACE", v)            # "ACE-III" -> "ace iii"
     assert not term_in_quote("NIS", v)        # inside "furnished"
     assert term_in("placebo trial", v)        # title phrase
+
+
+def test_whole_word_match_tolerates_plurals_and_unicode_forms():
+    from dataset_agent.adapters.fulltext_evidence import PubVerdict, term_in_quote
+
+    def v(quote):
+        return PubVerdict(publication_id="p", doi=None, title="", citation_count=1,
+                          verdict="used", quote=quote)
+
+    assert term_in_quote("Family Survey", v("data from the Family Surveys of 2010"))
+    assert term_in_quote("nursing homes", v("residents of a nursing home"))
+    assert term_in_quote("nursing home", v("residents of nursing homes"))
+    assert term_in_quote("Café Study", v("the Café Study cohort"))   # decomposed accent
+    assert not term_in_quote("ACE", v("a placebo arm"))
+    assert not term_in_quote("FS", v("FSS scores"))
+    assert not term_in_quote("NIS", v("NI data only"))   # short tokens stay exact
+    assert term_in_quote("ACE", v("the ACEs questionnaire"))

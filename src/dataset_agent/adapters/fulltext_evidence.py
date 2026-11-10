@@ -12,6 +12,7 @@ Settled rules:
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -133,19 +134,36 @@ def build_evidence(results: dict[str, Any], top_n: int) -> Evidence:
     return ev
 
 
+def _token(word: str) -> str:
+    """Light singular: drop a plural ``es``/``s`` from words longer than 3 letters,
+    so ``surveys``/``homes`` match ``survey``/``home``; short tokens (``ACE``, ``FS``,
+    ``NIS``) stay exact."""
+    if len(word) > 3 and word.endswith("es") and word[-3] in "sxz":
+        return word[:-2]
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _tokens(text: str) -> str:
+    normalized = _stem_text(unicodedata.normalize("NFKC", text or ""))
+    return " ".join(_token(w) for w in normalized.split())
+
+
 def _phrase_in(term: str, text: str) -> bool:
-    """Whole-word phrase match on normalized text (``ACE`` never matches ``placebo``)."""
-    stem = _stem_text(term)
-    return bool(stem) and f" {stem} " in f" {text} "
+    """Whole-word phrase match on normalized tokens: ``ACE`` never matches ``placebo``,
+    while ``Family Survey`` matches ``family surveys``."""
+    stem = _tokens(term)
+    return bool(stem) and f" {stem} " in f" {_tokens(text)} "
 
 
 def term_in(term: str, verdict: PubVerdict) -> bool:
-    return _phrase_in(term, verdict.text)
+    return _phrase_in(term, f"{verdict.quote} {verdict.title}")
 
 
 def term_in_quote(term: str, verdict: PubVerdict) -> bool:
     """Quote-only match (the title never counts)."""
-    return _phrase_in(term, verdict.quote_text)
+    return _phrase_in(term, verdict.quote)
 
 
 @dataclass
