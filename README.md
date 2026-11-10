@@ -136,7 +136,7 @@ dataset-research-api
 | `GET` | `/optimize/tasks/{id}/result` | Retrieve optimize result |
 | `GET` | `/health` | Health check (tests Ollama connectivity if applicable) |
 
-When `API_KEYS` is configured, write endpoints (`POST /tasks`, `/validate`, `/optimize`, `/optimize/tasks`) require an `x-api-key` header:
+When `API_KEYS` is configured, write endpoints (`POST /tasks`, `/validate`, `/optimize`, `/optimize/tasks`, `/proposals/{id}/approve`, `/proposals/{id}/submit`) require an `x-api-key` header:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/tasks \

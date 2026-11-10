@@ -133,15 +133,19 @@ def build_evidence(results: dict[str, Any], top_n: int) -> Evidence:
     return ev
 
 
-def term_in(term: str, verdict: PubVerdict) -> bool:
+def _phrase_in(term: str, text: str) -> bool:
+    """Whole-word phrase match on normalized text (``ACE`` never matches ``placebo``)."""
     stem = _stem_text(term)
-    return bool(stem) and stem in verdict.text
+    return bool(stem) and f" {stem} " in f" {text} "
+
+
+def term_in(term: str, verdict: PubVerdict) -> bool:
+    return _phrase_in(term, verdict.text)
 
 
 def term_in_quote(term: str, verdict: PubVerdict) -> bool:
     """Quote-only match (the title never counts)."""
-    stem = _stem_text(term)
-    return bool(stem) and stem in verdict.quote_text
+    return _phrase_in(term, verdict.quote_text)
 
 
 @dataclass

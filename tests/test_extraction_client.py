@@ -127,3 +127,16 @@ def test_parse_status_total_queued_covers_delivered_is_done():
         "fulltext": {"selected": 30, "attempted": 30, "delivered": 12},
     })
     assert st.llm_done
+
+
+def test_dev_url_has_no_default_so_a_probe_fails_clearly(tmp_path, monkeypatch):
+    import pytest
+
+    from dataset_agent.adapters.extraction_client import ExtractionClient, ExtractionError
+    from dataset_agent.settings import Settings
+
+    monkeypatch.delenv("DATASET_AGENT_EXTRACTION_DEV_URL", raising=False)
+    s = Settings(tasks_db=tmp_path / "t.db", output_dir=tmp_path / "out", _env_file=None)
+    assert s.extraction_dev_url == ""
+    with pytest.raises(ExtractionError, match="not configured"):
+        ExtractionClient.for_target(s, "dev")

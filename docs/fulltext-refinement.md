@@ -105,7 +105,7 @@ The target extraction instance is `DATASET_AGENT_SUBMIT_TARGET` (`dev` by defaul
 | `refine_drop_fp_share` / `refine_demote_fp_share` | 0.8 / 0.5 | Deterministic thresholds |
 | `refine_max_new_aliases` | 3 | Cap on added aliases per iteration |
 | `probe_target`, `submit_target` | `dev` | Extraction instance for probes / submit |
-| `extraction_{dev,prod}_url`, `_user`, `_password` | dev URL `http://127.0.0.1:8000` | Per-target connection |
+| `extraction_{dev,prod}_url`, `_user`, `_password` | empty (must be set; extraction requires HTTP Basic auth) | Per-target connection. Do not point it at dataset-agent's own port. |
 
 ## Benchmark
 

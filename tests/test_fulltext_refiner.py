@@ -167,3 +167,14 @@ def test_unquote_strips_every_kind_of_wrapping_quote_but_keeps_apostrophes():
         assert _unquote(raw) == "nursing home", raw
     assert _unquote("Children's Health Study") == "Children's Health Study"
     assert _unquote("the \u2018Children\u2019s\u2019 survey") == "the \u2018Children\u2019s\u2019 survey"
+
+
+def test_terms_match_whole_words_only():
+    from dataset_agent.adapters.fulltext_evidence import PubVerdict, term_in, term_in_quote
+
+    v = PubVerdict(publication_id="p", doi=None, title="A placebo trial", citation_count=1,
+                   verdict="not_mentioned", quote="patients furnished data; the ACE-III score")
+    assert not term_in("ACE", PubVerdict(**{**v.__dict__, "quote": "a placebo arm"}))
+    assert term_in_quote("ACE", v)            # "ACE-III" -> "ace iii"
+    assert not term_in_quote("NIS", v)        # inside "furnished"
+    assert term_in("placebo trial", v)        # title phrase

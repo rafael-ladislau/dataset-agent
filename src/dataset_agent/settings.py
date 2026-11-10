@@ -158,7 +158,9 @@ class Settings(BaseSettings):
     probe_target: Literal["dev", "prod"] = "dev"
     #: Extraction instance a proposal is submitted to. "prod" also requires an approved proposal.
     submit_target: Literal["dev", "prod"] = "dev"
-    extraction_dev_url: str = "http://127.0.0.1:8000"
+    #: Empty by default: dataset-agent itself listens on 127.0.0.1:8000, so there is
+    #: no safe default; a probe with no URL fails clearly ("not configured").
+    extraction_dev_url: str = ""
     extraction_dev_user: str = ""
     extraction_dev_password: str = ""
     extraction_prod_url: str = ""
