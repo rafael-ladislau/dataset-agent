@@ -332,6 +332,66 @@ def _probe_ollama(base_url: str, timeout_seconds: float = 3.0) -> dict[str, Any]
         return out
 
 
+def _probe_openai_models(
+    base_url: str, api_key: str = "", timeout_seconds: float = 3.0
+) -> dict[str, Any]:
+    """GET <base>/models — verify an OpenAI-compatible server responds."""
+    url = base_url.rstrip("/") + "/models"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    started = time.perf_counter()
+    try:
+        r = httpx.get(url, headers=headers, timeout=timeout_seconds)
+    except httpx.HTTPError as e:
+        return {
+            "ok": False,
+            "base_url": base_url,
+            "error": str(e),
+            "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+            "probe_url": url,
+        }
+    out: dict[str, Any] = {
+        "ok": r.status_code == 200,
+        "base_url": base_url,
+        "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+    }
+    if r.status_code != 200:
+        out["error"] = f"HTTP {r.status_code}"
+        return out
+    try:
+        data = r.json()
+    except ValueError:
+        return out
+    models = data.get("data") if isinstance(data, dict) else None
+    if isinstance(models, list):
+        out["models_available"] = len(models)
+    return out
+
+
+def _probe_llm(settings: Settings) -> dict[str, Any]:
+    """Probe the configured LLM provider (Ollama tags or OpenAI-style /models)."""
+    try:
+        endpoint = settings.llm_endpoint()
+    except ValueError as e:
+        return {"ok": False, "provider": settings.llm_provider, "error": str(e)}
+    if endpoint.provider == "ollama" and endpoint.api_style == "anthropic":
+        probe = _probe_ollama(endpoint.base_url)
+    elif endpoint.api_style == "openai":
+        probe = _probe_openai_models(endpoint.base_url, endpoint.api_key)
+    else:
+        # Anthropic style against LM Studio / OpenRouter / others: their model list
+        # lives under the OpenAI-style /v1/models route.
+        base = endpoint.base_url.rstrip("/")
+        probe = _probe_openai_models(
+            base if base.endswith("/v1") else f"{base}/v1", endpoint.api_key
+        )
+    return {
+        "provider": endpoint.provider,
+        "api_style": endpoint.api_style,
+        "model": endpoint.model,
+        **probe,
+    }
+
+
 @app.post("/validate")
 def validate_terms(
     body: ValidationRequest,
@@ -553,9 +613,9 @@ def get_optimize_task_result(
 
 @app.get("/health")
 def health(settings: Annotated[Settings, Depends(get_settings)]) -> dict[str, Any]:
-    body: dict[str, Any] = {"status": "ok"}
+    body: dict[str, Any] = {"status": "ok", "llm": _probe_llm(settings)}
     if settings.llm_provider == "ollama":
-        body["ollama"] = _probe_ollama(settings.ollama_base_url)
+        body["ollama"] = body["llm"]
     else:
         body["ollama"] = {
             "checked": False,

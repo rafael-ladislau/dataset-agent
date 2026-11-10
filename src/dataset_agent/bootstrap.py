@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataset_agent.adapters.agent_anthropic import AnthropicAgent
+from dataset_agent.adapters.agent_openai import OpenAICompatibleAgent
 from dataset_agent.adapters.dimensions_dsl import AsyncThrottledDimensionsDsl
 from dataset_agent.adapters.extractor import HeuristicTextExtractor
 from dataset_agent.adapters.literature import literature_gate_from_settings
@@ -14,23 +15,14 @@ from dataset_agent.domain.ports import AgentPort
 from dataset_agent.settings import Settings
 
 
-def _build_agent(settings: Settings) -> AnthropicAgent:
-    """Create an AnthropicAgent from the current settings."""
-    api_key = settings.llm_api_key
-    if settings.llm_provider == "lmstudio":
-        base_url = settings.lmstudio_base_url
-        model_name = settings.lmstudio_model
-    elif settings.llm_provider == "openrouter":
-        base_url = settings.openrouter_base_url
-        model_name = settings.openrouter_model
-        api_key = settings.openrouter_api_key or settings.llm_api_key
-    else:
-        base_url = settings.ollama_base_url
-        model_name = settings.ollama_model
-    return AnthropicAgent(
-        model_name=model_name,
-        base_url=base_url,
-        api_key=api_key,
+def _build_agent(settings: Settings) -> AgentPort:
+    """Create the LLM agent adapter for the configured provider and API style."""
+    endpoint = settings.llm_endpoint()
+    agent_cls = OpenAICompatibleAgent if endpoint.api_style == "openai" else AnthropicAgent
+    return agent_cls(
+        model_name=endpoint.model,
+        base_url=endpoint.base_url,
+        api_key=endpoint.api_key,
         max_tokens=settings.llm_max_tokens,
         max_iterations=settings.agent_max_iterations,
         timeout_seconds=settings.agent_timeout_seconds,

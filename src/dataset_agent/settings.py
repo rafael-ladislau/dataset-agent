@@ -2,11 +2,47 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+LLMProvider = Literal["ollama", "lmstudio", "openrouter", "openllm", "openai_compatible"]
+LLMApiStyle = Literal["anthropic", "openai"]
+
+#: API style used when ``llm_api_style`` is not set.
+DEFAULT_LLM_API_STYLE: dict[str, LLMApiStyle] = {
+    "lmstudio": "openai",
+    "ollama": "anthropic",
+    "openrouter": "anthropic",
+    "openllm": "openai",
+    "openai_compatible": "openai",
+}
+
+
+@dataclass(frozen=True)
+class LLMEndpoint:
+    """Resolved LLM connection: which adapter to build and where it points."""
+
+    provider: str
+    api_style: LLMApiStyle
+    #: Anthropic style: host root (the SDK appends ``/v1/messages``).
+    #: OpenAI style: API root, usually ending in ``/v1``.
+    base_url: str
+    model: str
+    api_key: str
+
+
+def _with_v1(url: str) -> str:
+    base = url.rstrip("/")
+    return base if base.endswith("/v1") else f"{base}/v1"
+
+
+def _without_v1(url: str) -> str:
+    base = url.rstrip("/")
+    return base.removesuffix("/v1")
 
 
 class Settings(BaseSettings):
@@ -17,7 +53,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    llm_provider: Literal["ollama", "lmstudio", "openrouter"] = "lmstudio"
+    llm_provider: LLMProvider = "lmstudio"
+    #: Wire protocol: ``anthropic`` (/v1/messages) or ``openai`` (/v1/chat/completions).
+    #: Unset uses the provider default (``openai`` for lmstudio, openllm and
+    #: openai_compatible; ``anthropic`` for ollama and openrouter).
+    llm_api_style: LLMApiStyle | None = None
     ollama_model: str = "gemma4-31b"
     ollama_base_url: str = "http://127.0.0.1:11434"
     lmstudio_base_url: str = Field(
@@ -55,6 +95,26 @@ class Settings(BaseSettings):
             "DATASET_AGENT_OPENROUTER_API_KEY",
         ),
     )
+    #: OpenLLM (OpenAI-compatible) endpoint; the base URL includes ``/v1``.
+    openllm_base_url: str = Field(
+        default="http://127.0.0.1:3000/v1",
+        validation_alias=AliasChoices(
+            "OPENLLM_BASE_URL",
+            "DATASET_AGENT_OPENLLM_BASE_URL",
+        ),
+    )
+    openllm_model: str = ""
+    openllm_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "OPENLLM_API_KEY",
+            "DATASET_AGENT_OPENLLM_API_KEY",
+        ),
+    )
+    #: Any other OpenAI-compatible server (vLLM, llama.cpp, hosted APIs); base URL as given.
+    openai_compatible_base_url: str = ""
+    openai_compatible_model: str = ""
+    openai_compatible_api_key: str = ""
     llm_max_tokens: int = 4096
     llm_api_key: str = Field(
         default="local",
@@ -149,6 +209,49 @@ class Settings(BaseSettings):
         if base.endswith("/v1"):
             return base[:-3]
         return base
+
+    def llm_endpoint(self) -> LLMEndpoint:
+        """Resolve provider + API style into a base URL, model and key.
+
+        Raises ``ValueError`` when a provider that has no default model or base
+        URL (openllm, openai_compatible) is selected without them.
+        """
+        provider = self.llm_provider
+        style = self.llm_api_style or DEFAULT_LLM_API_STYLE[provider]
+        api_key = self.llm_api_key
+        if provider == "lmstudio":
+            root, model = self.lmstudio_base_url, self.lmstudio_model
+        elif provider == "openrouter":
+            root, model = self.openrouter_base_url, self.openrouter_model
+            api_key = self.openrouter_api_key or self.llm_api_key
+        elif provider == "ollama":
+            root, model = self.ollama_base_url, self.ollama_model
+        elif provider == "openllm":
+            root, model = self.openllm_base_url, self.openllm_model
+            api_key = self.openllm_api_key or self.llm_api_key
+        else:
+            root, model = self.openai_compatible_base_url, self.openai_compatible_model
+            api_key = self.openai_compatible_api_key or self.llm_api_key
+
+        env = provider.upper()
+        if not root.strip():
+            raise ValueError(f"DATASET_AGENT_{env}_BASE_URL must be set for provider {provider}")
+        if not model.strip():
+            raise ValueError(f"DATASET_AGENT_{env}_MODEL must be set for provider {provider}")
+
+        if provider in ("openllm", "openai_compatible"):
+            # Configured as the OpenAI API root; used as given.
+            base_url = root.rstrip("/") if style == "openai" else _without_v1(root)
+        else:
+            # Configured as the host root (the Anthropic SDK appends /v1/messages).
+            base_url = _with_v1(root) if style == "openai" else root
+        return LLMEndpoint(
+            provider=provider,
+            api_style=style,
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
+        )
 
     @field_validator("fp_sample_size")
     @classmethod
