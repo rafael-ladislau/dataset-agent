@@ -153,6 +153,15 @@ curl -s -X POST http://127.0.0.1:8000/tasks \
   -d '{"dataset_name":"Current Population Survey"}'
 ```
 
+## Full-text query refinement
+
+With `DATASET_AGENT_FULLTEXT_REFINEMENT_ENABLED=true`, `POST /optimize` probes each candidate
+query against open-access full text through the extraction pipeline, refines aliases, flag
+and exclude terms from the evidence, and returns a `proposal`. A human approves it
+(`POST /proposals/{id}/approve`) and then submits it (`POST /proposals/{id}/submit`), which
+creates the real extraction task on the configured target (`dev` by default). See
+`docs/fulltext-refinement.md`.
+
 ## Docker / Compose
 
 ```bash
@@ -178,3 +187,4 @@ Reference outputs from previous agent runs are stored in `results/` (70 datasets
 | `docs/lmstudio-integration-guide.md` | LMStudio integration guide (reference for future support) |
 | `docs/lmstudio-provider-spec.md` | LMStudio provider specification |
 | `docs/aliases-agent-summary.md` | Summary of alias extraction behavior |
+| `docs/fulltext-refinement.md` | Full-text query refinement loop, settings, proposal/approve/submit flow |
