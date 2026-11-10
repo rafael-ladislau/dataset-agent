@@ -521,6 +521,7 @@ class QueryOptimizationUseCase:
         current_variant_label = best_variant.label.split("~", 1)[0]
 
         best_ev: dict | None = None
+        phase3_error: str | None = None
         best_variant_entry: VariantTestedEntry | None = None
 
         max_iters = max(1, self._settings.optimize_max_iterations)
@@ -560,6 +561,15 @@ class QueryOptimizationUseCase:
                 agent=self._agent,
                 dsl_runner=self._make_eval_runner(asyncio.get_running_loop()),
             )
+
+            if ev.get("error"):
+                # A failed evaluation says nothing about precision; never read it as 0% FP.
+                phase3_error = str(ev["error"])
+                notes_parts.append(
+                    f"gate_iter{iteration}: evaluation failed ({phase3_error}); "
+                    "result is partial and confidence is capped at LOW."
+                )
+                break
 
             fp_rate = float(ev.get("fp_rate_pct") or 0.0)
             expected_count = int(ev.get("publications_total") or 0)
@@ -602,7 +612,17 @@ class QueryOptimizationUseCase:
                 metrics = evidence.metrics(iteration, current_for_clause, fp_rate)
                 ft_iterations.append(metrics)
                 prec = metrics.fulltext_precision
-                if prec is not None and prec >= 1.0 - threshold / 100.0:
+                min_ev = self._settings.fulltext_min_evidence
+                if prec is not None:
+                    notes_parts.append(
+                        f"gate_iter{iteration}: full-text precision={prec:.2f} "
+                        f"(n_evaluated={metrics.n_evaluated})"
+                    )
+                if (
+                    prec is not None
+                    and metrics.n_evaluated >= min_ev
+                    and prec >= 1.0 - threshold / 100.0
+                ):
                     notes_parts.append(f"gate_iter{iteration}: full-text precision within threshold.")
                     break
                 if iteration == max_iters - 1:
@@ -687,7 +707,9 @@ class QueryOptimizationUseCase:
             scored = [
                 (m.fulltext_precision, -m.iteration)
                 for m in ft_iterations
-                if m.fulltext_precision is not None and m.iteration in ft_entries
+                if m.fulltext_precision is not None
+                and m.n_evaluated >= self._settings.fulltext_min_evidence
+                and m.iteration in ft_entries
             ]
             if scored:
                 best_ft_iter = -max(scored)[1]
@@ -728,6 +750,8 @@ class QueryOptimizationUseCase:
         elif fp_sel < 3.0:
             confidence = ConfidenceLevel.MEDIUM
         else:
+            confidence = ConfidenceLevel.LOW
+        if phase3_error is not None:
             confidence = ConfidenceLevel.LOW
 
         proposal = None

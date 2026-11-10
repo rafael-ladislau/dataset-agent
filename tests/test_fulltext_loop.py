@@ -166,3 +166,35 @@ def test_unbuildable_proposal_does_not_abort_the_run(tmp_path, monkeypatch):
     out = asyncio.run(uc.execute(REQ))
     assert out.success and out.proposal is None
     assert any("proposal skipped" in n for n in (out.notes if isinstance(out.notes, list) else [out.notes or ""]))
+
+
+def test_failed_gate_evaluation_is_not_zero_fp(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        qopt_mod, "evaluate_for_clause_sync",
+        lambda *a, **k: {"fp_rate_pct": 0.0, "genuine_count": 0, "matched_count": 0, "total_pubs": 0,
+                         "error": "dimensions_query_failed: budget"},
+    )
+    uc = QueryOptimizationUseCase(dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(),
+                                  settings=make_settings(tmp_path))
+    out = asyncio.run(uc.execute(REQ))
+    assert "~gate" not in out.selected_variant
+    assert out.confidence.value.lower() == "low"
+    assert "evaluation failed" in str(out.notes)
+
+
+def test_small_fulltext_sample_does_not_win_selection(tmp_path):
+    bad = [pub(f"n{i}", 50 - i, False, "Another Long Title Here nursing") for i in range(4)] + [
+        pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(4)]
+    one = [pub("g0", 30, True, "My Long Dataset Alpha data")]
+    llm = MagicMock()
+    llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=llm,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, fulltext_top_n=20,
+                               optimize_max_iterations=3, refine_min_alias_papers=3,
+                               fulltext_min_evidence=3),
+        extraction_client=FakeClient([{"publications": bad}, {"publications": one}]))
+    out = asyncio.run(uc.execute(REQ))
+    assert [m.n_evaluated for m in out.fulltext_iterations][:2] == [8, 1]
+    assert out.selected_variant.endswith("~gate0")
+    assert "n_evaluated=1" in str(out.notes)
