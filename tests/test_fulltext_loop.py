@@ -198,3 +198,5 @@ def test_small_fulltext_sample_does_not_win_selection(tmp_path):
     assert [m.n_evaluated for m in out.fulltext_iterations][:2] == [8, 1]
     assert out.selected_variant.endswith("~gate0")
     assert "n_evaluated=1" in str(out.notes)
+    # A 1-paper sample must not trigger the early stop.
+    assert "gate_iter1: full-text precision within threshold." not in str(out.notes)
