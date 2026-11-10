@@ -71,7 +71,8 @@ class _PoolServer:
     batch-done check that trusts stale counters would return too early.
     """
 
-    def __init__(self, outcomes, lag=2, fail_analyze_on=None, enqueue_lag=None):
+    def __init__(self, outcomes, lag=2, fail_analyze_on=None, enqueue_lag=None,
+                 analyze_on_status=False):
         self.outcomes = dict(outcomes)
         self.order = list(outcomes)  # citation order
         self.lag = lag
@@ -79,6 +80,10 @@ class _PoolServer:
         # pid -> llm-results reads before a delivered paper is queued for the LLM
         # (ledger row written first, enqueue later, as extraction's fetch worker does).
         self.enqueue_lag = dict(enqueue_lag or {})
+        # When set, a queued paper reads as analyzed only after the next /status call
+        # (its analysis finishes between a client's llm-results and status reads).
+        self.analyze_on_status = analyze_on_status
+        self.analyzed: set[str] = set()
         self.pending: dict[str, int] = {}
         self.done: set[str] = set()
         self.batches: list[list[str]] = []
@@ -107,7 +112,7 @@ class _PoolServer:
             ft = {"status": "missing", "source": None, "reason": reason}
         delivered = ft["status"] == "delivered"
         return {"publication_id": pid, "citation_count": 1000 - i, "fulltext": ft,
-                "analyzed": self._queued(pid), "validation_failed": False,
+                "analyzed": (pid in self.analyzed) if self.analyze_on_status else self._queued(pid), "validation_failed": False,
                 "validated_datasets": [{"name": "X", "is_used": True, "is_mentioned": True}] if delivered else []}
 
     def __call__(self, req):
@@ -117,6 +122,7 @@ class _PoolServer:
         if p == "/pipelines/start":
             return httpx.Response(202, json={"task_id": "T1"})
         if p == "/pipelines/T1/status":
+            self.analyzed.update(pid for pid in self.done if self._queued(pid))
             delivered = sum(1 for pid in self.done if self.outcomes[pid] is True)
             queued = sum(1 for pid in self.done if self._queued(pid))
             # Mimic extraction: `selected` is the LAST batch size, `attempted` accumulates,
@@ -282,3 +288,10 @@ def test_batch_two_waits_for_a_delivered_paper_still_being_enqueued():
     assert out.stop_reason == "target_met" and out.delivered == 3
     p4 = next(p for p in out.results["publications"] if p["publication_id"] == "p4")
     assert p4["analyzed"] is True
+
+
+def test_batch_result_is_read_after_the_completing_status():
+    srv = _PoolServer({"p0": True}, analyze_on_status=True)
+    out = _topup(srv, target=1)
+    assert out.stop_reason == "target_met"
+    assert out.results["publications"][0]["analyzed"] is True

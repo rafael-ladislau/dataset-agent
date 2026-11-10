@@ -246,7 +246,9 @@ class ExtractionClient:
                     and int(llm.get("pending") or 0) == 0
                     and int(llm.get("total_queued") or 0) >= delivered
                 ):
-                    return results
+                    # Re-read: an analysis that finished between the llm-results read
+                    # above and this status read would otherwise be missing.
+                    return self.get_llm_results(task_id)
             if self._clock() + delay > deadline:
                 raise ExtractionError(
                     f"probe {task_id} batch timed out after {self._poll_timeout:.0f}s"
