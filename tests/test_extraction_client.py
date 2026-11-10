@@ -52,7 +52,7 @@ def _client(server, **kw):
     )
 
 
-DONE_LLM = {"status": "DONE", "llm_analysis": {"status": "completed", "pending": 0}}
+DONE_LLM = {"status": "DONE", "llm_analysis": {"status": "completed", "total_queued": 0, "analyzed": 0, "failed": 0, "pending": 0}}
 
 
 def test_run_probe_happy_path_and_cleanup():
@@ -105,7 +105,25 @@ def test_parse_status_fetch_running_llm_completed_is_not_done():
 def test_parse_status_fetch_finished_llm_completed_is_done():
     st = parse_status({
         "status": "DONE",
-        "llm_analysis": {"status": "completed", "pending": 0},
+        "llm_analysis": {"status": "completed", "total_queued": 12, "pending": 0},
+        "fulltext": {"selected": 30, "attempted": 30, "delivered": 12},
+    })
+    assert st.llm_done
+
+
+def test_parse_status_total_queued_below_delivered_is_not_done():
+    st = parse_status({
+        "status": "DONE",
+        "llm_analysis": {"status": "completed", "total_queued": 3, "analyzed": 3, "failed": 0, "pending": 0},
+        "fulltext": {"selected": 30, "attempted": 30, "delivered": 12},
+    })
+    assert not st.llm_done
+
+
+def test_parse_status_total_queued_covers_delivered_is_done():
+    st = parse_status({
+        "status": "DONE",
+        "llm_analysis": {"status": "completed", "total_queued": 12, "analyzed": 11, "failed": 1, "pending": 0},
         "fulltext": {"selected": 30, "attempted": 30, "delivered": 12},
     })
     assert st.llm_done

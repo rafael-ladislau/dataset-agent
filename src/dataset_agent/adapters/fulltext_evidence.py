@@ -114,7 +114,8 @@ def build_evidence(results: dict[str, Any], top_n: int) -> Evidence:
         if ft.get("status") != "delivered":
             continue
         ev.n_delivered += 1
-        if not p.get("analyzed"):
+        if not p.get("analyzed") or p.get("validation_failed"):
+            # Unanalyzed, or validation errored: no verdict (never not_mentioned).
             continue
         v = _verdict_for(p)
         if v is None:

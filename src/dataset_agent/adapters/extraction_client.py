@@ -42,7 +42,7 @@ def parse_status(payload: dict[str, Any]) -> ProbeStatus:
     """Normalize the status payload.
 
     ``search_done``: task status DONE. ``llm_done``: the ``llm_analysis`` block is
-    completed with nothing pending, or full-text fetch finished with nothing delivered
+    completed with nothing pending and ``total_queued >= delivered``, or full-text fetch finished with nothing delivered
     (so nothing was ever queued for the LLM). With a ``fulltext`` block the fetch must
     also be finished (``attempted >= selected``).
     """
@@ -61,11 +61,14 @@ def parse_status(payload: dict[str, Any]) -> ProbeStatus:
     if isinstance(llm, dict):
         pending = int(llm.get("pending") or 0)
         # total_queued only counts papers delivered so far, so "completed" is
-        # trustworthy only once the full-text fetch has finished.
+        # trustworthy only once the full-text fetch has finished and every
+        # delivered paper has been queued for analysis.
+        total_queued = int(llm.get("total_queued") or 0)
         llm_done = (
             str(llm.get("status") or "").lower() == "completed"
             and pending == 0
             and fetch_finished
+            and total_queued >= delivered
         )
     elif isinstance(ft, dict) and fetch_finished and delivered == 0:
         llm_done = True

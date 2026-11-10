@@ -50,3 +50,13 @@ def test_term_attribution():
     st = attribute_terms(ev, ["NHIS", "microdata"])
     assert (st["NHIS"].used, st["NHIS"].fp) == (1, 2)
     assert (st["microdata"].used, st["microdata"].fp) == (1, 0)
+
+
+def test_validation_failed_is_no_verdict_not_not_mentioned():
+    failed = _pub("z", 100, vd=[])
+    failed["validation_failed"] = True
+    ok = _pub("y", 90, vd=_vd(True, quote="used it"))
+    ok["validation_failed"] = False
+    ev = build_evidence({"publications": [failed, ok]}, 10)
+    assert ev.n_delivered == 2
+    assert [v.publication_id for v in ev.verdicts] == ["y"]
