@@ -32,16 +32,22 @@ def _clean(terms: Sequence[str] | None) -> list[str]:
     return out
 
 
-def _q(term: str) -> str:
-    """Escaped quoted token as used inside the outer ``for \"...\"`` string."""
+def _q(term: str, server_quoting: bool = False) -> str:
+    """Escaped quoted token as used inside the outer ``for \"...\"`` string.
+
+    With ``server_quoting`` the extraction server's raw-clause convention is used:
+    only a literal ``"`` inside the term is escaped (no other DSL escaping).
+    """
+    if server_quoting:
+        return '\\"' + term.replace('"', '\\"') + '\\"'
     inner = inner_quoted_term(term)
     return f'\\"{inner}\\"'
 
 
-def _or_group(terms: list[str]) -> str:
+def _or_group(terms: list[str], server_quoting: bool = False) -> str:
     if not terms:
         return ""
-    parts = [_q(t) for t in terms]
+    parts = [_q(t, server_quoting) for t in terms]
     return "(" + " OR ".join(parts) + ")"
 
 
@@ -54,8 +60,10 @@ def build_for_clause(
     exclusion_terms: Sequence[str] | None = None,
     tier_hybrid_terms: Sequence[str] | None = None,
     tier_hybrid_qualifier: str | None = None,
+    server_quoting: bool = False,
 ) -> str:
     """Assemble a boolean ``for`` sub-expression (UPPERCASE ``OR`` / ``AND`` / ``NOT``)."""
+    sq = server_quoting
     st = _clean(safe)
     rk = _clean(risky)
     fl = _clean(flag_terms)
@@ -64,35 +72,35 @@ def build_for_clause(
     tq = tier_hybrid_qualifier.strip() if isinstance(tier_hybrid_qualifier, str) else ""
 
     if variant == "V1":
-        return _or_group(st)
+        return _or_group(st, sq)
 
     if variant == "V2":
-        return _or_group(st + rk)
+        return _or_group(st + rk, sq)
 
     if variant == "V5":
-        return _or_group(st)
+        return _or_group(st, sq)
 
     # V3 / V4: safe OR hybrid; optional tier-hybrid OR arm; optional NOT exclusions (V4).
     chunks: list[str] = []
-    safe_expr = _or_group(st)
+    safe_expr = _or_group(st, sq)
     if safe_expr:
         chunks.append(safe_expr)
 
     if rk and fl:
-        hybrid = f"({_or_group(rk)} AND {_or_group(fl)})"
+        hybrid = f"({_or_group(rk, sq)} AND {_or_group(fl, sq)})"
         chunks.append(hybrid)
     elif rk:
-        chunks.append(_or_group(rk))
+        chunks.append(_or_group(rk, sq))
     elif fl and not st:
-        chunks.append(_or_group(fl))
+        chunks.append(_or_group(fl, sq))
 
     body = " OR ".join(c for c in chunks if c)
     if th and tq:
-        tier = f"({_or_group(th)} AND {_or_group([tq])})"
+        tier = f"({_or_group(th, sq)} AND {_or_group([tq], sq)})"
         body = f"{body} OR {tier}" if body else tier
 
     if variant == "V4" and ex:
-        ex_g = _or_group(ex)
+        ex_g = _or_group(ex, sq)
         if ex_g:
             body = f"{body} NOT {ex_g}" if body else f"NOT {ex_g}"
 

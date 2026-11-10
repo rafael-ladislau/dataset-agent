@@ -13,10 +13,10 @@ Mapping rules (extraction contract v1):
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from dataset_agent.adapters.dimensions_dsl import sanitize_alias
 from dataset_agent.adapters.query_builder import build_for_clause
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
 
@@ -51,10 +51,33 @@ def candidate_clause(c: QueryCandidate) -> str:
     )
 
 
+def seed_clause(c: QueryCandidate) -> str:
+    """Raw ``dimensions_query`` clause using the extraction server's quoting convention.
+
+    Each alias becomes ``\\"alias\\"``; only a literal ``"`` inside an alias is
+    escaped. No other DSL escaping is applied (unlike the agent's own queries).
+    """
+    if c.raw_clause:
+        return c.raw_clause
+    return build_for_clause(
+        safe=c.safe,
+        variant="V4",
+        risky=c.risky,
+        flag_terms=c.flag_terms,
+        exclusion_terms=c.exclude_terms,
+        server_quoting=True,
+    )
+
+
 def alias_coverage_missing(clause: str, aliases: list[str]) -> list[str]:
-    """Aliases (case-insensitive) that do not appear in *clause*."""
-    hay = (clause or "").replace("\\", "").lower()
-    return [a for a in aliases if a and sanitize_alias(a).replace("\\", "").lower() not in hay]
+    """Aliases (case-insensitive) that the server would not find in *clause*.
+
+    Mirrors the server: bare double quotes in the clause are escaped, then each
+    alias must appear verbatim (lower-cased) as a substring. Backslashes are
+    not stripped.
+    """
+    hay = re.sub(r'(?<!\\)"', '\\\\"', (clause or "").strip()).lower()
+    return [a for a in aliases if a and a.lower() not in hay]
 
 
 def candidate_to_seed(
@@ -92,7 +115,7 @@ def candidate_to_seed(
     if dimensions_limit is not None:
         seed["dimensions_limit"] = dimensions_limit
     if use_raw:
-        clause = candidate_clause(c)
+        clause = seed_clause(c)
         # With a raw clause the structured buckets only feed validation; keep every
         # alias in dataset_names so downstream matching sees them all.
         seed["dataset_names"] = c.all_aliases()
