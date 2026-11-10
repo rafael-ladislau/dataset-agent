@@ -6,7 +6,7 @@ from collections import Counter
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, Callable
 from dataset_agent.adapters.dimensions_dsl import parse_total_count, publication_title, publications_from_result
 from dataset_agent.adapters.fp_analysis import classify_alias_mention
 from dataset_agent.adapters.tools import EMIT_RELEVANCE_SCORE, EMIT_TERMS_EVALUATION
@@ -913,24 +913,31 @@ def evaluate_for_clause_sync(
     dataset_name: str,
     settings: Settings,
     agent: AgentPort | None = None,
+    dsl_runner: "Callable[[str], Any] | None" = None,
 ) -> dict:
     """
     Sync candidate-DSL evaluator.
+
+    When *dsl_runner* is given, every Dimensions call goes through it (the
+    optimizer passes a bridge to the throttled client that also counts calls
+    against the call budget); otherwise dimcli is used directly.
 
     Pulls up to *fp_sample_size* pubs, matches alias stems in title+abstract,
     conditionally resolves reference_ids, classifies matched pubs, and returns
     FP metrics.
     """
-    try:
-        import dimcli  # type: ignore[import-not-found]
-    except ImportError:
-        return {
-            "fp_rate_pct": 0.0,
-            "genuine_count": 0,
-            "matched_count": 0,
-            "total_pubs": 0,
-            "error": "dimcli_not_installed",
-        }
+    dimcli = None
+    if dsl_runner is None:
+        try:
+            import dimcli  # type: ignore[import-not-found]
+        except ImportError:
+            return {
+                "fp_rate_pct": 0.0,
+                "genuine_count": 0,
+                "matched_count": 0,
+                "total_pubs": 0,
+                "error": "dimcli_not_installed",
+            }
 
     api_key = (settings.dimensions_api_key or "").strip()
     if not api_key:
@@ -949,9 +956,23 @@ def evaluate_for_clause_sync(
         f"sort by times_cited limit {pull_size}"
     )
 
-    dimcli.login(key=api_key)
-    dsl_client = dimcli.Dsl()
-    result = dsl_client.query(q)
+    if dsl_runner is None:
+        dimcli.login(key=api_key)
+        dsl_client = dimcli.Dsl()
+        run_query = dsl_client.query
+    else:
+        run_query = dsl_runner
+    try:
+        result = run_query(q)
+    except Exception as exc:
+        logger.warning("evaluate_for_clause_sync: main query failed: %s", exc)
+        return {
+            "fp_rate_pct": 0.0,
+            "genuine_count": 0,
+            "matched_count": 0,
+            "total_pubs": 0,
+            "error": f"dimensions_query_failed: {exc}",
+        }
     total = parse_total_count(result)
     pubs = publications_from_result(result)
 
@@ -1009,7 +1030,7 @@ def evaluate_for_clause_sync(
             id_list = ", ".join(f'"{sanitize_alias(rid)}"' for rid in chunk)
             ref_q = f"search publications where id in [{id_list}] return publications[id+title]"
             try:
-                ref_result = dsl_client.query(ref_q)
+                ref_result = run_query(ref_q)
                 for rp in publications_from_result(ref_result):
                     pid = str(rp.get("id", "")).strip()
                     t = publication_title(rp)

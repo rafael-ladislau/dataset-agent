@@ -138,6 +138,21 @@ class QueryOptimizationUseCase:
             return True
         return self._dims_calls + 2 <= cap
 
+    async def _counted_execute(self, dsl: str):
+        """Throttled Dimensions call that counts against the call budget."""
+        if not self._budget_left():
+            raise DimensionsDslError("Dimensions call budget exhausted")
+        self._dims_calls += 1
+        return await self._dsl.execute_dsl(dsl)
+
+    def _make_eval_runner(self, loop: asyncio.AbstractEventLoop):
+        """Sync callable for worker threads: routes the evaluator's DSL calls through ``self._dsl``."""
+
+        def _run(dsl: str):
+            return asyncio.run_coroutine_threadsafe(self._counted_execute(dsl), loop).result()
+
+        return _run
+
     async def _count(self, alias: str, *, search_in: str = "full_data") -> int:
         if not self._budget_left():
             return 0
@@ -488,6 +503,7 @@ class QueryOptimizationUseCase:
                 dataset_name=request.dataset_name,
                 settings=self._settings,
                 agent=self._agent,
+                dsl_runner=self._make_eval_runner(asyncio.get_running_loop()),
             )
 
             fp_rate = float(ev.get("fp_rate_pct") or 0.0)

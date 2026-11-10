@@ -74,3 +74,51 @@ def test_phase3_starts_from_lowest_fp_variant_with_real_label():
     ]
     # V2 has 0 FP but zero hits so it loses; V4 wins the FP tie by preference order.
     assert _pick_start_variant(tested).label == "V4"
+
+
+def test_evaluator_uses_runner_instead_of_dimcli(monkeypatch):
+    monkeypatch.setitem(sys.modules, "dimcli", None)  # import would fail
+    seen: list[str] = []
+
+    def runner(q):
+        seen.append(q)
+        return {"publications": [{"id": "1", "title": "NHIS", "abstract": "NHIS"}],
+                "_stats": {"total_count": 1}}
+
+    s = Settings(dimensions_api_key="k")
+    out = lit.evaluate_for_clause_sync("NHIS", ["NHIS"], "NHIS", s, dsl_runner=runner)
+    assert len(seen) == 1
+    assert out["matched_count"] == 1
+
+
+def test_optimizer_eval_calls_count_against_budget(tmp_path):
+    import asyncio
+
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from dataset_agent.application.query_optimization import QueryOptimizationUseCase
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError
+
+    calls: list[str] = []
+
+    class _Dsl:
+        async def execute_dsl(self, dsl):
+            calls.append(dsl)
+            return SimpleNamespace(count_total=1)
+
+    s = Settings(dimensions_api_key="k", optimize_max_dimensions_calls=2)
+    uc = QueryOptimizationUseCase(dsl_port=_Dsl(), research=MagicMock(), agent=MagicMock(), settings=s)
+
+    async def go():
+        run = uc._make_eval_runner(asyncio.get_running_loop())
+        await asyncio.to_thread(run, "q1")
+        await asyncio.to_thread(run, "q2")
+        try:
+            await asyncio.to_thread(run, "q3")
+        except DimensionsDslError:
+            return True
+        return False
+
+    assert asyncio.run(go()) is True
+    assert uc._dims_calls == 2 and calls == ["q1", "q2"]
