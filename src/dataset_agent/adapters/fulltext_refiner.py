@@ -11,6 +11,7 @@ can at most mark a term ``suspect``.
 from __future__ import annotations
 
 import logging
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -40,6 +41,20 @@ class RefineResult:
 
 def _quotes(verdicts: list[PubVerdict]):
     return [v.as_quote() for v in verdicts[:_MAX_EVIDENCE]]
+
+
+def _is_quote_char(ch: str) -> bool:
+    return ch in "\"'`" or unicodedata.category(ch) in ("Pi", "Pf")
+
+
+def _unquote(term: str) -> str:
+    """Strip wrapping quote characters of any kind (straight, curly, guillemets)."""
+    t = term.strip()
+    while t and _is_quote_char(t[0]):
+        t = t[1:].strip()
+    while t and _is_quote_char(t[-1]):
+        t = t[:-1].strip()
+    return t
 
 
 def propose_refinements(
@@ -84,7 +99,7 @@ Use emit_refinement_candidates exactly once."""
             return []
         # Strip wrapping quotes the LLM may add; a term that still contains a double
         # quote cannot be sent to extraction (seed terms reject it), so drop it.
-        terms = [x.strip().strip("\"'“”").strip() for x in v if isinstance(x, str)]
+        terms = [_unquote(x) for x in v if isinstance(x, str)]
         return dedupe_strings_ci_preserve_order(
             [t for t in terms if len(t) > 2 and '"' not in t]
         )[:cap]

@@ -157,3 +157,13 @@ def test_llm_terms_are_unquoted_and_inner_quotes_dropped():
     assert r.candidate.flag_terms == ["microdata"]
     for term in [*r.candidate.exclude_terms, *r.candidate.flag_terms, *r.candidate.safe, *r.candidate.risky]:
         assert '"' not in term
+
+
+def test_unquote_strips_every_kind_of_wrapping_quote_but_keeps_apostrophes():
+    from dataset_agent.adapters.fulltext_refiner import _unquote
+
+    for raw in ['"nursing home"', "'nursing home'", "\u2018nursing home\u2019", "\u201cnursing home\u201d",
+                "\u00abnursing home\u00bb", " \u2018 nursing home \u2019 "]:
+        assert _unquote(raw) == "nursing home", raw
+    assert _unquote("Children's Health Study") == "Children's Health Study"
+    assert _unquote("the \u2018Children\u2019s\u2019 survey") == "the \u2018Children\u2019s\u2019 survey"
