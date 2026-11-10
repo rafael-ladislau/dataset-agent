@@ -14,16 +14,31 @@ budget changed with this feature. Bounded by `optimize_max_iterations`
 
 For each iteration the current candidate is mapped to an extraction seed and **probed**:
 
-1. `POST /pipelines/start` with `probe=true` and `probe_pull_cap` (default 200): the
-   extraction pipeline pulls the top-cited hits for the candidate and publishes nothing.
-2. When the search is done, `POST /pipelines/{id}/full-publications/analyze` with
-   `fulltext_source=open`, `top_n` (default 30, flat by citations) and
-   `steps={"validate_datasets": true}`: open-access full text is fetched and only the
-   dataset-validation LLM step runs.
-3. `GET /pipelines/{id}/status` is polled (backoff, `probe_poll_timeout_seconds`), then
-   `GET /pipelines/{id}/llm-results` returns per-publication `is_used`, `is_mentioned`
-   and `text_quote`.
-4. `POST /pipelines/cleanup` removes the probe task, also on failure.
+1. `POST /pipelines/start` with `probe=true` and `probe_pull_cap` (default 300): the
+   extraction pipeline pulls the top-cited hits for the candidate (the probe's pool) and
+   publishes nothing. `GET /pipelines/{id}/status` is polled until the search is done.
+2. **Top-up batches.** The agent reads `GET /pipelines/{id}/llm-results` (every pool
+   publication, in citation order, each with its `fulltext` outcome) and sends the next
+   `fulltext_batch_size` (default 30) publications whose outcome is still `not_attempted`
+   as explicit `publication_ids` to `POST /pipelines/{id}/full-publications/analyze`
+   (`fulltext_source=open`, `steps={"validate_datasets": true}`). Open-access full text is
+   fetched and only the dataset-validation LLM step runs. A publication without open full
+   text is never analyzed, so the agent repeats with the next untried batch until
+   `fulltext_target_delivered` (default 30) papers have full text, the pool is exhausted,
+   or `fulltext_max_batches` (default 8) batches were sent. Each stop records its reason
+   (`target_met`, `pool_exhausted`, `max_batches`); an OpenAlex budget miss is reported
+   but does not stop the loop, because PMC and Europe PMC may still deliver.
+3. A batch is done when every one of its publications has a full-text outcome in
+   `llm-results` and `/status` `llm_analysis` is completed with nothing pending and
+   `total_queued` covering the batch's delivered papers. `fulltext.selected` is not
+   used: extraction overwrites it per analyze call while `attempted` accumulates.
+   `probe_poll_timeout_seconds` applies to the search and to each batch.
+4. The final `llm-results` gives per-publication `is_used`, `is_mentioned` and
+   `text_quote`. `POST /pipelines/cleanup` removes the probe task once, also on failure.
+
+When fewer than the target papers have full text, the iteration notes and the proposal
+say so (for example `18/30 papers with full text (pool_exhausted; 300 attempted in 8
+batch(es))`).
 
 ### Definitions
 
@@ -32,7 +47,7 @@ For each iteration the current candidate is mapped to an extraction seed and **p
 * Papers with no delivered full text, not analyzed, or without a verdict are **excluded**
   from the full-text metrics; they only lower OA coverage.
 * Primary metric: full-text precision = genuine / evaluated. Also reported: usage rate
-  (genuine / mentioned-or-used), mention rate, OA coverage (delivered / sampled) and the
+  (genuine / mentioned-or-used), mention rate, OA coverage (delivered / attempted) and the
   abstract-based FP rate (secondary).
 * A term may be changed only with full-text evidence. Terms with fewer than
   `refine_min_alias_papers` verified papers are `unverified` and never changed; an
@@ -99,9 +114,12 @@ The target extraction instance is `DATASET_AGENT_SUBMIT_TARGET` (`dev` by defaul
 | Setting | Default | Meaning |
 |---|---|---|
 | `fulltext_refinement_enabled` | `false` | Turn the loop on |
-| `fulltext_top_n` | 30 | Top-cited papers analyzed per probe |
-| `probe_pull_cap` | 200 | Papers pulled by the probe search |
-| `probe_poll_timeout_seconds` / `probe_poll_interval_seconds` / `probe_poll_max_interval_seconds` | 900 / 3 / 20 | Polling |
+| `fulltext_target_delivered` | 30 | Papers with delivered full text a probe aims for |
+| `fulltext_batch_size` | 30 | Publications per analyze batch (next untried, by citations) |
+| `fulltext_max_batches` | 8 | Hard stop on batches per probe |
+| `fulltext_top_n` | unset | Deprecated; when set (and `fulltext_batch_size` is not) it is the batch size |
+| `probe_pull_cap` | 300 | Papers pulled by the probe search (the pool batches draw from) |
+| `probe_poll_timeout_seconds` / `probe_poll_interval_seconds` / `probe_poll_max_interval_seconds` | 3600 / 3 / 20 | Polling; the timeout applies to the search and to each batch |
 | `fulltext_min_evidence` | 3 | Min evaluated papers before anything changes |
 | `refine_min_alias_papers` | 3 | Min verified papers per alias |
 | `refine_drop_fp_share` / `refine_demote_fp_share` | 0.8 / 0.5 | Deterministic thresholds |
