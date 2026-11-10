@@ -112,6 +112,14 @@ def candidate_to_seed(
         "schema_url": None,
         "documentation_url": None,
     }
+    quoted = [
+        t
+        for t in (*seed["dataset_names"], *seed["standalone_names"], *seed["flag_terms"], *seed["exclude_terms"])
+        if '"' in t
+    ]
+    if quoted:
+        # The server rejects a double quote in any seed term (HTTP 422).
+        raise ValueError(f"terms must not contain a double quote: {quoted}")
     if dimensions_limit is not None:
         seed["dimensions_limit"] = dimensions_limit
     if use_raw:

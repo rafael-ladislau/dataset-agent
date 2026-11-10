@@ -82,3 +82,11 @@ def test_double_quote_in_alias_is_escaped_and_checked_like_server():
     ).seed_clause(c)
     with pytest.raises(ValueError, match="Big"):
         candidate_to_seed(c)
+
+
+@pytest.mark.parametrize("field", ["risky", "flag_terms", "exclude_terms", "safe"])
+def test_structured_seed_with_quoted_term_fails_fast(field):
+    kw = {"safe": ["National Health Interview Survey"], "risky": ["NHIS"], "flag_terms": ["survey"]}
+    kw[field] = [*kw.get(field, []), 'The "Big" Survey']
+    with pytest.raises(ValueError, match="double quote"):
+        candidate_to_seed(QueryCandidate("X", **kw))

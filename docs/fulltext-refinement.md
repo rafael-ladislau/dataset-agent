@@ -55,17 +55,21 @@ LLM proposals (validated against the quotes before acceptance):
   from the query; Dimensions
   counts are re-probed (zero-hit aliases are rejected; very broad ones become risky).
 
-The loop stops when full-text precision reaches `1 - optimize_fp_threshold_pct/100`, when
-nothing changes, or after the iteration cap. The proposal uses the iteration with the best
-full-text precision (ties go to the earlier iteration); a refinement produced on the last
-iteration is not probed and is therefore not proposed.
+The loop stops when full-text precision reaches `1 - optimize_fp_threshold_pct/100` on at
+least `fulltext_min_evidence` evaluated papers, when nothing changes, after the iteration
+cap, or when a gate evaluation or a probe fails (an evaluation error is not read as 0% FP;
+it ends the loop and caps confidence at LOW). The proposal uses the iteration with the
+best full-text precision among those with at least `fulltext_min_evidence` evaluated
+papers (ties go to the earlier iteration); each iteration notes its `n_evaluated`. A
+refinement produced on the last iteration is not probed and is therefore not proposed.
 
 ## Seed mapping
 
 safe aliases -> `standalone_names`; risky aliases -> `dataset_names` (+ `flag_terms`);
 excludes -> `exclude_terms`. Shapes the buckets cannot express (an explicit raw clause, or
 safe-only candidates) use `dimensions_query`; every alias must appear in it, otherwise the
-mapping fails before anything is sent.
+mapping fails before anything is sent. A term containing a double quote also fails the mapping
+(the server rejects it).
 
 ## Proposal, approve, submit
 
