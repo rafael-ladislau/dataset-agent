@@ -15,6 +15,7 @@ from dataset_agent.adapters.agent_common import (
     prompt_head,
     retry_prompt,
     run_tool,
+    strip_think,
     validate_against_schema,
 )
 from dataset_agent.adapters.tools import TOOL_DEFINITIONS
@@ -82,6 +83,15 @@ class AnthropicAgent(AgentPort):
             )
         return self._client
 
+    def _sampling_body(self) -> dict[str, Any]:
+        """Sampling params sent as raw body fields.
+
+        ``temperature`` is not a typed ``messages.create`` argument in every
+        ``anthropic`` SDK release, so it goes through ``extra_body``; the
+        request payload is the same.
+        """
+        return {"temperature": self._temperature}
+
     # ------------------------------------------------------------------
     # Tool-calling agentic loop
     # ------------------------------------------------------------------
@@ -116,7 +126,7 @@ class AnthropicAgent(AgentPort):
                 kwargs: dict[str, Any] = {
                     "model": self._model_name,
                     "max_tokens": self._max_tokens,
-                    "temperature": self._temperature,
+                    "extra_body": self._sampling_body(),
                     "system": SYSTEM_PROMPT,
                     "messages": messages,
                 }
@@ -187,7 +197,7 @@ class AnthropicAgent(AgentPort):
             final = client.messages.create(
                 model=self._model_name,
                 max_tokens=self._max_tokens,
-                temperature=self._temperature,
+                extra_body=self._sampling_body(),
                 system=SYSTEM_PROMPT,
                 messages=messages,
             )
@@ -231,7 +241,7 @@ class AnthropicAgent(AgentPort):
                 response = client.messages.create(
                     model=self._model_name,
                     max_tokens=self._max_tokens,
-                    temperature=self._temperature,
+                    extra_body=self._sampling_body(),
                     system=SYSTEM_PROMPT,
                     tools=[result_tool],
                     tool_choice={"type": "tool", "name": tool_name},
@@ -284,6 +294,6 @@ class AnthropicAgent(AgentPort):
 
     @staticmethod
     def _extract_text(response: Any) -> str:
-        """Pull all text blocks from an Anthropic response."""
+        """Pull all text blocks from an Anthropic response, minus ``<think>`` blocks."""
         parts = [block.text for block in response.content if hasattr(block, "text") and block.text]
-        return "\n".join(parts).strip() or NO_OUTPUT_TEXT
+        return strip_think("\n".join(parts)) or NO_OUTPUT_TEXT
