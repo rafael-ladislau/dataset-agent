@@ -108,3 +108,52 @@ async def test_async_client_retries_timeout_then_dsl_error(
         await client.execute_dsl("search publications return publications")
     assert len(fake.calls) == 3
     assert all("timeout" in c for c in fake.calls)
+
+
+def test_real_dimcli_login_makes_only_timeout_bound_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Run the real dimcli.login flow: every HTTP call must carry a timeout."""
+    import dimcli  # type: ignore[import-not-found]
+    import dimcli.core.api as real_api
+    import dimcli.core.auth as real_auth
+    import dimcli.utils.version_utils as real_vu
+
+    calls: list[tuple[str, str, Any]] = []
+
+    class _Resp:
+        status_code = 200
+        text = "{}"
+        content = b"{}"
+
+        def json(self) -> dict[str, Any]:
+            return {"token": "t", "release": "x", "version": "1.0", "info": {"version": "1.0"}}
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _Rec:
+        codes = requests.codes
+        exceptions = requests.exceptions
+
+        def __getattr__(self, name: str) -> Any:
+            if name not in ("post", "get"):
+                return getattr(requests, name)
+
+            def _call(url: str, *a: Any, **kw: Any) -> _Resp:
+                calls.append((name.upper(), url, kw.get("timeout")))
+                return _Resp()
+
+            return _call
+
+    rec = _Rec()
+    for mod in (real_api, real_auth, real_vu):
+        monkeypatch.setattr(mod, "requests", rec)
+    monkeypatch.setattr(dimcli.core.auth, "requests", rec, raising=False)
+    try:
+        dd.dimcli_login_dsl(Settings(), "k")
+    except Exception:  # noqa: BLE001 - login result is irrelevant, only the calls
+        pass
+    assert calls, "expected at least the auth call"
+    assert all(t is not None for _, _, t in calls), calls
+    assert not any("pypi" in u for _, u, _ in calls)

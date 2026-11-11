@@ -29,7 +29,7 @@ def _install_fake_dimcli(monkeypatch, n_pubs: int, calls: list | None = None):
                 calls.append(q)
             return {"publications": pubs, "_stats": {"total_count": n_pubs}}
 
-    mod = types.SimpleNamespace(login=lambda key=None: None, Dsl=_Dsl)
+    mod = types.SimpleNamespace(login=lambda key=None, **kw: None, Dsl=_Dsl)
     monkeypatch.setitem(sys.modules, "dimcli", mod)
 
 

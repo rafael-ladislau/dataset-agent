@@ -66,7 +66,7 @@ def install_dimcli_timeout(settings: Settings) -> tuple[float, float]:
     )
     import importlib
 
-    for mod_name in ("dimcli.core.api", "dimcli.core.auth"):
+    for mod_name in ("dimcli.core.api", "dimcli.core.auth", "dimcli.utils.version_utils"):
         try:
             mod = importlib.import_module(mod_name)
         except ImportError:  # pragma: no cover
@@ -86,7 +86,8 @@ def dimcli_login_dsl(settings: Settings, key: str) -> Any:
     import dimcli  # type: ignore[import-not-found]
 
     install_dimcli_timeout(settings)
-    dimcli.login(key=key)
+    # verbose=False skips the post-login PyPI version GET and the extra describe query.
+    dimcli.login(key=key, verbose=False)
     return dimcli.Dsl()
 
 
