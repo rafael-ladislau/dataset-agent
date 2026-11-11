@@ -252,7 +252,7 @@ class Settings(BaseSettings):
     #: Max exclude candidates whose impact is checked in Dimensions per refine pass.
     refine_max_exclude_checks: int = Field(default=5, ge=0, le=20)
     #: Dimensions calls kept free for the next gate evaluation; impact checks stop here.
-    refine_impact_budget_reserve: int = Field(default=8, ge=0)
+    refine_impact_budget_reserve: int = Field(default=14, ge=0)
     #: Min share of matching papers whose quote/snippets carry a new flag term.
     refine_flag_min_share: float = Field(default=0.2, ge=0.0, le=1.0)
     # A new flag term must be a proper name (agency, program, product): any lower-case

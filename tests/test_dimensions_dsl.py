@@ -328,3 +328,39 @@ def test_fetch_publications_resilient_no_paging_for_syntax_or_success() -> None:
 
     with pytest.raises(DimensionsDslError):
         fetch_publications_resilient(syntax, "x", fields="basics", limit=1000)
+
+
+def test_fetch_publications_resilient_outage_stops_early() -> None:
+    import pytest
+
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError, fetch_publications_resilient
+
+    run, calls = _page_runner(lambda lim, sk: True)
+    with pytest.raises(DimensionsDslError):
+        fetch_publications_resilient(run, "x", fields="basics", limit=1000)
+    assert len(calls) <= 1 + 5  # big pull + one halving chain, then abort
+
+
+def test_fetch_publications_resilient_caps_consecutive_skips() -> None:
+    from dataset_agent.adapters.dimensions_dsl import fetch_publications_resilient
+
+    run, calls = _page_runner(lambda lim, sk: lim >= 200 or sk >= 100)
+    pubs, _t, paged = fetch_publications_resilient(run, "x", fields="basics", limit=1000)
+    assert paged and [p["id"] for p in pubs] == [f"p{i}" for i in range(100)]
+    assert len(calls) <= 1 + 1 + 2 * 5
+
+
+def test_fetch_publications_resilient_returns_partial_on_non_server_error() -> None:
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError, fetch_publications_resilient
+
+    run, _calls = _page_runner(lambda lim, sk: lim >= 200)
+    n = {"c": 0}
+
+    def budgeted(dsl: str):
+        n["c"] += 1
+        if n["c"] > 3:
+            raise DimensionsDslError("Dimensions call budget exhausted")
+        return run(dsl)
+
+    pubs, _t, paged = fetch_publications_resilient(budgeted, "x", fields="basics", limit=1000)
+    assert paged and [p["id"] for p in pubs] == [f"p{i}" for i in range(200)]

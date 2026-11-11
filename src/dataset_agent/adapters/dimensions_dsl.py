@@ -433,6 +433,8 @@ def fetch_publications_resilient(
     skip = 0
     calls = 0
     last_exc: Exception | None = None
+    consecutive_skips = 0
+    max_consecutive_skips = 2
     max_calls = 4 * -(-limit // page_size) + 40
     while skip < limit and calls < max_calls:
         size = min(page_size, limit - skip)
@@ -446,6 +448,13 @@ def fetch_publications_resilient(
                 raise_for_dsl_errors(res)
             except Exception as exc:
                 if not is_dimensions_server_error(exc):
+                    if out:  # e.g. call budget exhausted mid-fallback: keep what was fetched
+                        logger.warning(
+                            "Dimensions paging stopped early (%s); returning %s partial rows",
+                            short_dsl_error(exc),
+                            len(out),
+                        )
+                        return out[:limit], total, True
                     raise
                 if size > min_page_size and calls < max_calls:
                     size = max(min_page_size, size // 2)
@@ -460,8 +469,17 @@ def fetch_publications_resilient(
                 res = None
             break
         if res is None:
+            consecutive_skips += 1
+            if not out or consecutive_skips >= max_consecutive_skips:
+                # A floor-size page failing with nothing fetched (or repeatedly) is an outage,
+                # not the size-dependent bug: stop instead of burning the call budget.
+                if not out and last_exc is not None:
+                    raise last_exc
+                logger.warning("Dimensions paging aborted after %s skipped pages", consecutive_skips)
+                break
             skip += size
             continue
+        consecutive_skips = 0
         if not total:
             total = parse_total_count(res)
         rows = publications_from_result(res)
