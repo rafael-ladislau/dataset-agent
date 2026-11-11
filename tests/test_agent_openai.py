@@ -79,10 +79,7 @@ def test_400_on_json_schema_falls_through_to_tool_call(server):
     assert agent.get_structured("Names?", RESULT_TOOL) == VALID
 
     assert [_tier_of(b) for b in server.requests] == [TIER_JSON_SCHEMA, TIER_TOOL_CALL]
-    assert server.requests[1]["tool_choice"] == {
-        "type": "function",
-        "function": {"name": "emit_names"},
-    }
+    assert server.requests[1]["tool_choice"] == "required"
     assert server.requests[1]["tools"][0]["function"]["parameters"] == RESULT_TOOL["input_schema"]
     assert _TIER_CACHE[CACHE_KEY] == TIER_TOOL_CALL
 
@@ -92,6 +89,7 @@ def test_text_tier_parses_fenced_json(server):
     server.push(
         server.error(400),
         server.error(422),
+        server.error(422),
         server.text('Here you go:\n```json\n{"names": ["ACS"]}\n```'),
     )
 
@@ -100,10 +98,11 @@ def test_text_tier_parses_fenced_json(server):
     assert [_tier_of(b) for b in server.requests] == [
         TIER_JSON_SCHEMA,
         TIER_TOOL_CALL,
+        TIER_TOOL_CALL,
         TIER_TEXT_JSON,
     ]
-    assert "tools" not in server.requests[2]
-    assert "JSON Schema" in server.user_texts(2)[-1]
+    assert "tools" not in server.requests[3]
+    assert "JSON Schema" in server.user_texts(3)[-1]
     assert _TIER_CACHE[CACHE_KEY] == TIER_TEXT_JSON
 
 
@@ -265,6 +264,7 @@ def test_content_failure_then_tool_call_400_does_not_demote_cached_tier(server):
         server.text('{"foo": 1}'),
         server.text('{"foo": 1}'),
         server.error(400, "tool_choice must be none|auto|required"),
+        server.error(400, "tool_choice must be none|auto|required"),
         server.text(json.dumps(VALID)),
     )
     assert agent.get_structured("Names?", RESULT_TOOL) == VALID
@@ -295,7 +295,7 @@ def test_tool_call_arguments_as_dict_are_accepted(server, monkeypatch):
 
 def test_every_tier_rejected_leaves_cache_untouched(server):
     agent = make_agent(OPENAI, server)
-    server.push(server.error(400), server.error(400), server.error(400))
+    server.push(*[server.error(400) for _ in range(4)])
 
     assert agent.get_structured("Names?", RESULT_TOOL) == {}
     assert CACHE_KEY not in _TIER_CACHE
@@ -326,3 +326,81 @@ def test_last_structured_tier_tracks_the_returned_object(server):
     server.push(server.error(500))
     assert agent.get_structured("Names?", RESULT_TOOL) == {}
     assert agent.last_structured_tier is None
+
+
+def test_json_schema_reply_in_reasoning_content_is_used(server):
+    agent = make_agent(OPENAI, server)
+    server.push(server.text("", reasoning_content=json.dumps(VALID)))
+
+    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
+    assert len(server.requests) == 1
+    assert agent.last_structured_tier == TIER_JSON_SCHEMA
+    assert agent.structured_failures == 0
+
+
+def test_json_schema_reply_in_reasoning_field_is_used(server):
+    agent = make_agent(OPENAI, server)
+    server.push(server.text("", reasoning=json.dumps(VALID)))
+
+    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
+    assert len(server.requests) == 1
+
+
+def test_reasoning_fallback_is_schema_validated(server):
+    agent = make_agent(OPENAI, server)
+    server.push(
+        server.text("", reasoning_content='{"names": "draft"}'),
+        server.text("", reasoning_content='{"names": "draft"}'),
+        server.tool_call("emit_names", VALID),
+    )
+
+    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
+    assert "schema validation failed" in server.user_texts(1)[-1]
+    assert agent.last_structured_tier == TIER_TOOL_CALL
+
+
+def test_reasoning_with_prose_is_not_parsed(server):
+    agent = make_agent(OPENAI, server)
+    server.push(
+        server.text("", reasoning_content='Thinking... {"names": ["ACS"]} maybe'),
+        server.text(json.dumps(VALID)),
+    )
+
+    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
+    assert "did not contain a JSON object" in server.user_texts(1)[-1]
+
+
+def test_content_json_wins_over_reasoning(server):
+    agent = make_agent(OPENAI, server)
+    server.push(server.text(json.dumps(VALID), reasoning_content='{"names": ["OTHER"]}'))
+
+    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
+
+
+def test_text_json_tier_ignores_reasoning_content(server):
+    agent = make_agent(OPENAI, server)
+    _TIER_CACHE[CACHE_KEY] = TIER_TEXT_JSON
+    server.push(
+        server.text("", reasoning_content=json.dumps(VALID)),
+        server.text("", reasoning_content=json.dumps(VALID)),
+    )
+
+    assert agent.get_structured("Names?", RESULT_TOOL) == {}
+    assert agent.last_structured_tier is None
+
+
+def test_tool_tier_falls_back_to_object_tool_choice_on_400(server):
+    agent = make_agent(OPENAI, server)
+    server.push(
+        server.error(400),
+        server.error(400, "tool_choice must be an object"),
+        server.tool_call("emit_names", VALID),
+    )
+
+    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
+    assert server.requests[1]["tool_choice"] == "required"
+    assert server.requests[2]["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "emit_names"},
+    }
+    assert agent.last_structured_tier == TIER_TOOL_CALL

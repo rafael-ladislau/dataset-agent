@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 from typing import Any
@@ -47,6 +48,22 @@ def reset_tier_cache() -> None:
     """Forget which structured-output tier works for each (base_url, model)."""
     with _TIER_CACHE_LOCK:
         _TIER_CACHE.clear()
+
+
+_FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL | re.IGNORECASE)
+
+
+def _whole_json_object(text: str) -> dict[str, Any] | None:
+    """*text* as a JSON object only when the whole string (or one fenced block) is one."""
+    t = text.strip()
+    m = _FENCE_RE.match(t)
+    if m:
+        t = m.group(1).strip()
+    try:
+        value = json.loads(t)
+    except (ValueError, TypeError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 class _TierUnsupportedError(Exception):
@@ -400,13 +417,26 @@ class OpenAICompatibleAgent(AgentPort):
                         },
                     },
                 )
-                return self._object_from_text(response.choices[0].message)
+                # LM Studio's reasoning parser can leave content empty and put the
+                # schema-constrained JSON in reasoning_content.
+                return self._object_from_text(response.choices[0].message, allow_reasoning=True)
             if tier == TIER_TOOL_CALL:
-                response = self._create(
-                    self._base_messages(prompt),
-                    tools=[to_openai_tool(result_tool)],
-                    tool_choice={"type": "function", "function": {"name": tool_name}},
-                )
+                # Exactly one tool is offered, so "required" forces it; the object form is
+                # rejected by LM Studio ("Invalid tool_choice type"). Endpoints that reject
+                # "required" get the object form once.
+                tools = [to_openai_tool(result_tool)]
+                try:
+                    response = self._create(
+                        self._base_messages(prompt), tools=tools, tool_choice="required"
+                    )
+                except APIStatusError as exc:
+                    if exc.status_code not in _UNSUPPORTED_STATUSES:
+                        raise
+                    response = self._create(
+                        self._base_messages(prompt),
+                        tools=tools,
+                        tool_choice={"type": "function", "function": {"name": tool_name}},
+                    )
                 return self._object_from_tool_call(response.choices[0].message, tool_name)
             response = self._create(self._base_messages(json_only_prompt(prompt, result_tool)))
             return self._object_from_text(response.choices[0].message)
@@ -416,8 +446,17 @@ class OpenAICompatibleAgent(AgentPort):
             raise
 
     @staticmethod
-    def _object_from_text(message: Any) -> tuple[dict[str, Any] | None, str]:
+    def _object_from_text(
+        message: Any, *, allow_reasoning: bool = False
+    ) -> tuple[dict[str, Any] | None, str]:
         parsed = extract_json_object(getattr(message, "content", None))
+        if parsed is None and allow_reasoning:
+            for attr in ("reasoning_content", "reasoning"):
+                value = getattr(message, attr, None)
+                obj = _whole_json_object(value) if isinstance(value, str) else None
+                if obj is not None:
+                    logger.info("structured reply taken from %s (content was empty)", attr)
+                    return obj, ""
         if parsed is None:
             return None, "the reply did not contain a JSON object"
         return parsed, ""
