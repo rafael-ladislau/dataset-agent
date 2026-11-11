@@ -230,6 +230,17 @@ class Settings(BaseSettings):
     probe_poll_max_interval_seconds: float = Field(default=20.0, gt=0.0)
     #: Min full-text-delivered probe papers needed before a term may be changed.
     fulltext_min_evidence: int = Field(default=3, ge=1)
+    #: Recall check after the precision loop: propose adding missing canonical names as
+    #: safe aliases when a complement probe shows they are precise. Needs full-text refinement.
+    fulltext_recall_enabled: bool = True
+    #: Max recall candidates evaluated (one complement probe each) per run.
+    fulltext_recall_max_candidates: int = Field(default=2, ge=0, le=5)
+    #: Min complement precision (papers matching the candidate but not the current query).
+    fulltext_recall_min_precision: float = Field(default=0.8, ge=0.0, le=1.0)
+    #: Min full-text papers evaluated in a complement probe (and min Dimensions hits added).
+    fulltext_recall_min_evidence: int = Field(default=10, ge=1)
+    #: Delivered full texts a complement probe tries to collect (raised to the min evidence).
+    fulltext_recall_target_delivered: int = Field(default=20, ge=1, le=500)
     #: Extraction instance used for probes ("dev" or "prod"; probes never publish).
     probe_target: Literal["dev", "prod"] = "dev"
     #: Extraction instance a proposal is submitted to. "prod" also requires an approved proposal.

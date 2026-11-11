@@ -17,7 +17,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from dataset_agent.adapters.query_builder import build_for_clause, drop_flags_equal_to_aliases
+from dataset_agent.adapters.query_builder import (
+    _clean,
+    _or_group,
+    build_for_clause,
+    drop_flags_equal_to_aliases,
+)
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
 
 
@@ -150,3 +155,59 @@ def candidate_to_seed(
     if extra:
         seed.update(extra)
     return seed
+
+
+def _gated(current: QueryCandidate) -> bool:
+    return bool(current.risky and current.flag_terms)
+
+
+def complement_clause(term: str, current: QueryCandidate, *, server_quoting: bool = False) -> str:
+    """``("term") NOT ((<positive body of current>) OR <current excludes>)``.
+
+    The final query is ``(P OR term) NOT E``, so the papers the term adds are exactly
+    ``term NOT (P OR E)``. *P* is built like :func:`candidate_clause` (V3 body)."""
+    sq = server_quoting
+    pos = build_for_clause(
+        safe=current.safe, variant="V3", risky=current.risky,
+        flag_terms=current.flag_terms, server_quoting=sq,
+    )
+    neg = [f"({pos})"] if pos else []
+    ex = _or_group(_clean(current.exclude_terms), sq)
+    if ex:
+        neg.append(ex)
+    head = _or_group([term], sq)
+    return f"{head} NOT ({' OR '.join(neg)})" if neg else head
+
+
+def complement_candidate(term: str, current: QueryCandidate) -> QueryCandidate:
+    """Candidate whose probe returns only papers *term* adds beyond *current*.
+
+    The term is sent as the (only) alias so the extraction validator looks for it.
+    Raises ``ValueError`` when the shape cannot be expressed safely."""
+    desc = f"recall complement of '{term}' beyond the current query"
+    if not _gated(current):
+        # No flag-gated group: a plain alias with the whole current query as excludes.
+        excl = list(current.safe) + list(current.risky) + list(current.exclude_terms)
+        if not current.safe and not current.risky:
+            excl += list(current.flag_terms)  # flags alone form the query body
+        return QueryCandidate(
+            main_dataset_name=current.main_dataset_name,
+            safe=[term],
+            exclude_terms=dedupe_strings_ci_preserve_order(excl),
+            description=desc,
+        )
+    probe = QueryCandidate(
+        main_dataset_name=current.main_dataset_name,
+        safe=[term], risky=list(current.risky), flag_terms=list(current.flag_terms),
+        exclude_terms=list(current.exclude_terms),
+    )
+    if _has_dsl_special_terms(probe) or any(
+        ch in _DSL_SPECIAL_TERM_CHARS for t in current.safe for ch in t
+    ):
+        raise ValueError("complement not expressible: flag-gated query with DSL special characters")
+    return QueryCandidate(
+        main_dataset_name=current.main_dataset_name,
+        safe=[term],
+        raw_clause=complement_clause(term, current, server_quoting=True),
+        description=desc,
+    )
