@@ -142,3 +142,20 @@ def test_question_mark_only_terms_are_dropped() -> None:
     assert sanitize_term("(?)") is None
     assert sanitize_term("???") is None
     assert sanitize_terms(["?", "MIDRC"]) == ["MIDRC"]
+
+
+def test_empty_backtick_pair_is_dropped() -> None:
+    assert sanitize_term("All `` survey") is None
+    assert sanitize_term("All ` ` survey") is None
+    assert sanitize_terms(["All `` survey", "MIDRC Data Commons"]) == ["MIDRC Data Commons"]
+
+
+def test_inner_backticks_removed() -> None:
+    assert sanitize_term("All of Us `survey`") == "All of Us survey"
+    assert sanitize_term("`MIDRC` Data Commons") == "MIDRC Data Commons"
+    assert sanitize_term("NHANES` data") == "NHANES data"
+    assert sanitize_term("`Foo Bar`") == "Foo Bar"
+
+
+def test_backtick_apostrophe() -> None:
+    assert sanitize_term("O`Brien Cohort") == "O'Brien Cohort"

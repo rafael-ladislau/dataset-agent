@@ -23,7 +23,7 @@ _QUOTES = {
     0x201C: '"', 0x201D: '"', 0x201E: '"', 0x201F: '"', 0x2033: '"',
 }
 _PAIRS = {"(": ")", "[": "]", "{": "}", "<": ">"}
-_QUOTE_CHARS = "\"'`"
+_QUOTE_CHARS = "\"'"
 _UNCERTAIN_TAIL = re.compile(r"\s*[(\[]\s*\?+\s*[)\]]\s*$")
 
 
@@ -73,6 +73,13 @@ def sanitize_term(term: object) -> str | None:
     # Placeholder echoes: check before stripping trailing punctuation.
     if "..." in s or "…" in s:
         return None
+    if "`" in s:
+        # An empty pair ("All `` survey") is a placeholder echo; removing the
+        # backticks would leave a plausible-looking but wrong phrase.
+        if re.search(r"`\s*`", s):
+            return None
+        s = re.sub(r"(?<=[A-Za-z0-9])`(?=[A-Za-z0-9])", "'", s)
+        s = re.sub(r"\s+", " ", s.replace("`", "")).strip()
     before = s
     s = _strip_edges(s)
     if before.rstrip(".,;: ").endswith("?") or _UNCERTAIN_TAIL.search(before):

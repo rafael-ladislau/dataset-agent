@@ -397,3 +397,18 @@ def test_refine_count_raises_at_the_budget_reserve_instead_of_returning_zero(tmp
     # Phase 1's counter is unchanged: it returns 0 only when the whole budget is gone.
     uc._dims_calls = 20
     assert asyncio.run(uc._count("b")) == 0
+
+
+def test_backtick_placeholder_alias_never_reaches_the_probe(tmp_path):
+    req = OptimizeRequest(dataset_name="My Long Dataset Alpha",
+                          dataset_names=["My Long Dataset Alpha", "All `` survey"], flag_terms=["NIH"])
+    good = [pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(4)]
+    client = FakeClient([{"publications": good}])
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(),
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True), extraction_client=client)
+    out = asyncio.run(uc.execute(req))
+    seed = client.seeds[0]
+    assert "All `` survey" not in str(seed) and "All survey" not in str(seed)
+    assert "All `` survey" not in out.aliases.safe + out.aliases.risky
+    assert "All survey" not in out.aliases.safe + out.aliases.risky
