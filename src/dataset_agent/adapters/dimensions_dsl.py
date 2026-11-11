@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 # See docs/spec-gap-analysis.md §2.2 (plus backslash and double-quote for inner terms).
 # Verified live (2026-11-11): inside a quoted full_data phrase a bare "&" is a lexer
 # error, "\\&" lexes and matches (same count as the "and" variant); "\\\\&" fails again.
-_DSL_INNER_SPECIAL = frozenset('^:~[]{}()!|&+"')
+# Parity with the extraction server's escape_phrase (& | ! ( ) { } [ ] ^ ~ * ? : / +), plus
+# backslash (escaped once, never twice) and the double quote.
+_DSL_INNER_SPECIAL = frozenset('^:~[]{}()!|&+"*?/')
 
 
 TRANSIENT_RETRIES = 2

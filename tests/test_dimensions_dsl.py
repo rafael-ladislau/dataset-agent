@@ -364,3 +364,16 @@ def test_fetch_publications_resilient_returns_partial_on_non_server_error() -> N
 
     pubs, _t, paged = fetch_publications_resilient(budgeted, "x", fields="basics", limit=1000)
     assert paged and [p["id"] for p in pubs] == [f"p{i}" for i in range(200)]
+
+
+def test_sanitize_alias_escapes_extraction_phrase_set() -> None:
+    from dataset_agent.adapters.dimensions_dsl import inner_quoted_term, sanitize_alias
+
+    # Same characters as the extraction server's escape_phrase.
+    for ch in "&|!(){}[]^~*?:/+":
+        assert sanitize_alias(f"A{ch}B") == f"A\\{ch}B"
+    assert inner_quoted_term("MIDAS? survey") == "MIDAS\\? survey"
+    assert inner_quoted_term("MIDRC Data Commons") == "MIDRC Data Commons"
+    # Each special character is escaped exactly once (no double escaping).
+    assert sanitize_alias("a?b") == "a\\?b"
+    assert sanitize_alias("a\\b") == "a\\\\b"
