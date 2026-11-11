@@ -345,7 +345,8 @@ def test_groups_become_notes_and_excludes_need_two_papers_and_an_impact():
     assert any("false-positive group 'UI = user interface'" in n for n in r.notes)
     assert any("'Information and Computing Sciences'" in n for n in r.notes)
     flags = [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"]
-    assert flags == ["wage records"]
+    assert flags == []   # lower-case common words never become a flag
+    assert any("wage records (lower-case common words)" in n for n in r.notes)
 
 
 def test_flag_needs_a_share_of_the_matching_papers():
@@ -353,13 +354,13 @@ def test_flag_needs_a_share_of_the_matching_papers():
     pubs[0]["term_contexts"][0]["text"] = "UI records from the state agency"
     pubs[1]["term_contexts"][0]["text"] = "UI records from the state agency"
     c = QueryCandidate(main_dataset_name="UI", safe=["UI"], risky=[], flag_terms=[])
-    llm = FakeLLM({"exclude_terms": [], "flag_terms": ["state agency"], "new_aliases": [], "reasoning": ""})
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": ["State Agency"], "new_aliases": [], "reasoning": ""})
     strict = Settings(refine_min_alias_papers=3, fulltext_min_evidence=3, refine_flag_min_share=0.3)
     r = refine_candidate(c, ev(pubs), settings=strict, agent=llm, dataset_name="UI")
     assert not [d for d in r.diffs if d.kind == "flag" and d.action == "add"]   # 2/10 < 30%
     loose = Settings(refine_min_alias_papers=3, fulltext_min_evidence=3, refine_flag_min_share=0.2)
     r = refine_candidate(c, ev(pubs), settings=loose, agent=llm, dataset_name="UI")
-    assert [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"] == ["state agency"]
+    assert [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"] == ["State Agency"]
 
 
 def test_prompt_shows_snippets_and_fields_for_false_positives():
@@ -429,12 +430,12 @@ def test_scalar_groups_are_ignored():
 
 def test_generic_flags_are_rejected_and_rejections_are_noted():
     pubs = (
-        [pub(f"g{i}", 40 - i, True, "state UI wage records administrative data from the BLS") for i in range(3)]
+        [pub(f"g{i}", 40 - i, True, "state UI wage records administrative data and Administrative Records from the BLS") for i in range(3)]
         + [pub(f"f{i}", 20 - i, False, "UI design study") for i in range(2)]
     )
-    llm = FakeLLM({"exclude_terms": [], "flag_terms": ["state", "administrative data", "BLS", "wage records"],
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": ["state", "administrative data", "Administrative Records", "BLS", "Wage Records"],
                    "new_aliases": [], "reasoning": ""})
-    counts = {"administrative data": 2_000_000, "BLS": 90_000}
+    counts = {"Administrative Records": 2_000_000, "BLS": 90_000}
 
     def count(t):
         if t not in counts:
@@ -445,9 +446,11 @@ def test_generic_flags_are_rejected_and_rejections_are_noted():
                          dataset_name="X", count_fn=count, reference_count=100)
     assert [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"] == ["BLS"]
     note = next(n for n in r.notes if n.startswith("rejected flag candidates"))
-    assert "state (single lower-case word)" in note
-    assert "administrative data (2000000 Dimensions hits" in note
-    assert "wage records (hit count unknown" in note
+    assert "state (lower-case common words)" in note
+    assert "administrative data (lower-case common words)" in note
+    assert "Administrative Records (2000000 Dimensions hits" in note
+    assert "Wage Records (hit count unknown" in note
+    assert diff(r, "flag", "BLS").stats["dimensions_count"] == 90_000
 
 
 def test_partial_acronym_snippets_attribute_false_positives_to_the_alias():

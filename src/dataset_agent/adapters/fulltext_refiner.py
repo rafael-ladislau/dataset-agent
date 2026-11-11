@@ -198,9 +198,10 @@ def _exclude_reason(term: str, hits: list[PubVerdict]) -> str:
 
 
 def _generic_word(term: str) -> bool:
-    """A single all-lower-case word ("state", "wage"): too common to gate an alias."""
+    """An all-lower-case term without digits ("state", "administrative data"): common
+    words, not a named agency, program or product, so too broad to gate an alias."""
     t = term.strip()
-    return len(t.split()) == 1 and t == t.lower() and not any(ch.isdigit() for ch in t)
+    return t == t.lower() and not any(ch.isdigit() for ch in t)
 
 
 def _covered(term: str, existing: list[str]) -> bool:
@@ -309,6 +310,7 @@ def refine_candidate(
         # quotes or full-text snippets (titles never count), and must be specific.
         n_match = len(evidence.genuine)
         flag_checks = 0
+        flag_hits: dict[str, int] = {}
         for t in prop["flag_terms"]:
             if _covered(t, candidate.flag_terms):
                 continue
@@ -317,7 +319,7 @@ def refine_candidate(
                 reject("flag", t, f"in {len(hit_gen)}/{n_match} matching paper(s)")
                 continue
             if _generic_word(t):
-                reject("flag", t, "single lower-case word")
+                reject("flag", t, "lower-case common words")
                 continue
             if count_fn is not None:
                 if flag_checks >= settings.refine_max_flag_checks:
@@ -332,6 +334,7 @@ def refine_candidate(
                 if c <= 0 or c > settings.refine_flag_max_hits:
                     reject("flag", t, f"{c} Dimensions hits (max {settings.refine_flag_max_hits})")
                     continue
+                flag_hits[t] = c
             new_flags.append((t, hit_gen))
         for t in prop["new_aliases"]:
             if _covered(t, aliases):
@@ -421,8 +424,9 @@ def refine_candidate(
     for t, hits in new_flags:
         diffs.append(TermDiff(
             kind="flag", term=t, action="add", status="verified",
-            reason=f"occurs in the quote or snippets of {len(hits)} matching paper(s)", evidence=_quotes(hits),
-            stats={"matching_papers": len(hits)}))
+            reason=f"occurs in the quote or snippets of {len(hits)} matching paper(s)"
+            + (f"; {flag_hits[t]} Dimensions hits" if t in flag_hits else ""), evidence=_quotes(hits),
+            stats={"matching_papers": len(hits), **({"dimensions_count": flag_hits[t]} if t in flag_hits else {})}))
     for e in candidate.exclude_terms:
         diffs.append(TermDiff(kind="exclude", term=e, action="keep", status="unverified", reason="unchanged"))
     for t, hits in new_excludes:

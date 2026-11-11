@@ -102,8 +102,9 @@ LLM proposals (validated against the quotes before acceptance):
   a flag, is rejected because `NOT` would drop the query's own matches)
   (the diff reason states how many matches were quotes and how many title-only);
 * flag terms: must occur in the quote or snippets of at least two matching papers and at
-  least `refine_flag_min_share` of them (titles never count), and must be specific: a single
-  lower-case word ("state", "wage") is rejected, and any other flag needs a Dimensions
+  least `refine_flag_min_share` of them (titles never count), and must be specific: an
+  all-lower-case term without digits ("state", "administrative data") is rejected as common
+  words rather than a named agency, program or product, and any other flag needs a Dimensions
   full-data count between 1 and `refine_flag_max_hits` (an unknown count rejects it; at
   most `refine_max_flag_checks` counts per pass);
 * new aliases: must occur in a matching evidence quote (titles never count) and be absent
