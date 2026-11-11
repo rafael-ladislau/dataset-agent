@@ -372,6 +372,7 @@ class QueryOptimizationUseCase:
         t_phase1 = time.perf_counter()
         try:
             st0, rk0 = apply_short_acronym_heuristic(aliases, [])
+            explicit = {x.lower() for x in st0}
             c_full = await self._count(request.dataset_name)
             alias_entries: list[AliasCountEntry] = []
             risky: list[str] = []
@@ -391,8 +392,13 @@ class QueryOptimizationUseCase:
                 suffixed, suffix_checked = await self._try_suffix_promote(
                     a, c, notes_parts=notes_parts, suffix_checked=suffix_checked
                 )
-                if suffixed and (self._settings.optimize_suffix_short_acronym_safe or not flag_terms):
-                    # Without flag terms a risky alias would never be searched.
+                if suffixed and (
+                    self._settings.optimize_suffix_short_acronym_safe
+                    or not flag_terms
+                    or suffixed.lower() in explicit
+                ):
+                    # Without flag terms a risky alias would never be searched; an alias
+                    # the research listed itself is judged by its own count instead.
                     safe.append(suffixed)
                 elif suffixed:
                     # "WR dataset" still matches other meanings of "WR": flag-gated.

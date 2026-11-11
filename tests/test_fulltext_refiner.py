@@ -482,3 +482,11 @@ def test_partial_snippet_goes_to_the_shortest_alias_sharing_the_acronym():
     assert diff(r, "alias", "WR dataset").action == "drop"
     assert diff(r, "alias", "WR Longitudinal Panel").action == "keep"
     assert diff(r, "alias", "WR Longitudinal Panel").stats["fp"] == 0
+
+
+def test_new_alias_count_rejections_are_noted():
+    pubs = [pub(f"g{i}", 40 - i, True, "we used the NHIS Public Use Files") for i in range(3)]
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": [], "new_aliases": ["NHIS Public Use Files"], "reasoning": ""})
+    r = refine_candidate(QueryCandidate("X", safe=["NHIS"]), ev(pubs), settings=S, agent=llm,
+                         dataset_name="X", count_fn=lambda t: 0, reference_count=100)
+    assert any("NHIS Public Use Files (0 Dimensions hits)" in n for n in r.notes)

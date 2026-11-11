@@ -235,9 +235,15 @@ def refine_candidate(
     enough = evidence.n_evaluated >= settings.fulltext_min_evidence
 
     stats = attribute_terms(evidence, aliases)
-    flags_stats = attribute_terms(evidence, list(candidate.flag_terms))
+    flags_stats = attribute_terms(evidence, list(candidate.flag_terms), partial=False)
 
     # --- LLM proposals, validated against the quotes ------------------------------
+    rejected: dict[str, list[str]] = {"exclude": [], "flag": [], "alias": []}
+
+    def reject(kind: str, term: str, why: str) -> None:
+        logger.info("refine: %s candidate %r rejected: %s", kind, term, why)
+        rejected[kind].append(f"{term} ({why})")
+
     new_excludes: list[tuple[str, list[PubVerdict]]] = []
     new_flags: list[tuple[str, list[PubVerdict]]] = []
     new_aliases: list[tuple[str, list[PubVerdict]]] = []
@@ -261,12 +267,6 @@ def refine_candidate(
                 f"(~{g['papers']} paper(s), via '{g['cause_term']}')"
                 + (f"; candidate excludes {g['exclude_terms']}" if g["exclude_terms"] else "")
             )
-        rejected: dict[str, list[str]] = {"exclude": [], "flag": [], "alias": []}
-
-        def reject(kind: str, term: str, why: str) -> None:
-            logger.info("refine: %s candidate %r rejected: %s", kind, term, why)
-            rejected[kind].append(f"{term} ({why})")
-
         candidates_ex: list[tuple[str, list[PubVerdict]]] = []
         for t in prop["exclude_terms"]:
             if _covered(t, candidate.exclude_terms):
@@ -345,10 +345,6 @@ def refine_candidate(
                 new_aliases.append((t, hit_gen))
             else:
                 reject("alias", t, "not literally in a matching quote")
-        for kind, items in rejected.items():
-            if items:
-                notes.append(f"rejected {kind} candidates: " + "; ".join(items[:8])
-                             + (f"; +{len(items) - 8} more" if len(items) > 8 else ""))
 
     flags = list(candidate.flag_terms) + [t for t, _ in new_flags]
 
@@ -395,16 +391,19 @@ def refine_candidate(
     added_aliases = 0
     for t, hits in new_aliases:
         if added_aliases >= settings.refine_max_new_aliases or count_fn is None:
-            break
+            reject("alias", t, "over the new-alias cap" if count_fn is not None else "no count available")
+            continue
         try:
             c = int(count_fn(t))
         except Exception as exc:  # budget exhausted or Dimensions error
-            logger.info("new alias %r skipped: %s", t, exc)
+            reject("alias", t, f"hit count unknown: {exc}")
             continue
         if c <= 0:
+            reject("alias", t, "0 Dimensions hits")
             continue
         risky = c > 10 * max(1, reference_count)
         if risky and not flags:
+            reject("alias", t, f"{c} Dimensions hits: risky and there are no flag terms")
             continue
         (keep_risky if risky else keep_safe).append(t)
         added_aliases += 1
@@ -413,6 +412,11 @@ def refine_candidate(
             reason=f"mention form in {len(hits)} matching quote(s); {c} Dimensions hits"
             + (" (risky: requires flags)" if risky else ""),
             stats={"dimensions_count": c, "matching_papers": len(hits)}, evidence=_quotes(hits)))
+
+    for kind, items in rejected.items():
+        if items:
+            notes.append(f"rejected {kind} candidates: " + "; ".join(items[:8])
+                         + (f"; +{len(items) - 8} more" if len(items) > 8 else ""))
 
     # --- flags / excludes --------------------------------------------------------------
     for f in candidate.flag_terms:

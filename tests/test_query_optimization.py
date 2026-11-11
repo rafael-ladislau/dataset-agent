@@ -601,6 +601,66 @@ def test_optimize_short_acronym_suffix_via_rk0(
         assert "suffix_risky" not in out.notes
 
 
+def test_optimize_explicit_alias_equal_to_suffixed_acronym_stays_safe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Short acronyms pre-bucketed as risky (e.g. ONET) still get suffix promotion."""
+    responses = [
+        SimpleNamespace(count_total=2000),
+        SimpleNamespace(count_total=500_000),
+        SimpleNamespace(count_total=5000),
+        SimpleNamespace(
+            count_total=150,
+            publications=[{"basics": {"title": "Paper"}}],
+        ),
+        SimpleNamespace(count_total=800),
+        SimpleNamespace(count_total=400),
+    ]
+    dsl = _FakeDSL(responses)
+
+    async def _fake_suffix(_dsl, alias: str, **kw: object) -> str | None:
+        _ = kw
+        if alias == "ONET":
+            return "ONET dataset"
+        return None
+
+    monkeypatch.setattr(qopt_mod, "check_suffix_necessity", _fake_suffix)
+
+    settings = Settings(
+        tasks_db=tmp_path / "t.db",
+        output_dir=tmp_path / "out",
+        dimensions_api_key="test-key",
+        optimize_max_dimensions_calls=50,
+        optimize_signal3_max_titles=0,
+        optimize_abstract_exclude_max_hits=0,
+        optimize_abstract_classify_max_calls=0,
+        optimize_suffix_check_enabled=True,
+        optimize_suffix_check_max_aliases=3,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0,
+    )
+    uc = QueryOptimizationUseCase(
+        dsl_port=dsl,
+        research=MagicMock(),
+        agent=MagicMock(),
+        settings=settings,
+    )
+    out = asyncio.run(
+        uc.execute(
+            OptimizeRequest(
+                dataset_name="My Long Dataset Alpha",
+                dataset_names=["My Long Dataset Alpha", "ONET", "ONET dataset"],
+                flag_terms=["NIH"],
+            )
+        )
+    )
+    assert out.success is True
+    assert out.aliases is not None
+    # Research listed "ONET dataset" itself and its own count is safe.
+    assert "ONET dataset" in out.aliases.safe
+    assert "ONET dataset" not in out.aliases.risky
+
+
 def test_optimize_suffix_promotes_risky_alias(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:

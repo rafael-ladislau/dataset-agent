@@ -309,14 +309,15 @@ def _partial_owners(terms: list[str], verdict: PubVerdict) -> set[str]:
     return owners
 
 
-def attribute_terms(evidence: Evidence, terms: list[str]) -> dict[str, TermStats]:
+def attribute_terms(evidence: Evidence, terms: list[str], *, partial: bool = True) -> dict[str, TermStats]:
     """Per-term attribution: how many verified papers carry each term in quote, title or
-    snippets, or (for aliases) a ``partial`` leading-acronym snippet (see _partial_owners)."""
+    snippets, or (aliases only, ``partial=True``) a ``partial`` leading-acronym snippet
+    (see _partial_owners)."""
     out = {t: TermStats(t) for t in terms}
     for v in evidence.verdicts:
-        partial = _partial_owners(terms, v)
+        owners = _partial_owners(terms, v) if partial else set()
         for t in terms:
-            if term_in(t, v) or t in partial:
+            if term_in(t, v) or t in owners:
                 st = out[t]
                 if v.genuine:
                     st.matched += 1
