@@ -193,7 +193,7 @@ The target extraction instance is `DATASET_AGENT_SUBMIT_TARGET` (`dev` by defaul
 | `refine_drop_fp_share` / `refine_demote_fp_share` | 0.8 / 0.5 | Deterministic thresholds |
 | `refine_max_new_aliases` | 3 | Cap on added aliases per iteration |
 | `refine_min_exclude_papers` | 2 | Min false positives carrying a new exclude |
-| `refine_max_exclude_checks` / `refine_impact_budget_reserve` | 5 / 8 | Impact checks per pass / Dimensions calls kept for the next gate evaluation |
+| `refine_max_exclude_checks` / `refine_impact_budget_reserve` | 5 / 14 | Impact checks per pass / Dimensions calls kept for the next gate evaluation |
 | `refine_flag_min_share` | 0.2 | Min share of matching papers carrying a new flag |
 | `refine_flag_max_hits` / `refine_max_flag_checks` | 500000 / 5 | Max Dimensions hits for a new flag / flag counts per pass |
 | `optimize_suffix_short_acronym_safe` | `false` | Keep `<short acronym> <generic suffix>` aliases ("WR dataset", "QWR program"), whether listed by research or the request or promoted by the suffix check, safe instead of risky (flag-gated); they stay safe anyway when there are no flag terms |
