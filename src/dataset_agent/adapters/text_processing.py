@@ -61,6 +61,16 @@ def _strip_description_search_preamble(text: str) -> str:
     return t
 
 
+_DESCRIPTION_LABEL_RE = re.compile(
+    r"^\W*(?:DESCRIPTION\b\s*[:\-]?|Description\s*:)\s*"
+)
+
+
+def _strip_description_label(text: str) -> str:
+    """Drop a leading echoed prompt label ('DESCRIPTION ', 'Description:')."""
+    return _DESCRIPTION_LABEL_RE.sub("", text, count=1).strip()
+
+
 def clean_description(text: str) -> str:
     """Remove common model artifacts (thinking blocks, excessive whitespace)."""
     if not text:
@@ -72,8 +82,9 @@ def clean_description(text: str) -> str:
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
     text = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", text)
     text = re.sub(r"\s+", " ", text).strip()
+    text = _strip_description_label(text)
     text = _strip_description_search_preamble(text)
-    return text
+    return _strip_description_label(text)
 
 
 def hostname_from_http_url(url: str | None) -> str | None:
