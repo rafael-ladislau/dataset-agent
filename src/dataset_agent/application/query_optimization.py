@@ -391,8 +391,12 @@ class QueryOptimizationUseCase:
                 suffixed, suffix_checked = await self._try_suffix_promote(
                     a, c, notes_parts=notes_parts, suffix_checked=suffix_checked
                 )
-                if suffixed:
+                if suffixed and self._settings.optimize_suffix_short_acronym_safe:
                     safe.append(suffixed)
+                elif suffixed:
+                    # "WR dataset" still matches other meanings of "WR": flag-gated.
+                    risky.append(suffixed)
+                    notes_parts.append(f"suffix_risky: {suffixed!r} kept risky (short acronym)")
                 else:
                     risky.append(a)
 

@@ -587,8 +587,11 @@ def test_optimize_short_acronym_suffix_via_rk0(
     )
     assert out.success is True
     assert out.aliases is not None
-    assert any("dataset" in s.lower() for s in out.aliases.safe)
+    # A suffixed short acronym still collides with the acronym's other meanings.
+    assert "ONET dataset" in out.aliases.risky
+    assert "ONET dataset" not in out.aliases.safe
     assert "suffix_promoted: 'ONET'" in out.notes
+    assert "suffix_risky: 'ONET dataset'" in out.notes
 
 
 def test_optimize_suffix_promotes_risky_alias(

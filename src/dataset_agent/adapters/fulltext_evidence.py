@@ -282,12 +282,23 @@ class TermStats:
                 "fp_share": round(self.fp_share, 3)}
 
 
+def _partial_for(term: str, verdict: PubVerdict) -> bool:
+    """Extraction tagged a snippet ``match=partial`` for this alias: no alias occurs in
+    the paper's text, only the alias's leading acronym (``WR`` for ``WR dataset``)."""
+    key = term.strip().casefold()
+    return any(
+        c.get("match") == "partial" and str(c.get("term") or "").strip().casefold() == key
+        for c in verdict.contexts
+    )
+
+
 def attribute_terms(evidence: Evidence, terms: list[str]) -> dict[str, TermStats]:
-    """Per-term attribution: how many verified papers carry each term in quote, title or snippets."""
+    """Per-term attribution: how many verified papers carry each term in quote, title or
+    snippets, or (for aliases) a ``partial`` leading-acronym snippet tagged with it."""
     out = {t: TermStats(t) for t in terms}
     for v in evidence.verdicts:
         for t in terms:
-            if term_in(t, v):
+            if term_in(t, v) or _partial_for(t, v):
                 st = out[t]
                 if v.genuine:
                     st.matched += 1

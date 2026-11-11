@@ -77,21 +77,22 @@ def test_last_alias_is_not_dropped():
 
 def test_llm_proposals_are_validated_against_quotes_and_counted():
     pubs = (
-        [pub(f"g{i}", 40 - i, True, "we used the National Health Interview Survey (NHIS) microdata") for i in range(3)]
+        [pub(f"g{i}", 40 - i, True, "we used the National Health Interview Survey (NHIS) NCHS microdata")
+         for i in range(3)]
         + [pub(f"f{i}", 20 - i, False, "NHIS nursing home staffing") for i in range(2)]
     )
     llm = FakeLLM({
         "exclude_terms": ["nursing home", "microdata"],   # 2nd occurs in genuine -> rejected
-        "flag_terms": ["microdata", "bogus"],              # bogus not in quotes -> rejected
+        "flag_terms": ["NCHS", "bogus"],                   # bogus not in quotes -> rejected
         "new_aliases": ["National Health Interview Survey", "Made Up Name", "NHIS microdata"],
         "reasoning": "",
     })
-    counts = {"National Health Interview Survey": 500, "NHIS microdata": 0}
+    counts = {"National Health Interview Survey": 500, "NHIS microdata": 0, "NCHS": 40_000}
     cand = QueryCandidate("X", safe=["NHIS"])
     r = refine_candidate(cand, ev(pubs), settings=S, agent=llm, dataset_name="X",
                          count_fn=lambda t: counts.get(t, 0), reference_count=100)
     assert [d.term for d in r.diffs if d.kind == "exclude" and d.action == "add"] == ["nursing home"]
-    assert [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"] == ["microdata"]
+    assert [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"] == ["NCHS"]
     added = [d.term for d in r.diffs if d.kind == "alias" and d.action == "add"]
     assert added == ["National Health Interview Survey"]       # unseen / zero-count rejected
     assert r.candidate.exclude_terms == ["nursing home"]
@@ -145,19 +146,19 @@ def test_exclude_reason_says_quote_versus_title():
 
 def test_llm_terms_are_unquoted_and_inner_quotes_dropped():
     pubs = (
-        [pub(f"g{i}", 40 - i, True, 'we used the NHIS "public use" microdata files') for i in range(3)]
+        [pub(f"g{i}", 40 - i, True, 'we used the NHIS "public use" NCHS microdata files') for i in range(3)]
         + [pub(f"f{i}", 20 - i, False, "NHIS nursing home staffing") for i in range(2)]
     )
     llm = FakeLLM({
         "exclude_terms": ['"nursing home"'],
-        "flag_terms": ['"microdata"', 'NHIS "public use" microdata'],
+        "flag_terms": ['"NCHS"', 'NHIS "public use" microdata'],
         "new_aliases": [],
         "reasoning": "",
     })
     r = refine_candidate(QueryCandidate("X", safe=["NHIS"]), ev(pubs), settings=S, agent=llm,
-                         dataset_name="X", count_fn=lambda t: 0, reference_count=100)
+                         dataset_name="X", count_fn=lambda t: 1000, reference_count=100)
     assert r.candidate.exclude_terms == ["nursing home"]
-    assert r.candidate.flag_terms == ["microdata"]
+    assert r.candidate.flag_terms == ["NCHS"]
     for term in [*r.candidate.exclude_terms, *r.candidate.flag_terms, *r.candidate.safe, *r.candidate.risky]:
         assert '"' not in term
 
@@ -424,3 +425,41 @@ def test_scalar_groups_are_ignored():
                    "reasoning": ""})
     r = refine_candidate(c, ev(_many_fp_pubs()), settings=S, agent=llm, dataset_name="UI")
     assert not any("false-positive group" in n for n in r.notes)
+
+
+def test_generic_flags_are_rejected_and_rejections_are_noted():
+    pubs = (
+        [pub(f"g{i}", 40 - i, True, "state UI wage records administrative data from the BLS") for i in range(3)]
+        + [pub(f"f{i}", 20 - i, False, "UI design study") for i in range(2)]
+    )
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": ["state", "administrative data", "BLS", "wage records"],
+                   "new_aliases": [], "reasoning": ""})
+    counts = {"administrative data": 2_000_000, "BLS": 90_000}
+
+    def count(t):
+        if t not in counts:
+            raise RuntimeError("budget")
+        return counts[t]
+
+    r = refine_candidate(QueryCandidate("X", safe=["UI wage records data"]), ev(pubs), settings=S, agent=llm,
+                         dataset_name="X", count_fn=count, reference_count=100)
+    assert [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"] == ["BLS"]
+    note = next(n for n in r.notes if n.startswith("rejected flag candidates"))
+    assert "state (single lower-case word)" in note
+    assert "administrative data (2000000 Dimensions hits" in note
+    assert "wage records (hit count unknown" in note
+
+
+def test_partial_acronym_snippets_attribute_false_positives_to_the_alias():
+    def fp(i):
+        p = pub(f"f{i}", 30 - i, False, "")
+        p["term_contexts"] = [{"term": "WR dataset", "role": "alias", "part": "body", "match": "partial",
+                               "text": "workflow recognition (WR) on assembly lines"}]
+        return p
+
+    pubs = [pub(f"g{i}", 40 - i, True, "we used state UI wage records") for i in range(3)] + [fp(i) for i in range(4)]
+    cand = QueryCandidate("X", safe=["WR dataset", "UI wage records"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=None, dataset_name="X")
+    drop = [d for d in r.diffs if d.kind == "alias" and d.action == "drop"]
+    assert [d.term for d in drop] == ["WR dataset"]
+    assert drop[0].stats["fp"] == 4

@@ -197,6 +197,12 @@ def _exclude_reason(term: str, hits: list[PubVerdict]) -> str:
     return f"occurs in {where} of {len(hits)} false-positive paper(s) and no matching one"
 
 
+def _generic_word(term: str) -> bool:
+    """A single all-lower-case word ("state", "wage"): too common to gate an alias."""
+    t = term.strip()
+    return len(t.split()) == 1 and t == t.lower() and not any(ch.isdigit() for ch in t)
+
+
 def _covered(term: str, existing: list[str]) -> bool:
     stem = _stem_text(term)
     return any(_stem_text(e) == stem for e in existing)
@@ -254,6 +260,12 @@ def refine_candidate(
                 f"(~{g['papers']} paper(s), via '{g['cause_term']}')"
                 + (f"; candidate excludes {g['exclude_terms']}" if g["exclude_terms"] else "")
             )
+        rejected: dict[str, list[str]] = {"exclude": [], "flag": [], "alias": []}
+
+        def reject(kind: str, term: str, why: str) -> None:
+            logger.info("refine: %s candidate %r rejected: %s", kind, term, why)
+            rejected[kind].append(f"{term} ({why})")
+
         candidates_ex: list[tuple[str, list[PubVerdict]]] = []
         for t in prop["exclude_terms"]:
             if _covered(t, candidate.exclude_terms):
@@ -263,37 +275,64 @@ def refine_candidate(
             if any(_phrase_in(t, a) or _phrase_in(a, t) for a in aliases) or any(
                 _phrase_in(t, f) for f in candidate.flag_terms
             ):
+                reject("exclude", t, "overlaps an alias or flag")
                 continue
             hit_fp = [v for v in evidence.false_positives if term_in(t, v)]
             # Over-matching the genuine side is the safe direction here: an exclude
             # is blocked when the term, or its singular, occurs in a genuine paper.
             forms = [t, *singular_variants(t)]
             hit_gen = [v for v in evidence.genuine if any(term_in(f, v) for f in forms)]
-            if len(hit_fp) < settings.refine_min_exclude_papers or hit_gen:
+            if hit_gen:
+                reject("exclude", t, f"in {len(hit_gen)} matching paper(s)")
+                continue
+            if len(hit_fp) < settings.refine_min_exclude_papers:
+                reject("exclude", t, f"in {len(hit_fp)} false positive(s), need {settings.refine_min_exclude_papers}")
                 continue
             candidates_ex.append((t, hit_fp))
         # Each impact check is a Dimensions call: check the strongest candidates only.
         candidates_ex.sort(key=lambda th: -len(th[1]))
+        for t, _ in candidates_ex[settings.refine_max_exclude_checks:]:
+            reject("exclude", t, "over the impact-check cap")
         for t, hit_fp in candidates_ex[: settings.refine_max_exclude_checks]:
             if impact_fn is not None:
                 try:
                     removed = int(impact_fn(t))
                 except Exception as exc:  # budget reserve reached or Dimensions error
-                    logger.info("exclude %r rejected, impact unknown: %s", t, exc)
+                    reject("exclude", t, f"impact unknown: {exc}")
                     continue
                 if removed <= 0:
+                    reject("exclude", t, "removes no current result")
                     continue
                 impacts[t] = removed
             new_excludes.append((t, hit_fp))
         # Flags need at least two matching papers and a minimum share of them, from
-        # quotes or full-text snippets (titles never count).
+        # quotes or full-text snippets (titles never count), and must be specific.
         n_match = len(evidence.genuine)
+        flag_checks = 0
         for t in prop["flag_terms"]:
             if _covered(t, candidate.flag_terms):
                 continue
             hit_gen = [v for v in evidence.genuine if term_in_evidence(t, v)]
-            if len(hit_gen) >= 2 and len(hit_gen) >= settings.refine_flag_min_share * n_match:
-                new_flags.append((t, hit_gen))
+            if len(hit_gen) < 2 or len(hit_gen) < settings.refine_flag_min_share * n_match:
+                reject("flag", t, f"in {len(hit_gen)}/{n_match} matching paper(s)")
+                continue
+            if _generic_word(t):
+                reject("flag", t, "single lower-case word")
+                continue
+            if count_fn is not None:
+                if flag_checks >= settings.refine_max_flag_checks:
+                    reject("flag", t, "over the flag-check cap")
+                    continue
+                flag_checks += 1
+                try:
+                    c = int(count_fn(t))
+                except Exception as exc:  # budget exhausted or Dimensions error
+                    reject("flag", t, f"hit count unknown: {exc}")
+                    continue
+                if c <= 0 or c > settings.refine_flag_max_hits:
+                    reject("flag", t, f"{c} Dimensions hits (max {settings.refine_flag_max_hits})")
+                    continue
+            new_flags.append((t, hit_gen))
         for t in prop["new_aliases"]:
             if _covered(t, aliases):
                 continue
@@ -301,6 +340,12 @@ def refine_candidate(
             hit_gen = [v for v in evidence.genuine if term_in_quote(t, v, exact=True)]
             if hit_gen:
                 new_aliases.append((t, hit_gen))
+            else:
+                reject("alias", t, "not literally in a matching quote")
+        for kind, items in rejected.items():
+            if items:
+                notes.append(f"rejected {kind} candidates: " + "; ".join(items[:8])
+                             + (f"; +{len(items) - 8} more" if len(items) > 8 else ""))
 
     flags = list(candidate.flag_terms) + [t for t, _ in new_flags]
 

@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     fp_sample_size: int = 1000
     #: Hard cap on Dimensions calls per optimize run (0 = no extra cap beyond use-case logic).
     optimize_max_dimensions_calls: int = Field(default=64, ge=0)
+    # A suffixed form of a short acronym ("WR" -> "WR dataset") still collides with other
+    # meanings of the acronym; keep it risky (flag-gated) unless this is set.
+    optimize_suffix_short_acronym_safe: bool = False
     #: Top publication titles scored with LLM Signal 3 on the primary variant (0 = skip).
     optimize_signal3_max_titles: int = Field(default=5, ge=0, le=20)
     #: Titles with mention_score + context_score below this are treated as likely FP (0–20 scale).
@@ -187,6 +190,11 @@ class Settings(BaseSettings):
     refine_impact_budget_reserve: int = Field(default=8, ge=0)
     #: Min share of matching papers whose quote/snippets carry a new flag term.
     refine_flag_min_share: float = Field(default=0.2, ge=0.0, le=1.0)
+    # A new flag term must be specific: a single lower-case word ("state", "wage") is
+    # rejected outright, and any other flag with more Dimensions full-data hits than this
+    # (or an unknown count) is rejected. At most refine_max_flag_checks counts per pass.
+    refine_flag_max_hits: int = Field(default=500_000, ge=1)
+    refine_max_flag_checks: int = Field(default=5, ge=0, le=20)
     #: Min false positives in one field of research before it is reported as a pattern.
     refine_category_min_fp_papers: int = Field(default=3, ge=1)
 
