@@ -632,3 +632,61 @@ def test_refinement_malformed_group_or_null_list_keeps_valid_proposals(mutate):
             assert out["new_aliases"] == ["UI records"], style
         if reply.get("flag_terms") is not None:
             assert out["flag_terms"] == ["Department of Labor"], style
+
+
+_AOU_QUOTE = "we used AoU data in the All of Us Researcher Workbench"
+
+
+def _aou_candidate(**kw):
+    base = dict(safe=["AoU survey", "All of Us NIH", "All of Us survey"],
+                flag_terms=["All of Us Research Program", "National Institutes of Health", "NIH"])
+    base.update(kw)
+    return QueryCandidate("All of Us", **base)
+
+
+def test_flag_equal_to_new_alias_is_rejected_aou_shape():
+    from dataset_agent.adapters.seed_mapping import candidate_clause
+
+    pubs = [pub(f"g{i}", 40 - i, True, _AOU_QUOTE) for i in range(4)]
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": ["AoU"],
+                   "new_aliases": ["AoU", "All of Us Researcher Workbench"], "reasoning": ""})
+    calls = []
+    r = refine_candidate(_aou_candidate(), ev(pubs), settings=S, agent=llm, dataset_name="All of Us",
+                         count_fn=lambda t: calls.append(t) or 90_000, reference_count=100)
+    assert "AoU" in r.candidate.risky
+    assert "aou" not in [f.casefold() for f in r.candidate.flag_terms]
+    assert any("AoU (already an alias)" in n for n in r.notes)
+    assert calls.count("AoU") == 1   # only the alias count, none for the flag
+    clause = candidate_clause(r.candidate)
+    assert clause.count('\\"AoU\\"') == 1 or clause.count('"AoU"') == 1
+
+
+def test_flag_equal_to_current_alias_is_rejected():
+    pubs = [pub(f"g{i}", 40 - i, True, _AOU_QUOTE) for i in range(4)]
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": ["aou"], "new_aliases": [], "reasoning": ""})
+    calls = []
+    cand = _aou_candidate(risky=["AoU"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=llm, dataset_name="All of Us",
+                         count_fn=lambda t: calls.append(t) or 5, reference_count=100)
+    assert calls == []
+    assert any("aou (already an alias)" in n for n in r.notes)
+    assert "aou" not in [f.casefold() for f in r.candidate.flag_terms]
+
+
+def test_new_alias_equal_to_existing_flag_is_rejected():
+    pubs = [pub(f"g{i}", 40 - i, True, "we used AoU data with NIH funding") for i in range(4)]
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": [], "new_aliases": ["NIH"], "reasoning": ""})
+    r = refine_candidate(_aou_candidate(), ev(pubs), settings=S, agent=llm, dataset_name="All of Us",
+                         count_fn=lambda t: 5, reference_count=100)
+    assert "NIH" not in r.candidate.safe and "NIH" not in r.candidate.risky
+    assert any("NIH (already a flag term)" in n for n in r.notes)
+
+
+def test_flag_not_colliding_still_accepted():
+    pubs = [pub(f"g{i}", 40 - i, True, _AOU_QUOTE) for i in range(4)]
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": ["All of Us Researcher Workbench"],
+                   "new_aliases": ["AoU"], "reasoning": ""})
+    r = refine_candidate(_aou_candidate(), ev(pubs), settings=S, agent=llm, dataset_name="All of Us",
+                         count_fn=lambda t: 5, reference_count=100)
+    assert "All of Us Researcher Workbench" in r.candidate.flag_terms
+    assert "AoU" in r.candidate.safe

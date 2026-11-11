@@ -332,6 +332,26 @@ def refine_candidate(
                     continue
                 impacts[t] = removed
             new_excludes.append((t, hit_fp))
+        # Aliases are validated before flags: a flag equal to a current or new alias
+        # would make the gate satisfy itself (("X") AND (... OR "X")).
+        for t in prop["new_aliases"]:
+            if _covered(t, aliases):
+                already.append(t)
+                continue
+            if _covered(t, candidate.flag_terms):
+                reject("alias", t, "already a flag term")
+                continue
+            # "UI data", "WR dataset": an acronym plus a generic suffix still matches the
+            # acronym's other meanings; the refiner never adds one.
+            if is_acronym_suffix_form(t):
+                reject("alias", t, "short acronym plus generic suffix")
+                continue
+            # A new alias must occur literally (no plural folding) in a genuine quote.
+            hit_gen = [v for v in evidence.genuine if term_in_quote(t, v, exact=True)]
+            if hit_gen:
+                new_aliases.append((t, hit_gen))
+            else:
+                reject("alias", t, "not literally in a matching quote")
         # Flags need at least two matching papers and a minimum share of them, from
         # quotes or full-text snippets (titles never count), and must be specific.
         n_match = len(evidence.genuine)
@@ -340,6 +360,9 @@ def refine_candidate(
         for t in prop["flag_terms"]:
             if _covered(t, candidate.flag_terms):
                 already.append(t)
+                continue
+            if _covered(t, aliases) or _covered(t, [a for a, _ in new_aliases]):
+                reject("flag", t, "already an alias")
                 continue
             hit_gen = [v for v in evidence.genuine if term_in_evidence(t, v)]
             if len(hit_gen) < 2 or len(hit_gen) < settings.refine_flag_min_share * n_match:
@@ -363,22 +386,6 @@ def refine_candidate(
                     continue
                 flag_hits[t] = c
             new_flags.append((t, hit_gen))
-        for t in prop["new_aliases"]:
-            if _covered(t, aliases):
-                already.append(t)
-                continue
-            # "UI data", "WR dataset": an acronym plus a generic suffix still matches the
-            # acronym's other meanings; the refiner never adds one.
-            if is_acronym_suffix_form(t):
-                reject("alias", t, "short acronym plus generic suffix")
-                continue
-            # A new alias must occur literally (no plural folding) in a genuine quote.
-            hit_gen = [v for v in evidence.genuine if term_in_quote(t, v, exact=True)]
-            if hit_gen:
-                new_aliases.append((t, hit_gen))
-            else:
-                reject("alias", t, "not literally in a matching quote")
-
     if already:
         logger.info("refine: proposals skipped, already in the query: %s", already)
         notes.append("proposals skipped, already in the query: " + "; ".join(already[:8]))

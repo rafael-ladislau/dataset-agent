@@ -125,3 +125,24 @@ def test_top_titles_from_result_integration_shape() -> None:
         ]
     )
     assert top_titles_from_result(res, max_titles=5) == ["T1"]
+
+
+_AOU_FLAGS = ["All of Us Research Program", "National Institutes of Health", "NIH"]
+
+
+def test_v4_drops_flag_equal_to_risky_alias_aou_shape() -> None:
+    kw = dict(safe=["AoU survey"], variant="V4", risky=["AoU", "All of Us Researcher Workbench"])
+    clean = build_for_clause(flag_terms=_AOU_FLAGS, **kw)
+    dup = build_for_clause(flag_terms=[*_AOU_FLAGS, "aou"], **kw)
+    assert dup == clean
+    assert clean.count("AoU") == 2  # "AoU survey" and the risky "AoU"
+
+
+def test_v4_keeps_flags_when_every_flag_collides() -> None:
+    fc = build_for_clause(safe=["X survey"], variant="V4", risky=["AoU", "X Workbench"], flag_terms=["AoU"])
+    assert " AND " in fc  # never the ungated risky group
+
+
+def test_flag_equal_to_safe_alias_is_kept() -> None:
+    fc = build_for_clause(safe=["NIH"], variant="V4", risky=["AoU"], flag_terms=["NIH", "CDC"])
+    assert fc.count("NIH") == 2

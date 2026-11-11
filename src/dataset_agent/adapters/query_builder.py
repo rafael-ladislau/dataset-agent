@@ -51,6 +51,28 @@ def _or_group(terms: list[str], server_quoting: bool = False) -> str:
     return "(" + " OR ".join(parts) + ")"
 
 
+def _fold_ws(term: str) -> str:
+    return " ".join(term.casefold().split())
+
+
+def drop_flags_equal_to_aliases(
+    flag_terms: Sequence[str] | None, risky: Sequence[str] | None
+) -> list[str]:
+    """Flags without any term equal (casefolded) to a risky alias.
+
+    A flag equal to a risky alias makes the gate ``(A OR B) AND (.. OR A)`` satisfy
+    itself, so every bare ``A`` paper matches. If every flag would be dropped the
+    flags are returned unchanged: an empty flag group would emit the risky group
+    ungated, which is broader than the AND-gated original.
+    """
+    fl = _clean(flag_terms)
+    rk = {_fold_ws(t) for t in _clean(risky)}
+    if not fl or not rk:
+        return fl
+    kept = [t for t in fl if _fold_ws(t) not in rk]
+    return kept or fl
+
+
 def build_for_clause(
     *,
     safe: Sequence[str],
@@ -67,6 +89,8 @@ def build_for_clause(
     st = _clean(safe)
     rk = _clean(risky)
     fl = _clean(flag_terms)
+    if rk and fl:
+        fl = drop_flags_equal_to_aliases(fl, rk)
     ex = _clean(exclusion_terms)
     th = _clean(tier_hybrid_terms)
     tq = tier_hybrid_qualifier.strip() if isinstance(tier_hybrid_qualifier, str) else ""

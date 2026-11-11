@@ -99,3 +99,8 @@ def test_structured_seed_with_quoted_term_fails_fast(field):
     kw[field] = [*kw.get(field, []), 'The "Big" Survey']
     with pytest.raises(ValueError, match="double quote"):
         candidate_to_seed(QueryCandidate("X", **kw))
+
+
+def test_candidate_to_seed_drops_flag_equal_to_risky_alias():
+    c = QueryCandidate("AoU", safe=["AoU survey"], risky=["AoU"], flag_terms=["NIH", "aou"])
+    assert candidate_to_seed(c)["flag_terms"] == ["NIH"]

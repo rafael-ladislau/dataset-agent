@@ -17,7 +17,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from dataset_agent.adapters.query_builder import build_for_clause
+from dataset_agent.adapters.query_builder import build_for_clause, drop_flags_equal_to_aliases
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
 
 
@@ -114,7 +114,7 @@ def candidate_to_seed(
         "description": c.description or c.main_dataset_name,
         "dataset_names": list(c.risky),
         "standalone_names": list(c.safe),
-        "flag_terms": list(c.flag_terms),
+        "flag_terms": drop_flags_equal_to_aliases(c.flag_terms, c.risky),
         "exclude_terms": list(c.exclude_terms),
         "webhook_url": None,
         "years_range": {"start_year": years[0], "end_year": years[1]},
