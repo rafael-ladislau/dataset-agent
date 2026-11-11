@@ -112,11 +112,16 @@ def _shared_name_phrase(flag: str, forms: list[str]) -> bool:
                 if g[0] in _NAME_JOINERS or g[-1] in _NAME_JOINERS:
                     continue
                 words = [t for t in g if t not in _NAME_JOINERS]
+                # Single-letter words are fold fragments ("Alzheimer's" -> "alzheimer s",
+                # "U.S." -> "u s"), not name words.
+                if any(len(w) < 2 for w in words):
+                    continue
                 if len(words) >= 2 and not all(w in _PHRASE_GENERIC_WORDS for w in words):
                     out.add(tuple(g))
         return out
 
-    fg = grams(ftoks)
+    # A phrase equal to the whole flag is a containment case, handled by the name rule.
+    fg = {g for g in grams(ftoks) if len(g) < len(ftoks)}
     return bool(fg) and any(fg & grams(_fold(f).split()) for f in forms if f)
 
 

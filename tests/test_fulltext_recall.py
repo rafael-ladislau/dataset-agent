@@ -227,3 +227,22 @@ def test_generic_shared_phrases_do_not_make_a_flag_related():
               known=["Health Research Program Survey", "Research Program Data"])
     assert "National Institutes of Health" not in terms(res)
     assert "Research Program" not in terms(res)
+
+
+def test_fold_fragments_do_not_make_funder_flags_related():
+    # "Alzheimer's" folds to "alzheimer s" and "U.S." to "u s": single letters are not name words.
+    adni = QueryCandidate(main_dataset_name="ADNI", flag_terms=["Alzheimer's Association"])
+    assert "Alzheimer's Association" not in terms(run(adni, ["ADNI"], known=["Alzheimer's Disease Neuroimaging"]))
+    ppmi = QueryCandidate(main_dataset_name="PPMI",
+                          flag_terms=["Michael J. Fox Foundation for Parkinson's Research"])
+    assert not [c for c in run(ppmi, ["PPMI"], known=["Parkinson's Progression Markers Initiative"])[0]
+                if c.source == "flag"]
+    acs = QueryCandidate(main_dataset_name="American Community Survey", flag_terms=["U.S. Census Bureau"])
+    res = run(acs, ["American Community Survey"], known=["U.S. Census American Community Survey"])
+    assert "U.S. Census Bureau" not in terms(res)
+
+
+def test_flag_equal_to_shared_phrase_is_not_promoted_by_alias_overlap():
+    cand = QueryCandidate(main_dataset_name="PSID", flag_terms=["University of Michigan"])
+    res = run(cand, ["PSID"], known=["University of Michigan PSID"])
+    assert "University of Michigan" not in terms(res)
