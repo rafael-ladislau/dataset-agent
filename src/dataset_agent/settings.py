@@ -168,6 +168,15 @@ class Settings(BaseSettings):
     # promoted by the suffix check, still collide with other meanings of the acronym;
     # they are risky (flag-gated) when flag terms exist, unless this is set.
     optimize_suffix_short_acronym_safe: bool = False
+    #: When the dataset title has no Dimensions hits and its aliases together find fewer
+    #: than ``optimize_grounding_min_hits`` papers, ask the LLM (one structured call) for
+    #: the proper names the description refers to and keep those Dimensions finds.
+    optimize_grounding_enabled: bool = True
+    optimize_grounding_min_hits: int = Field(default=100, ge=0)
+    #: A grounded name is kept only with at least this many Dimensions hits.
+    optimize_grounding_min_alias_hits: int = Field(default=5, ge=1)
+    #: Max grounded names counted in Dimensions per run.
+    optimize_grounding_max_candidates: int = Field(default=8, ge=0, le=20)
     #: Top publication titles scored with LLM Signal 3 on the primary variant (0 = skip).
     optimize_signal3_max_titles: int = Field(default=5, ge=0, le=20)
     #: Titles with mention_score + context_score below this are treated as likely FP (0–20 scale).

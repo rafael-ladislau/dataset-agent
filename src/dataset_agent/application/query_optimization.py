@@ -42,6 +42,13 @@ from dataset_agent.adapters.fulltext_recall import (
 )
 from dataset_agent.adapters.fulltext_refiner import refine_candidate
 from dataset_agent.adapters.literature import evaluate_for_clause_sync
+from dataset_agent.adapters.name_grounding import (
+    GROUNDING_TOOL,
+    grounding_prompt,
+    needs_grounding,
+    screen_candidates,
+)
+from dataset_agent.adapters.tools import web_search
 from dataset_agent.adapters.seed_mapping import (
     QueryCandidate,
     candidate_clause,
@@ -258,6 +265,62 @@ class QueryOptimizationUseCase:
             logger.warning("Dropping alias %r: Dimensions could not parse it", alias)
             notes_parts.append(f"alias '{alias}' dropped: Dimensions could not parse it")
             return None
+
+    async def _ground_names(
+        self,
+        request: OptimizeRequest,
+        rec: DatasetRecord,
+        alias_entries: list[AliasCountEntry],
+        flag_terms: list[str],
+        notes_parts: list[str],
+    ) -> list[tuple[str, int]]:
+        """Proper names for a descriptive title, each with its Dimensions count.
+
+        Candidates come from the terms evaluation's suggestions and one structured LLM
+        call over the description and a web search; see ``adapters.name_grounding``."""
+        s = self._settings
+        name = request.dataset_name
+        suggested = list(rec.terms_evaluation.suggested_dataset_names) if rec.terms_evaluation else []
+        try:
+            web = await asyncio.to_thread(web_search, f"{name} data network archive name")
+        except Exception as exc:  # web context is best effort
+            logger.warning("grounding: web search failed: %s", exc)
+            web = ""
+        prompt = grounding_prompt(
+            name, rec.description or "", [(e.alias, e.count) for e in alias_entries], flag_terms, web
+        )
+        try:
+            raw = await asyncio.to_thread(self._agent.get_structured, prompt, GROUNDING_TOOL)
+        except Exception as exc:
+            logger.warning("grounding: LLM call failed: %s", exc)
+            raw = {}
+        llm_names = raw.get("names") if isinstance(raw, dict) else None
+        candidates = suggested + [n for n in (llm_names or []) if isinstance(n, str)]
+        kept, rejected = screen_candidates(
+            candidates,
+            dataset_name=name,
+            known_aliases=[e.alias for e in alias_entries],
+            flag_terms=flag_terms,
+            limit=s.optimize_grounding_max_candidates,
+        )
+        found: list[tuple[str, int]] = []
+        for cand in kept:
+            if not self._budget_left():
+                rejected.append(f"{cand} (Dimensions call budget)")
+                continue
+            n = await self._count_alias(cand, notes_parts)
+            if n is None:
+                continue
+            if n < s.optimize_grounding_min_alias_hits:
+                rejected.append(f"{cand} ({n} Dimensions hits)")
+                continue
+            found.append((cand, n))
+        added = ", ".join(f"{a!r} ({n} hits)" for a, n in found) or "none"
+        notes_parts.append(f"grounding: title has no Dimensions hits; added {added}")
+        if rejected:
+            notes_parts.append("grounding: rejected " + "; ".join(rejected))
+        logger.info("grounding: added=%s rejected=%s", found, rejected)
+        return found
 
     async def _refine_count(self, term: str) -> int:
         """Refiner-only count: like ``_exclude_impact`` it raises (instead of returning 0)
@@ -599,6 +662,20 @@ class QueryOptimizationUseCase:
                         risky.append(a)
                 else:
                     safe.append(a)
+
+            if (
+                rec is not None
+                and self._settings.optimize_grounding_enabled
+                and needs_grounding(
+                    c_full, [e.count for e in alias_entries], self._settings.optimize_grounding_min_hits
+                )
+            ):
+                for g_alias, g_count in await self._ground_names(
+                    request, rec, alias_entries, flag_terms, notes_parts
+                ):
+                    g_risk = _alias_risk_label(g_count, c_full, has_fn)
+                    alias_entries.append(AliasCountEntry(alias=g_alias, count=g_count, risk=g_risk))
+                    (risky if g_risk == "risky" else safe).append(g_alias)
 
             # "WR dataset" still matches other meanings of "WR", whether research listed it
             # or the suffix check promoted it: flag-gated. Without flag terms a risky alias
