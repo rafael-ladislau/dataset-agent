@@ -198,11 +198,26 @@ def _exclude_reason(term: str, hits: list[PubVerdict]) -> str:
     return f"occurs in {where} of {len(hits)} false-positive paper(s) and no matching one"
 
 
+#: Lower-case words allowed inside a proper name ("Bureau of Labor Statistics").
+_NAME_JOINERS = frozenset({"of", "the", "and", "for", "on", "in", "to", "at", "de", "&"})
+
+
 def _generic_word(term: str) -> bool:
-    """An all-lower-case term without digits ("state", "administrative data"): common
-    words, not a named agency, program or product, so too broad to gate an alias."""
-    t = term.strip()
-    return t == t.lower() and not any(ch.isdigit() for ch in t)
+    """Not a proper name: some word is lower case (other than a joiner such as "of").
+
+    Flags gate risky aliases, so they must name an agency, program or product: "BLS",
+    "Census Bureau", "Bureau of Labor Statistics" pass; "state", "administrative data"
+    and "state UI" (a lower-case word next to an acronym) do not."""
+    words = [w for w in term.split() if w]
+    if not words:
+        return True
+    for w in words:
+        if w.lower() in _NAME_JOINERS and len(words) > 1:
+            continue
+        first = next((ch for ch in w if ch.isalpha()), "")
+        if first and first.islower():
+            return True
+    return False
 
 
 def _covered(term: str, existing: list[str]) -> bool:
@@ -320,7 +335,7 @@ def refine_candidate(
                 reject("flag", t, f"in {len(hit_gen)}/{n_match} matching paper(s)")
                 continue
             if _generic_word(t):
-                reject("flag", t, "lower-case common words")
+                reject("flag", t, "not a proper name (lower-case word)")
                 continue
             if count_fn is not None:
                 if flag_checks >= settings.refine_max_flag_checks:
@@ -339,6 +354,11 @@ def refine_candidate(
             new_flags.append((t, hit_gen))
         for t in prop["new_aliases"]:
             if _covered(t, aliases):
+                continue
+            # "UI data", "WR dataset": an acronym plus a generic suffix still matches the
+            # acronym's other meanings; the refiner never adds one.
+            if is_acronym_suffix_form(t):
+                reject("alias", t, "short acronym plus generic suffix")
                 continue
             # A new alias must occur literally (no plural folding) in a genuine quote.
             hit_gen = [v for v in evidence.genuine if term_in_quote(t, v, exact=True)]
@@ -402,9 +422,7 @@ def refine_candidate(
         if c <= 0:
             reject("alias", t, "0 Dimensions hits")
             continue
-        # Broad by count, or shaped like "WR dataset" (flag-gated as in phase 1).
-        risky = c > 10 * max(1, reference_count) or bool(
-            flags and not settings.optimize_suffix_short_acronym_safe and is_acronym_suffix_form(t))
+        risky = c > 10 * max(1, reference_count)
         if risky and not flags:
             reject("alias", t, f"{c} Dimensions hits: risky and there are no flag terms")
             continue

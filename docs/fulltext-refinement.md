@@ -104,15 +104,16 @@ LLM proposals (validated against the quotes before acceptance):
   a flag, is rejected because `NOT` would drop the query's own matches)
   (the diff reason states how many matches were quotes and how many title-only);
 * flag terms: must occur in the quote or snippets of at least two matching papers and at
-  least `refine_flag_min_share` of them (titles never count), and must be specific: an
-  all-lower-case term without digits ("state", "administrative data") is rejected as common
-  words rather than a named agency, program or product, and any other flag needs a Dimensions
+  least `refine_flag_min_share` of them (titles never count), and must be a proper name
+  (agency, program or product): a term with any lower-case word other than a joiner such as
+  "of" or "the" is rejected ("state", "administrative data", "state UI"; "Bureau of Labor
+  Statistics" passes), and a proper name needs a Dimensions
   full-data count between 1 and `refine_flag_max_hits` (an unknown count rejects it; at
   most `refine_max_flag_checks` counts per pass);
 * new aliases: must occur in a matching evidence quote (titles never count) and be absent
   from the query; Dimensions
-  counts are re-probed (zero-hit aliases are rejected; very broad ones, and
-  `<short acronym> <generic suffix>` forms when flag terms exist, become risky).
+  counts are re-probed (zero-hit aliases are rejected; very broad ones become risky). A
+  `<short acronym> <generic suffix>` form ("UI data", "WR dataset") is never added.
 
 Every rejected candidate is logged with its reason and summarized in the iteration
 notes ("rejected exclude candidates: …").
@@ -173,7 +174,7 @@ The target extraction instance is `DATASET_AGENT_SUBMIT_TARGET` (`dev` by defaul
 | `refine_max_exclude_checks` / `refine_impact_budget_reserve` | 5 / 8 | Impact checks per pass / Dimensions calls kept for the next gate evaluation |
 | `refine_flag_min_share` | 0.2 | Min share of matching papers carrying a new flag |
 | `refine_flag_max_hits` / `refine_max_flag_checks` | 500000 / 5 | Max Dimensions hits for a new flag / flag counts per pass |
-| `optimize_suffix_short_acronym_safe` | `false` | Keep `<short acronym> <generic suffix>` aliases ("WR dataset", "QWR program"), whether listed by research or the request, promoted by the suffix check, or added by the refiner, safe instead of risky (flag-gated); they stay safe anyway when there are no flag terms |
+| `optimize_suffix_short_acronym_safe` | `false` | Keep `<short acronym> <generic suffix>` aliases ("WR dataset", "QWR program"), whether listed by research or the request or promoted by the suffix check, safe instead of risky (flag-gated); they stay safe anyway when there are no flag terms |
 | `refine_category_min_fp_papers` | 3 | Min false positives in a field of research before it is reported |
 | `probe_target`, `submit_target` | `dev` | Extraction instance for probes / submit |
 | `extraction_{dev,prod}_url`, `_user`, `_password` | empty (must be set; extraction requires HTTP Basic auth) | Per-target connection. Do not point it at dataset-agent's own port. |

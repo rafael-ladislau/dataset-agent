@@ -346,7 +346,7 @@ def test_groups_become_notes_and_excludes_need_two_papers_and_an_impact():
     assert any("'Information and Computing Sciences'" in n for n in r.notes)
     flags = [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"]
     assert flags == []   # lower-case common words never become a flag
-    assert any("wage records (lower-case common words)" in n for n in r.notes)
+    assert any("wage records (not a proper name (lower-case word))" in n for n in r.notes)
 
 
 def test_flag_needs_a_share_of_the_matching_papers():
@@ -430,12 +430,13 @@ def test_scalar_groups_are_ignored():
 
 def test_generic_flags_are_rejected_and_rejections_are_noted():
     pubs = (
-        [pub(f"g{i}", 40 - i, True, "state UI wage records administrative data and Administrative Records from the BLS") for i in range(3)]
+        [pub(f"g{i}", 40 - i, True, "state UI wage records administrative data and Administrative Records from the BLS (Bureau of the Census)") for i in range(3)]
         + [pub(f"f{i}", 20 - i, False, "UI design study") for i in range(2)]
     )
-    llm = FakeLLM({"exclude_terms": [], "flag_terms": ["state", "administrative data", "Administrative Records", "BLS", "Wage Records"],
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": ["state", "administrative data", "state UI", "Administrative Records", "BLS", "Wage Records",
+                                  "Bureau of the Census"],
                    "new_aliases": [], "reasoning": ""})
-    counts = {"Administrative Records": 2_000_000, "BLS": 90_000}
+    counts = {"Administrative Records": 2_000_000, "BLS": 90_000, "Bureau of the Census": 80_000}
 
     def count(t):
         if t not in counts:
@@ -444,10 +445,11 @@ def test_generic_flags_are_rejected_and_rejections_are_noted():
 
     r = refine_candidate(QueryCandidate("X", safe=["UI wage records data"]), ev(pubs), settings=S, agent=llm,
                          dataset_name="X", count_fn=count, reference_count=100)
-    assert [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"] == ["BLS"]
+    assert [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"] == ["BLS", "Bureau of the Census"]
     note = next(n for n in r.notes if n.startswith("rejected flag candidates"))
-    assert "state (lower-case common words)" in note
-    assert "administrative data (lower-case common words)" in note
+    assert "state UI (not a proper name (lower-case word))" in note
+    assert "state (not a proper name (lower-case word))" in note
+    assert "administrative data (not a proper name (lower-case word))" in note
     assert "Administrative Records (2000000 Dimensions hits" in note
     assert "Wage Records (hit count unknown" in note
     assert diff(r, "flag", "BLS").stats["dimensions_count"] == 90_000
@@ -492,14 +494,15 @@ def test_new_alias_count_rejections_are_noted():
     assert any("NHIS Public Use Files (0 Dimensions hits)" in n for n in r.notes)
 
 
-def test_new_alias_shaped_like_acronym_suffix_is_flag_gated():
-    pubs = [pub(f"g{i}", 40 - i, True, "we linked the WR dataset from the Department of Workforce Services")
+def test_new_alias_shaped_like_acronym_suffix_is_rejected():
+    pubs = [pub(f"g{i}", 40 - i, True, "we linked the WR dataset and UI data from the Department of Workforce Services")
             for i in range(4)]
-    llm = FakeLLM({"exclude_terms": [], "flag_terms": [], "new_aliases": ["WR dataset"], "reasoning": ""})
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": [], "new_aliases": ["WR dataset", "UI data"], "reasoning": ""})
+    calls = []
     cand = QueryCandidate("X", safe=["Wage Record Data"], flag_terms=["Department of Workforce Services"])
     r = refine_candidate(cand, ev(pubs), settings=S, agent=llm, dataset_name="X",
-                         count_fn=lambda t: 900, reference_count=200)
-    assert "WR dataset" in r.candidate.risky and "WR dataset" not in r.candidate.safe
-    no_flags = refine_candidate(QueryCandidate("X", safe=["Wage Record Data"]), ev(pubs), settings=S, agent=llm,
-                                dataset_name="X", count_fn=lambda t: 900, reference_count=200)
-    assert "WR dataset" in no_flags.candidate.safe
+                         count_fn=lambda t: calls.append(t) or 900, reference_count=200)
+    assert not [d for d in r.diffs if d.kind == "alias" and d.action == "add"]
+    assert calls == []   # rejected before any Dimensions count
+    note = next(n for n in r.notes if n.startswith("rejected alias candidates"))
+    assert "WR dataset (short acronym plus generic suffix)" in note and "UI data (short acronym" in note
