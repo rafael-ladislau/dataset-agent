@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import functools
 import logging
 import time
@@ -33,9 +34,21 @@ from dataset_agent.adapters.fp_analysis import (
 )
 from dataset_agent.adapters.extraction_client import ExtractionClient, ExtractionError
 from dataset_agent.adapters.fulltext_evidence import Evidence, build_evidence
+from dataset_agent.adapters.fulltext_recall import (
+    RecallCandidate,
+    evidence_quotes,
+    judge_complement,
+    recall_candidates,
+)
 from dataset_agent.adapters.fulltext_refiner import refine_candidate
 from dataset_agent.adapters.literature import evaluate_for_clause_sync
-from dataset_agent.adapters.seed_mapping import QueryCandidate, candidate_clause, candidate_to_seed
+from dataset_agent.adapters.seed_mapping import (
+    QueryCandidate,
+    candidate_clause,
+    candidate_to_seed,
+    complement_candidate,
+    complement_clause,
+)
 from dataset_agent.adapters.query_builder import build_for_clause, default_variant_build_order, run_variant
 from dataset_agent.adapters.query_heuristics import (
     _SUFFIX_CANDIDATES,
@@ -156,7 +169,7 @@ class QueryOptimizationUseCase:
         return self._extraction
 
     async def _probe_candidate(
-        self, candidate: QueryCandidate, request: OptimizeRequest
+        self, candidate: QueryCandidate, request: OptimizeRequest, *, target: int | None = None
     ) -> Evidence:
         """Run one extraction probe for *candidate*; the probe task is cleaned up by the client."""
         s = self._settings
@@ -173,7 +186,7 @@ class QueryOptimizationUseCase:
             functools.partial(
                 client.run_probe_topup,
                 seed,
-                target=s.fulltext_target_delivered,
+                target=target if target is not None else s.fulltext_target_delivered,
                 batch_size=s.fulltext_batch_size,
                 max_batches=s.fulltext_max_batches,
                 pull_cap=s.probe_pull_cap,
@@ -299,6 +312,121 @@ class QueryOptimizationUseCase:
         if suffixed:
             notes_parts.append(f"suffix_promoted: {alias!r} -> {suffixed!r}")
         return suffixed, suffix_checked
+
+    async def _recall_check(
+        self,
+        request: OptimizeRequest,
+        current: QueryCandidate,
+        *,
+        main_names: list[str],
+        known_aliases: list[str],
+        flag_terms: list[str],
+        evidence_against: set[str],
+    ) -> tuple[QueryCandidate, list[TermDiff], list[str], float | None]:
+        """Propose missing canonical names as safe aliases; returns
+        ``(candidate, add diffs, notes, min complement precision of promoted terms)``.
+
+        Every note starts with ``recall check:``. A candidate is promoted only when a
+        complement probe (papers matching it but not the current query) is precise enough."""
+        s = self._settings
+        notes: list[str] = []
+        diffs: list[TermDiff] = []
+        precisions: list[float] = []
+        eligible, rejected = recall_candidates(
+            current, main_names=main_names, known_aliases=known_aliases,
+            flag_terms=flag_terms, evidence_against=evidence_against,
+        )
+        if rejected:
+            notes.append("recall check: not eligible: " + "; ".join(rejected[:8]))
+        if not eligible:
+            return current, diffs, notes, None
+
+        # Count stage: the Dimensions hits each candidate would add (tier order, bounded).
+        counted: list[tuple[RecallCandidate, int]] = []
+        for cand in eligible[: 3 * s.fulltext_recall_max_candidates]:
+            if not self._budget_left():
+                notes.append("recall check stopped: Dimensions call budget exhausted")
+                break
+            try:
+                k = parse_total_count(
+                    await self._counted_execute(
+                        build_for_clause_count_dsl(complement_clause(cand.term, current))
+                    )
+                )
+            except DimensionsDslError as exc:
+                why = ("Dimensions rejected the complement query" if is_dsl_syntax_error(exc)
+                       else f"Dimensions count failed: {short_dsl_error(str(exc))}")
+                notes.append(f"recall check: '{cand.term}' rejected: {why}")
+                continue
+            if k < s.fulltext_recall_min_evidence:
+                notes.append(f"recall check: '{cand.term}' rejected: adds only {k} Dimensions hits")
+            elif k > s.refine_flag_max_hits:
+                notes.append(f"recall check: '{cand.term}' rejected: {k} hits, too broad")
+            else:
+                counted.append((cand, k))
+        counted.sort(key=lambda ck: (ck[0].tier, -ck[1]))
+        chosen = counted[: s.fulltext_recall_max_candidates]
+        for cand, k in counted[s.fulltext_recall_max_candidates :]:
+            notes.append(f"recall check: '{cand.term}' not evaluated: over the candidate cap")
+
+        target = max(s.fulltext_recall_target_delivered, s.fulltext_recall_min_evidence)
+        for cand, k in chosen:
+            term = cand.term
+            if diffs:
+                # Measure beyond the aliases promoted so far, so the gains stay additive.
+                if not self._budget_left():
+                    notes.append("recall check stopped: Dimensions call budget exhausted")
+                    break
+                try:
+                    k = parse_total_count(
+                        await self._counted_execute(
+                            build_for_clause_count_dsl(complement_clause(term, current))
+                        )
+                    )
+                except DimensionsDslError as exc:
+                    notes.append(
+                        f"recall check: '{term}' not evaluated: Dimensions count failed: "
+                        f"{short_dsl_error(str(exc))}"
+                    )
+                    continue
+                if k < s.fulltext_recall_min_evidence:
+                    notes.append(
+                        f"recall check: '{term}' rejected: adds only {k} hits beyond "
+                        f"{', '.join(repr(d.term) for d in diffs)}"
+                    )
+                    continue
+            try:
+                evidence = await self._probe_candidate(
+                    complement_candidate(term, current), request, target=target
+                )
+            except ExtractionError as exc:
+                notes.append(f"recall check: '{term}' not evaluated: {exc}; remaining candidates skipped")
+                break
+            except ValueError as exc:
+                notes.append(f"recall check: '{term}' not evaluated: {exc}")
+                continue
+            ok, reason, stats = judge_complement(term, evidence, k, s)
+            stats = {**stats, "source": cand.source,
+                     "complement_clause": complement_clause(term, current)}
+            if not ok:
+                notes.append(f"recall check: '{term}' rejected: {reason}")
+                continue
+            was_gated = any(r.lower() == term.lower() for r in current.risky)
+            if was_gated:
+                stats["source"] = "alias"
+                reason += " (was flag-gated)"
+            current = dataclasses.replace(
+                current,
+                safe=current.safe + [term],
+                risky=[r for r in current.risky if r.lower() != term.lower()],
+            )
+            precisions.append(float(stats["complement_precision"]))
+            diffs.append(TermDiff(
+                kind="alias", term=term, action="add", status="verified",
+                reason=reason, stats=stats, evidence=evidence_quotes(term, evidence),
+            ))
+            notes.append(f"recall check: promoted '{term}': {reason}")
+        return current, diffs, notes, (min(precisions) if precisions else None)
 
     async def _signal3_fp_rate_pct(
         self,
@@ -853,6 +981,69 @@ class QueryOptimizationUseCase:
                     f"({max(scored)[0]:.2f})."
                 )
 
+        recall_diffs: list[TermDiff] = []
+        recall_min_precision: float | None = None
+        recall_final: QueryCandidate | None = None
+        s_cfg = self._settings
+        if ft_enabled and s_cfg.fulltext_recall_enabled and s_cfg.fulltext_recall_max_candidates > 0:
+            if best_ft_iter is None:
+                notes_parts.append(
+                    "recall check skipped: no full-text evidence for the selected query"
+                )
+            elif ft_probe_error is not None:
+                notes_parts.append("recall check skipped: a full-text probe failed earlier")
+            elif ft_candidates[best_ft_iter].raw_clause:
+                notes_parts.append("recall check skipped: the selected query is a raw clause")
+            else:
+                sel_c = ft_candidates[best_ft_iter]
+                names = dedupe_strings_ci_preserve_order(
+                    [request.dataset_name]
+                    + ([rec.main_dataset_name, rec.official_name] if rec is not None else [])
+                )
+                names = [n for n in names if n]
+                known = dedupe_strings_ci_preserve_order(
+                    list(sel_c.risky)
+                    + [e.alias for e in alias_entries if e.count > 0]
+                )
+                flags = dedupe_strings_ci_preserve_order(
+                    list(sel_c.flag_terms) + list(ft_candidates[0].flag_terms)
+                )
+                against = {
+                    d.term
+                    for ds in ft_diffs.values()
+                    for d in ds
+                    if d.kind == "alias" and d.action in ("drop", "demote")
+                }
+                final_c, recall_diffs, rnotes, recall_min_precision = await self._recall_check(
+                    request, sel_c, main_names=names, known_aliases=known,
+                    flag_terms=flags, evidence_against=against,
+                )
+                notes_parts.extend(rnotes)
+                if recall_diffs:
+                    recall_final = final_c
+                    safe, risky = list(final_c.safe), list(final_c.risky)
+                    new_clause = candidate_clause(final_c)
+                    count: int | None = None
+                    if self._budget_left():
+                        try:
+                            count = parse_total_count(
+                                await self._counted_execute(build_for_clause_count_dsl(new_clause))
+                            )
+                        except DimensionsDslError:
+                            count = None
+                    prev = best_variant_entry
+                    best_variant_entry = VariantTestedEntry(
+                        label=f"{prev.label}+recall" if prev is not None else "V4+recall",
+                        for_clause=new_clause,
+                        expected_count=count,
+                        fp_rate_pct=prev.fp_rate_pct if prev is not None else 0.0,
+                    )
+                    tested.append(best_variant_entry)
+                    notes_parts.append(
+                        f"recall check: added {len(recall_diffs)} alias(es); "
+                        "abstract FP rate not re-evaluated"
+                    )
+
         # Prefer best gate-evaluated variant; fall back to lowest-FP among all tested
         if best_variant_entry is not None:
             best = best_variant_entry
@@ -891,6 +1082,10 @@ class QueryOptimizationUseCase:
             if best_ft_iter is not None:
                 sel = next(m for m in ft_iterations if m.iteration == best_ft_iter)
                 prec = float(sel.fulltext_precision or 0.0)
+                if recall_min_precision is not None:
+                    # A promoted complement may dominate the result set and was accepted
+                    # at its own (possibly lower) bar; never report more than it supports.
+                    prec = min(prec, recall_min_precision)
                 if prec >= 1.0 - threshold / 100.0:
                     ft_conf = ConfidenceLevel.HIGH
                 elif prec >= 0.5:
@@ -907,14 +1102,17 @@ class QueryOptimizationUseCase:
                 proposal = build_proposal(
                     dataset_name=request.dataset_name,
                     initial=ft_candidates[0],
-                    proposed=ft_candidates[use_it],
-                    diffs=merge_diffs([ft_diffs[i] for i in order]),
+                    proposed=recall_final if recall_final is not None else ft_candidates[use_it],
+                    diffs=merge_diffs([ft_diffs[i] for i in order] + ([recall_diffs] if recall_diffs else [])),
                     iterations=ft_iterations,
                     settings=self._settings,
                     notes=[
                         n
                         for n in notes_parts
-                        if "full-text" in n or "refiner" in n or "Dimensions query failed" in n
+                        if "full-text" in n
+                        or "refiner" in n
+                        or "Dimensions query failed" in n
+                        or n.startswith("recall check")
                     ],
                     seed_kw={"extra": {"home_url": request.dataset_url}},
                 )

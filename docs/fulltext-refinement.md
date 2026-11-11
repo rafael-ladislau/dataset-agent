@@ -177,6 +177,40 @@ POST /proposals/{id}/submit       # 409 unless approved; one submit per proposal
 The target extraction instance is `DATASET_AGENT_SUBMIT_TARGET` (`dev` by default).
 `prod` has to be set explicitly and the proposal must still be approved.
 
+## Recall check
+
+The loop measures precision only, so the selected query can be precise but tiny: a program's
+full name that sits in the flag terms never matches on its own (flags only gate risky aliases).
+After the loop selects its best iteration, a recall step proposes adding missing canonical
+names as **safe aliases**, only with full-text evidence.
+
+1. **Candidates** (deterministic, no LLM): flag terms that name the dataset, the main names,
+   and known aliases that are not safe now (risky, or dropped in phase 1). A flag counts as
+   naming the dataset when a main name sits inside it, or it is/starts with/has the initials of
+   a dataset acronym (so "All of Us Research Program" and "Medical Imaging and Data Resource
+   Center" pass while NIH, NSF and "National Cancer Institute" do not). Head-position acronyms
+   only, so the alias "All of Us NIH" does not make NIH related. The existing safety bar
+   applies: proper names only, no short acronym, no acronym plus generic suffix, nothing the
+   refiner already dropped or demoted on full text, no bare rhetorical phrase.
+2. **Count**: the Dimensions hits each candidate adds beyond the current query (at most three
+   times the candidate cap); fewer than the minimum evidence is rejected, as is a count above
+   `refine_flag_max_hits`.
+3. **Complement probe**: top-cited papers matching the candidate but not the current query
+   (`("term") NOT (<current query>)`), one probe per candidate within the usual probe limits.
+   The candidate is sent as the alias so the validator looks for it. Promoted only with
+   precision >= `fulltext_recall_min_precision` on >= `fulltext_recall_min_evidence` papers;
+   otherwise the run notes say why (including free-full-text shortfalls). Later candidates are
+   measured beyond the ones already promoted. A flag-gated query whose terms contain DSL special
+   characters cannot be expressed as a complement and is reported as not evaluated.
+4. **Output**: a `TermDiff` (`alias`, `add`) with reason `recall: complement precision X on N
+   papers; +K Dimensions hits` and evidence quotes; the final query, proposal and
+   `selected_variant` (`...+recall`) include the alias. The abstract FP rate is not
+   re-evaluated for the widened query. Confidence is capped by the complement precision
+   (a complement accepted at 0.8 cannot yield HIGH).
+
+Caveat: the probe samples top-cited open-access papers while the hit count covers all years, so
+the precision is an extrapolation from a small sample; the reason string states the sample size.
+
 ## Settings (`DATASET_AGENT_` prefix)
 
 | Setting | Default | Meaning |
@@ -188,6 +222,10 @@ The target extraction instance is `DATASET_AGENT_SUBMIT_TARGET` (`dev` by defaul
 | `fulltext_top_n` | unset | Deprecated; when set (and `fulltext_batch_size` is not) it is the batch size |
 | `probe_pull_cap` | 300 | Papers pulled by the probe search (the pool batches draw from) |
 | `probe_poll_timeout_seconds` / `probe_poll_interval_seconds` / `probe_poll_max_interval_seconds` | 3600 / 3 / 20 | Polling; the timeout applies to the search and to each batch |
+| `fulltext_recall_enabled` | `true` | Recall check after the precision loop (needs the loop) |
+| `fulltext_recall_max_candidates` | 2 | Complement probes per run (0 disables) |
+| `fulltext_recall_min_precision` / `fulltext_recall_min_evidence` | 0.8 / 10 | Bar a complement probe must meet (precision; evaluated papers and added Dimensions hits) |
+| `fulltext_recall_target_delivered` | 20 | Full texts a complement probe aims for (at least the min evidence) |
 | `fulltext_min_evidence` | 3 | Min evaluated papers before anything changes |
 | `refine_min_alias_papers` | 3 | Min verified papers per alias |
 | `refine_drop_fp_share` / `refine_demote_fp_share` | 0.8 / 0.5 | Deterministic thresholds |

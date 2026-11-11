@@ -412,3 +412,194 @@ def test_backtick_placeholder_alias_never_reaches_the_probe(tmp_path):
     assert "All `` survey" not in str(seed) and "All survey" not in str(seed)
     assert "All `` survey" not in out.aliases.safe + out.aliases.risky
     assert "All survey" not in out.aliases.safe + out.aliases.risky
+
+
+# --- Recall check ------------------------------------------------------------------------
+
+RC_NAME = "Beta Health Survey"
+RC_FLAGS = ["Beta Health Survey Research Program", "NIH"]
+RC_REQ = OptimizeRequest(dataset_name=RC_NAME, dataset_names=[RC_NAME], flag_terms=RC_FLAGS)
+
+
+class RecallDSL(CountDSL):
+    """Totals: complement queries (contain NOT) return *not_total*; a query holding
+    ``risky_marker`` (and no NOT) is huge so that alias is classified risky."""
+
+    def __init__(self, not_total=100, risky_marker=None, fail_not=False):
+        super().__init__()
+        self.not_total, self.risky_marker, self.fail_not = not_total, risky_marker, fail_not
+
+    async def execute_dsl(self, dsl):
+        self.queries.append(dsl)
+        if " NOT " in dsl:
+            if self.fail_not:
+                from dataset_agent.adapters.dimensions_dsl import DimensionsDslError
+
+                raise DimensionsDslError("QuerySyntaxError: bad", errors={"x": "QuerySyntaxError"})
+            return SimpleNamespace(count_total=self.not_total, publications=[])
+        if self.risky_marker and self.risky_marker in dsl:
+            return SimpleNamespace(count_total=5000, publications=[])
+        return SimpleNamespace(count_total=100, publications=[])
+
+    def n_not(self):
+        return sum(1 for q in self.queries if " NOT " in q)
+
+
+def comp_pubs(term, n, genuine, tag="c"):
+    return [pub(f"{tag}{i}", 40 - i, i < genuine, f"studied with the {term} data") for i in range(n)]
+
+
+def gate_pubs():
+    return [pub(f"g{i}", 30 - i, True, f"{RC_NAME} data") for i in range(4)]
+
+
+def recall_uc(tmp_path, results, dsl=None, request_settings=None, **kw):
+    client = FakeClient(results, **kw)
+    dsl = dsl or RecallDSL()
+    s = make_settings(tmp_path, fulltext_refinement_enabled=True, **(request_settings or {}))
+    uc = QueryOptimizationUseCase(dsl_port=dsl, research=MagicMock(), agent=MagicMock(), settings=s,
+                                  extraction_client=client)
+    return uc, client, dsl
+
+
+def run_recall(tmp_path, results, req=RC_REQ, **kw):
+    uc, client, dsl = recall_uc(tmp_path, results, **kw)
+    return asyncio.run(uc.execute(req)), client, dsl
+
+
+PROGRAM = "Beta Health Survey Research Program"
+
+
+def test_recall_promotes_flag_naming_the_dataset(tmp_path):
+    import re
+
+    out, client, dsl = run_recall(tmp_path, [{"publications": gate_pubs()},
+                                              {"publications": comp_pubs(PROGRAM, 10, 9)}],
+                                  request_settings=dict(fulltext_recall_max_candidates=1))
+    assert out.success and len(client.seeds) == 2
+    comp = client.seeds[1]
+    assert PROGRAM in comp["dataset_names"] and "Beta Health Survey" in str(comp["dimensions_query"])
+    assert client.kwargs[1]["target"] == 20
+    assert PROGRAM in out.aliases.safe and PROGRAM in out.for_clause
+    assert "NIH" in out.flag_terms or out.flag_terms
+    assert out.selected_variant.endswith("+recall")
+    p = out.proposal
+    assert PROGRAM in p.proposed.safe and PROGRAM in str(p.start_payload)
+    d = next(d for d in p.diffs if d.term == PROGRAM)
+    assert d.action == "add" and d.kind == "alias" and d.evidence
+    assert re.match(r"^recall: complement precision 0\.90 on 10 papers; \+100 Dimensions hits", d.reason)
+    assert "recall check: not eligible: NIH (short acronym)" in out.notes
+
+
+def test_recall_rejects_low_complement_precision(tmp_path):
+    out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs()},
+                                            {"publications": comp_pubs(PROGRAM, 10, 5)}])
+    assert PROGRAM not in out.aliases.safe and not out.selected_variant.endswith("+recall")
+    assert f"recall check: '{PROGRAM}' rejected: complement precision 0.50 on 10 papers (need 0.80)" in out.notes
+    assert any("complement precision 0.50" in n for n in out.proposal.notes)
+
+
+def test_recall_shortfall_is_reported_not_promoted(tmp_path):
+    uc, client, _ = recall_uc(tmp_path, [{"publications": gate_pubs()},
+                                         {"publications": comp_pubs(PROGRAM, 4, 4)}])
+    client.stop_reason = "pool_exhausted"
+    out = asyncio.run(uc.execute(RC_REQ))
+    assert PROGRAM not in out.aliases.safe
+    assert "only 4 full-text paper(s) evaluated (need 10)" in out.notes
+
+
+def test_recall_disabled_runs_no_extra_probe(tmp_path):
+    out, client, dsl = run_recall(tmp_path, [{"publications": gate_pubs()}],
+                                  request_settings=dict(fulltext_recall_enabled=False))
+    assert len(client.seeds) == 1 and dsl.n_not() == 0 and "recall check" not in out.notes
+
+
+def test_recall_candidate_cap_and_additive_second_candidate(tmp_path):
+    other = "Beta Health Survey Data Center"
+    third = "Beta Health Survey Consortium"
+    req = OptimizeRequest(dataset_name=RC_NAME, dataset_names=[RC_NAME], flag_terms=[PROGRAM, other, third])
+    out, client, dsl = run_recall(tmp_path, [{"publications": gate_pubs()},
+                                              {"publications": comp_pubs(PROGRAM, 10, 10, "a")},
+                                              {"publications": comp_pubs(other, 10, 10, "b")}], req=req)
+    assert len(client.seeds) == 3
+    # second complement is measured beyond the first promoted alias
+    assert PROGRAM in str(client.seeds[2]["dimensions_query"]) and other in client.seeds[2]["dataset_names"]
+    assert {PROGRAM, other} <= set(out.aliases.safe) and third not in out.aliases.safe
+    assert f"recall check: '{third}' not evaluated: over the candidate cap" in out.notes
+    assert dsl.n_not() == 3 + 1  # three counts + one recount for the second candidate
+
+
+def test_recall_small_gain_skips_probe(tmp_path):
+    out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs()}], dsl=RecallDSL(not_total=4))
+    assert len(client.seeds) == 1
+    assert f"recall check: '{PROGRAM}' rejected: adds only 4 Dimensions hits" in out.notes
+
+
+def test_recall_stops_on_dimensions_budget(tmp_path):
+    uc, client, dsl = recall_uc(tmp_path, [{"publications": gate_pubs()}])
+    orig = uc._recall_check
+
+    async def wrapped(*a, **k):
+        uc._dims_calls = 10**6  # budget gone when the recall check starts
+        return await orig(*a, **k)
+
+    uc._recall_check = wrapped
+    uc._settings.optimize_max_dimensions_calls = 10**6 - 1
+    out = asyncio.run(uc.execute(RC_REQ))
+    assert out.success and "recall check stopped: Dimensions call budget exhausted" in out.notes
+    assert len(client.seeds) == 1 and PROGRAM not in out.aliases.safe
+
+
+def test_recall_syntax_error_and_probe_failure_are_noted_not_fatal(tmp_path):
+    from dataset_agent.adapters.extraction_client import ExtractionError
+
+    out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs()}], dsl=RecallDSL(fail_not=True))
+    assert out.success and "Dimensions rejected the complement query" in out.notes
+    out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs()}, ExtractionError("down")])
+    assert out.success and f"recall check: '{PROGRAM}' not evaluated: down" in out.notes
+    assert PROGRAM not in out.aliases.safe
+
+
+def test_recall_caps_confidence(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        qopt_mod, "evaluate_for_clause_sync",
+        lambda *a, **k: {"fp_rate_pct": 0.5, "genuine_count": 10, "fp_count": 0, "matched_count": 10,
+                         "total_pubs": 100, "coverage_pct": 100.0, "for_clause": k.get("for_clause", ""),
+                         "publications_total": 100, "fp_hits": []},
+    )
+    low, _, _ = run_recall(tmp_path, [{"publications": gate_pubs()},
+                                      {"publications": comp_pubs(PROGRAM, 10, 8)}],
+                           request_settings=dict(fulltext_recall_max_candidates=1))
+    assert PROGRAM in low.aliases.safe and low.confidence.value == "medium"
+    high, _, _ = run_recall(tmp_path, [{"publications": gate_pubs()},
+                                       {"publications": comp_pubs(PROGRAM, 20, 20)}],
+                            request_settings=dict(fulltext_recall_max_candidates=1))
+    assert PROGRAM in high.aliases.safe and high.confidence.value == "high"
+
+
+def test_recall_skipped_without_selected_fulltext_iteration(tmp_path):
+    from dataset_agent.adapters.extraction_client import ExtractionError
+
+    out, client, _ = run_recall(tmp_path, [ExtractionError("down")])
+    assert out.success and "recall check skipped" in out.notes and len(client.seeds) == 1
+    out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs()[:1]}])
+    assert "recall check skipped: no full-text evidence" in out.notes
+
+
+def test_recall_promotes_risky_alias_out_of_the_flag_gate(tmp_path):
+    risky = "Beta Health Survey Network"
+    req = OptimizeRequest(dataset_name=RC_NAME, dataset_names=[RC_NAME, risky], flag_terms=[PROGRAM])
+    out, client, _ = run_recall(
+        tmp_path, [{"publications": gate_pubs()}, {"publications": comp_pubs(risky, 10, 10)}],
+        req=req, dsl=RecallDSL(risky_marker="Network"),
+        request_settings=dict(fulltext_recall_max_candidates=1))
+    # cap 1: only the flag (tier 0) is probed, as a hybrid raw complement; the alias stays gated
+    assert out.aliases.risky == [risky] and PROGRAM in out.aliases.safe
+    assert "AND" in client.seeds[1]["dimensions_query"]
+    out2, client2, _ = run_recall(
+        tmp_path, [{"publications": gate_pubs()}, {"publications": comp_pubs(PROGRAM, 10, 4, "x")},
+                   {"publications": comp_pubs(risky, 10, 10, "y")}],
+        req=req, dsl=RecallDSL(risky_marker="Network"))
+    assert risky in out2.aliases.safe and risky not in out2.aliases.risky
+    d = next(d for d in out2.proposal.diffs if d.term == risky)
+    assert d.action == "add" and d.reason.endswith("(was flag-gated)") and d.stats["source"] == "alias"
