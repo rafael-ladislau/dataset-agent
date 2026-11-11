@@ -532,7 +532,9 @@ def test_fp_rate_counts_all_fp_domains() -> None:
     assert "patient" in noise
 
 
+@pytest.mark.parametrize("flags", [["NIH"], []])
 def test_optimize_short_acronym_suffix_via_rk0(
+    flags: list[str],
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Short acronyms pre-bucketed as risky (e.g. ONET) still get suffix promotion."""
@@ -581,17 +583,22 @@ def test_optimize_short_acronym_suffix_via_rk0(
             OptimizeRequest(
                 dataset_name="My Long Dataset Alpha",
                 dataset_names=["My Long Dataset Alpha", "ONET"],
-                flag_terms=["NIH"],
+                flag_terms=flags,
             )
         )
     )
     assert out.success is True
     assert out.aliases is not None
-    # A suffixed short acronym still collides with the acronym's other meanings.
-    assert "ONET dataset" in out.aliases.risky
-    assert "ONET dataset" not in out.aliases.safe
     assert "suffix_promoted: 'ONET'" in out.notes
-    assert "suffix_risky: 'ONET dataset'" in out.notes
+    if flags:
+        # A suffixed short acronym still collides with the acronym's other meanings.
+        assert "ONET dataset" in out.aliases.risky
+        assert "ONET dataset" not in out.aliases.safe
+        assert "suffix_risky: 'ONET dataset'" in out.notes
+    else:
+        # Without flag terms a risky alias would never be searched: keep it safe.
+        assert "ONET dataset" in out.aliases.safe
+        assert "suffix_risky" not in out.notes
 
 
 def test_optimize_suffix_promotes_risky_alias(

@@ -190,8 +190,8 @@ class Settings(BaseSettings):
     refine_impact_budget_reserve: int = Field(default=8, ge=0)
     #: Min share of matching papers whose quote/snippets carry a new flag term.
     refine_flag_min_share: float = Field(default=0.2, ge=0.0, le=1.0)
-    # A new flag term must be specific: a single lower-case word ("state", "wage") is
-    # rejected outright, and any other flag with more Dimensions full-data hits than this
+    # A new flag term must be specific: an all-lower-case term ("state", "administrative
+    # data") is rejected outright, and any other flag with more Dimensions full-data hits than this
     # (or an unknown count) is rejected. At most refine_max_flag_checks counts per pass.
     refine_flag_max_hits: int = Field(default=500_000, ge=1)
     refine_max_flag_checks: int = Field(default=5, ge=0, le=20)

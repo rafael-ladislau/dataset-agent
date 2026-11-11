@@ -282,23 +282,41 @@ class TermStats:
                 "fp_share": round(self.fp_share, 3)}
 
 
-def _partial_for(term: str, verdict: PubVerdict) -> bool:
-    """Extraction tagged a snippet ``match=partial`` for this alias: no alias occurs in
-    the paper's text, only the alias's leading acronym (``WR`` for ``WR dataset``)."""
-    key = term.strip().casefold()
-    return any(
-        c.get("match") == "partial" and str(c.get("term") or "").strip().casefold() == key
-        for c in verdict.contexts
-    )
+def _head(term: str) -> str:
+    words = term.split()
+    return words[0].casefold() if len(words) >= 2 else ""
+
+
+def _partial_owners(terms: list[str], verdict: PubVerdict) -> set[str]:
+    """Aliases a ``match=partial`` snippet is attributed to.
+
+    Extraction searches each leading acronym once and tags the snippet with the first
+    alias that has it, so the tag may name a precise alias ("WR Longitudinal Panel")
+    rather than the ambiguous one ("WR dataset"). No alias occurs in the paper's text,
+    so the snippet goes to the alias(es) with that acronym and the fewest words: the
+    shortest phrase is the one most likely to match by accident.
+    """
+    owners: set[str] = set()
+    for c in verdict.contexts:
+        if c.get("match") != "partial":
+            continue
+        head = _head(str(c.get("term") or ""))
+        sharing = [t for t in terms if head and _head(t) == head]
+        if not sharing:
+            continue
+        fewest = min(len(t.split()) for t in sharing)
+        owners.update(t for t in sharing if len(t.split()) == fewest)
+    return owners
 
 
 def attribute_terms(evidence: Evidence, terms: list[str]) -> dict[str, TermStats]:
     """Per-term attribution: how many verified papers carry each term in quote, title or
-    snippets, or (for aliases) a ``partial`` leading-acronym snippet tagged with it."""
+    snippets, or (for aliases) a ``partial`` leading-acronym snippet (see _partial_owners)."""
     out = {t: TermStats(t) for t in terms}
     for v in evidence.verdicts:
+        partial = _partial_owners(terms, v)
         for t in terms:
-            if term_in(t, v) or _partial_for(t, v):
+            if term_in(t, v) or t in partial:
                 st = out[t]
                 if v.genuine:
                     st.matched += 1

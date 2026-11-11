@@ -71,7 +71,9 @@ it; they also count for per-term attribution (an alias is attributed to a paper 
 occurs in its quote, title or snippets). Multi-word terms match across punctuation and
 hyphens (`WR. Dataset`), as a Dimensions phrase search does. When no alias occurs in a
 paper's text at all, extraction returns `partial` snippets around the leading acronym of
-each multi-word alias (`WR` for `WR dataset`), and the paper is attributed to that alias.
+each multi-word alias (`WR` for `WR dataset`). The paper is attributed to the alias with
+that acronym and the fewest words (the most ambiguous phrase), whichever alias extraction
+tagged.
 
 One LLM call sees the papers together, up to 40 per side with two snippets each. It
 groups the false positives by the other meaning that pulled them in (for example "UI =
@@ -170,7 +172,7 @@ The target extraction instance is `DATASET_AGENT_SUBMIT_TARGET` (`dev` by defaul
 | `refine_max_exclude_checks` / `refine_impact_budget_reserve` | 5 / 8 | Impact checks per pass / Dimensions calls kept for the next gate evaluation |
 | `refine_flag_min_share` | 0.2 | Min share of matching papers carrying a new flag |
 | `refine_flag_max_hits` / `refine_max_flag_checks` | 500000 / 5 | Max Dimensions hits for a new flag / flag counts per pass |
-| `optimize_suffix_short_acronym_safe` | `false` | Keep a suffixed short acronym ("WR dataset") safe instead of risky (flag-gated) |
+| `optimize_suffix_short_acronym_safe` | `false` | Keep a suffixed short acronym ("WR dataset") safe instead of risky (flag-gated); it stays safe anyway when there are no flag terms |
 | `refine_category_min_fp_papers` | 3 | Min false positives in a field of research before it is reported |
 | `probe_target`, `submit_target` | `dev` | Extraction instance for probes / submit |
 | `extraction_{dev,prod}_url`, `_user`, `_password` | empty (must be set; extraction requires HTTP Basic auth) | Per-target connection. Do not point it at dataset-agent's own port. |

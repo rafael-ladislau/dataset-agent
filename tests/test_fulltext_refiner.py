@@ -466,3 +466,19 @@ def test_partial_acronym_snippets_attribute_false_positives_to_the_alias():
     drop = [d for d in r.diffs if d.kind == "alias" and d.action == "drop"]
     assert [d.term for d in drop] == ["WR dataset"]
     assert drop[0].stats["fp"] == 4
+
+
+def test_partial_snippet_goes_to_the_shortest_alias_sharing_the_acronym():
+    def fp(i):
+        p = pub(f"f{i}", 30 - i, False, "")
+        # extraction tagged the first alias with the acronym (the precise one)
+        p["term_contexts"] = [{"term": "WR Longitudinal Panel", "role": "alias", "part": "body",
+                               "match": "partial", "text": "workflow recognition (WR)"}]
+        return p
+
+    pubs = [pub(f"g{i}", 40 - i, True, "we used the WR Longitudinal Panel") for i in range(4)] + [fp(i) for i in range(8)]
+    cand = QueryCandidate("X", safe=["WR Longitudinal Panel"], risky=["WR dataset"], flag_terms=["BLS"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=None, dataset_name="X")
+    assert diff(r, "alias", "WR dataset").action == "drop"
+    assert diff(r, "alias", "WR Longitudinal Panel").action == "keep"
+    assert diff(r, "alias", "WR Longitudinal Panel").stats["fp"] == 0
