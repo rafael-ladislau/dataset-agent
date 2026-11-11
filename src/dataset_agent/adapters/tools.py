@@ -608,9 +608,9 @@ EMIT_REFINEMENT_CANDIDATES: dict = {
                     "type": "object",
                     "properties": {
                         "label": {"type": "string", "description": "e.g. 'UI = user interface (HCI)'"},
-                        "cause_term": {"type": "string", "description": "Query term that matched them"},
-                        "papers": {"type": "integer", "description": "Number of false positives in the group"},
-                        "exclude_terms": {"type": "array", "items": {"type": "string"}},
+                        "cause_term": {"type": ["string", "null"], "description": "Query term that matched them"},
+                        "papers": {"type": ["integer", "string", "null"], "description": "Number of false positives in the group"},
+                        "exclude_terms": {"type": ["array", "null"], "items": {"type": "string"}},
                     },
                     "required": ["label", "cause_term"],
                     "additionalProperties": False,

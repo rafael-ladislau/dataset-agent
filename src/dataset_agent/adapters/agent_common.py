@@ -205,7 +205,7 @@ def coerce_to_schema(value: Any, schema: dict[str, Any] | None) -> Any:
     """Lenient, schema-guided repair of a near-miss structured result.
 
     Applies only safe conversions: ``"true"``/``"false"`` (any case) to booleans,
-    numeric strings to integers/numbers, a lone string to a one-item array of
+    numeric strings to integers/numbers, optional keys sent as null dropped, a lone string to a one-item array of
     strings, and dropping keys outside ``properties`` when
     ``additionalProperties`` is false.  Anything else is returned unchanged so
     that schema validation still rejects it.
@@ -215,8 +215,12 @@ def coerce_to_schema(value: Any, schema: dict[str, Any] | None) -> Any:
     types = _schema_types(schema)
     if isinstance(value, dict) and (not types or "object" in types):
         properties = schema.get("properties") or {}
+        required = set(schema.get("required") or [])
         out: dict[str, Any] = {}
         for key, item in value.items():
+            if item is None and key in properties and key not in required \
+                    and "null" not in _schema_types(properties[key]):
+                continue  # an optional key sent as null means "absent"
             if key in properties:
                 out[key] = coerce_to_schema(item, properties[key])
             elif schema.get("additionalProperties") is not False:

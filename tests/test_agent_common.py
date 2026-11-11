@@ -127,3 +127,28 @@ def test_coerce_to_schema(raw, expected):
 def test_coerce_keeps_extra_keys_when_additional_properties_allowed():
     schema = {"type": "object", "properties": {"a": {"type": "integer"}}}
     assert coerce_to_schema({"a": "1", "b": "x"}, schema) == {"a": 1, "b": "x"}
+
+
+def test_coerce_drops_optional_null_but_keeps_required_null():
+    schema = {
+        "type": "object",
+        "properties": {"a": {"type": "integer"}, "b": {"type": "string"}},
+        "required": ["b"],
+        "additionalProperties": False,
+    }
+    assert coerce_to_schema({"a": None, "b": "x"}, schema) == {"b": "x"}
+    assert coerce_to_schema({"a": 1, "b": None}, schema) == {"a": 1, "b": None}
+
+
+@pytest.mark.parametrize("field,value", [
+    ("papers", None), ("papers", "~6"), ("cause_term", None), ("exclude_terms", None)])
+def test_refinement_schema_tolerates_null_informational_group_fields(field, value):
+    from dataset_agent.adapters.agent_common import repair_near_miss, validate_against_schema
+    schema = tools.EMIT_REFINEMENT_CANDIDATES["input_schema"]
+    group = {"label": "UI = user interface", "cause_term": "UI", "papers": 3, "exclude_terms": ["x y"]}
+    group[field] = value
+    reply = {"false_positive_groups": [group], "exclude_terms": ["graphical interface"],
+             "flag_terms": ["Census Bureau"], "new_aliases": []}
+    assert validate_against_schema(reply, schema) is None
+    fixed, err = repair_near_miss(reply, schema)
+    assert err == "" and fixed["exclude_terms"] == ["graphical interface"]
