@@ -851,3 +851,91 @@ def test_optimize_web_disambig_adds_excludes(
     assert out.success is True
     # Old web_disambig enrichment was removed; gate evaluation runs instead
     assert "gate_iter" in out.notes
+
+
+_LEXER_ERRORS = {
+    "query": {
+        "header": "Semantic errors found",
+        "details": ["LexerErrors: token recognition error at: '\"MIDRC\xa0​'"],
+    }
+}
+
+
+def _phase1_settings(tmp_path) -> Settings:
+    return Settings(
+        tasks_db=tmp_path / "t.db",
+        output_dir=tmp_path / "out",
+        dimensions_api_key="test-key",
+        optimize_max_dimensions_calls=50,
+        optimize_signal3_max_titles=0,
+        optimize_abstract_exclude_max_hits=0,
+        optimize_abstract_classify_max_calls=0,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0,
+        optimize_suffix_check_max_aliases=0,
+    )
+
+
+class _SelectiveDSL:
+    """Raises a lexer error for queries containing ``bad``; counts the rest."""
+
+    def __init__(self, bad: str | None, error: Exception | None = None) -> None:
+        self.bad = bad
+        self.error = error
+        self.calls: list[str] = []
+
+    async def execute_dsl(self, dsl: str) -> SimpleNamespace:
+        from dataset_agent.adapters.dimensions_dsl import DimensionsDslError
+
+        self.calls.append(dsl)
+        if self.error is not None:
+            raise self.error
+        if self.bad and self.bad in dsl:
+            raise DimensionsDslError(
+                "Dimensions rejected the query: LexerErrors", errors=_LEXER_ERRORS
+            )
+        return SimpleNamespace(count_total=500, publications=[])
+
+
+def _optimize(tmp_path, dsl, names) -> object:
+    uc = QueryOptimizationUseCase(
+        dsl_port=dsl, research=MagicMock(), agent=MagicMock(), settings=_phase1_settings(tmp_path)
+    )
+    req = OptimizeRequest(
+        dataset_name="MIDRC Data Commons", dataset_names=names, flag_terms=["NIH"]
+    )
+    return asyncio.run(uc.execute(req))
+
+
+def test_phase1_drops_alias_dimensions_cannot_parse(tmp_path) -> None:
+    dsl = _SelectiveDSL("Broken Alias")
+    out = _optimize(tmp_path, dsl, ["MIDRC Data Commons", "Broken Alias Name"])
+    assert out.failed_phase != "phase1_alias_counting"
+    assert "alias 'Broken Alias Name' dropped: Dimensions could not parse it" in out.notes
+    assert all(e.alias != "Broken Alias Name" for e in out.alias_counts)
+
+
+def test_phase1_fails_when_every_alias_is_unparseable(tmp_path) -> None:
+    dsl = _SelectiveDSL("Broken")
+    # The main-name count uses a good term; both aliases are rejected.
+    out = _optimize(tmp_path, dsl, ["Broken One", "Broken Two"])
+    assert out.success is False
+    assert out.failed_phase == "phase1_alias_counting"
+    assert "could not parse any alias" in out.errors[0]
+
+
+def test_phase1_transient_error_still_fails_the_run(tmp_path) -> None:
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError
+
+    dsl = _SelectiveDSL(None, DimensionsDslError("Service unavailable", transient=True))
+    out = _optimize(tmp_path, dsl, ["MIDRC Data Commons", "Other Long Name"])
+    assert out.success is False
+    assert out.failed_phase == "phase1_alias_counting"
+    assert "dropped" not in out.notes
+
+
+def test_phase1_sanitizes_junk_aliases_before_counting(tmp_path) -> None:
+    dsl = _SelectiveDSL(None)
+    junk = "MIDRC" + "\xa0​\xa0\xa0" * 4 + "..."
+    _optimize(tmp_path, dsl, ["MIDRC Data Commons", junk])
+    assert not any("\xa0" in q or "​" in q or "..." in q for q in dsl.calls)

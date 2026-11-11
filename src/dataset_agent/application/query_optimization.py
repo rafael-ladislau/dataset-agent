@@ -15,6 +15,7 @@ from dataset_agent.adapters.dimensions_dsl import (
     build_for_clause_count_dsl,
     fetch_top_n,
     inner_quoted_term,
+    is_dsl_syntax_error,
     parse_total_count,
     publication_title,
     run_alias_count,
@@ -47,6 +48,7 @@ from dataset_agent.adapters.query_heuristics import (
     rhetorical_exclusions,
 )
 from dataset_agent.application.proposal_service import build_proposal, merge_diffs
+from dataset_agent.adapters.term_sanitizer import sanitize_terms
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
 from dataset_agent.domain.models import (
     AliasCountEntry,
@@ -231,6 +233,19 @@ class QueryOptimizationUseCase:
         self._dims_calls += 1
         return await run_alias_count(self._dsl, alias, search_in=search_in)
 
+    async def _count_alias(self, alias: str, notes_parts: list[str]) -> int | None:
+        """Count one alias; ``None`` (with a note) when Dimensions cannot parse it.
+
+        Only lexer/syntax errors drop the alias; transient and other errors propagate."""
+        try:
+            return await self._count(alias)
+        except DimensionsDslError as exc:
+            if not is_dsl_syntax_error(exc):
+                raise
+            logger.warning("Dropping alias %r: Dimensions could not parse it", alias)
+            notes_parts.append(f"alias '{alias}' dropped: Dimensions could not parse it")
+            return None
+
     async def _refine_count(self, term: str) -> int:
         """Refiner-only count: like ``_exclude_impact`` it raises (instead of returning 0)
         once the budget is down to ``refine_impact_budget_reserve``."""
@@ -371,6 +386,10 @@ class QueryOptimizationUseCase:
                 list(rec.exclude_terms) + list(request.exclude_terms)
             )
 
+        aliases = sanitize_terms(aliases, "alias")
+        flag_terms = sanitize_terms(flag_terms, "flag term")
+        exclude_terms = sanitize_terms(exclude_terms, "exclude term")
+
         if not aliases:
             return QueryOptimizationRecord(
                 success=False,
@@ -390,12 +409,16 @@ class QueryOptimizationUseCase:
             safe: list[str] = []
             has_fn = bool((request.dataset_name or "").strip())
             suffix_checked = 0
+            dropped_aliases = 0
 
             for a in rk0:
                 if not self._budget_left():
                     notes_parts.append("Stopped short-acronym counting early (Dimensions call budget).")
                     break
-                c = await self._count(a)
+                c = await self._count_alias(a, notes_parts)
+                if c is None:
+                    dropped_aliases += 1
+                    continue
                 alias_entries.append(AliasCountEntry(alias=a, count=c, risk="risky"))
                 if c <= 0:
                     risky.append(a)
@@ -412,7 +435,10 @@ class QueryOptimizationUseCase:
                 if not self._budget_left():
                     notes_parts.append("Stopped alias counting early (Dimensions call budget).")
                     break
-                c = await self._count(a)
+                c = await self._count_alias(a, notes_parts)
+                if c is None:
+                    dropped_aliases += 1
+                    continue
                 risk = _alias_risk_label(c, c_full, has_fn)
                 alias_entries.append(AliasCountEntry(alias=a, count=c, risk=risk))
                 if c <= 0:
@@ -443,6 +469,13 @@ class QueryOptimizationUseCase:
             risky = dedupe_strings_ci_preserve_order(risky)
             r_low = {r.lower() for r in risky}
             safe = dedupe_strings_ci_preserve_order([s for s in safe if s.lower() not in r_low])
+            if dropped_aliases and dropped_aliases >= len(rk0) + len(st0):
+                return QueryOptimizationRecord(
+                    success=False,
+                    failed_phase=phase1,
+                    errors=["Dimensions could not parse any alias."],
+                    notes=" ".join(notes_parts),
+                )
             if not safe and not risky:
                 return QueryOptimizationRecord(
                     success=False,

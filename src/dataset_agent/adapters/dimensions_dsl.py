@@ -134,6 +134,14 @@ def is_transient_dsl_errors(errors: object) -> bool:
     return "service unavailable" in text or "unexpected error" in text
 
 
+def is_dsl_syntax_error(exc: BaseException) -> bool:
+    """True when Dimensions rejected the query text itself (lexer/syntax/semantic error)."""
+    if not isinstance(exc, DimensionsDslError) or exc.transient:
+        return False
+    text = (_errors_text(exc.errors) if exc.errors is not None else str(exc)).casefold()
+    return any(m in text for m in _SYNTAX_MARKERS)
+
+
 def is_transient_exception(exc: BaseException) -> bool:
     """True for connection problems and HTTP 5xx style failures (never 429)."""
     if isinstance(exc, DimensionsDslError):
