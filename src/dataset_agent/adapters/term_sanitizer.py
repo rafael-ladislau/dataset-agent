@@ -58,6 +58,7 @@ def sanitize_term(term: object) -> str | None:
     if not isinstance(term, str):
         return None
     s = unicodedata.normalize("NFKC", term)
+    had_ascii_dq = '"' in s
     s = s.translate(_DASHES).translate(_ZERO_WIDTH).translate(_QUOTES)
     s = "".join(
         " " if (ch.isspace() or unicodedata.category(ch) == "Zs")
@@ -70,6 +71,10 @@ def sanitize_term(term: object) -> str | None:
     if "..." in s or "…" in s:
         return None
     s = _strip_edges(s)
+    if not had_ascii_dq:
+        # Inner double quotes came from curly quotes; seeds reject them and
+        # Dimensions ignores them for phrase matching.
+        s = re.sub(r"\s+", " ", s.replace('"', "")).strip()
     if not s or not any(ch.isalpha() for ch in s):
         return None
     return s

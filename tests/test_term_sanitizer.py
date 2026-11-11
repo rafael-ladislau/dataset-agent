@@ -113,3 +113,12 @@ def test_acronym_survives_for_validation_terms() -> None:
         years_range=YearsRange(start_year=2015, end_year=2025),
     )
     assert "NHANES" in build_dataset_validation_terms(rec)
+
+
+def test_curly_inner_quotes_are_removed_and_seed_accepts_term() -> None:
+    from dataset_agent.adapters.seed_mapping import QueryCandidate, candidate_to_seed
+
+    cleaned = sanitize_term("“All of Us” Research Program")
+    assert cleaned == "All of Us Research Program"
+    seed = candidate_to_seed(QueryCandidate(cleaned, safe=[cleaned]))
+    assert cleaned in seed["standalone_names"]
