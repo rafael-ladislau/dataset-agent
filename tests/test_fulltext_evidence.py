@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from dataset_agent.adapters.fulltext_evidence import attribute_terms, build_evidence
+from dataset_agent.adapters.fulltext_evidence import (
+    PubVerdict,
+    attribute_terms,
+    build_evidence,
+    term_in,
+    term_in_evidence,
+)
 
 
 def _pub(pid, cites, status="delivered", analyzed=True, vd=None, title=""):
@@ -97,3 +103,48 @@ def test_shortfall_note():
     assert ev.shortfall_note == "7/30 papers with full text (max_batches; 8 attempted in 3 batch(es))"
     ev.budget_exhausted = True
     assert ev.shortfall_note.endswith("; OpenAlex budget exhausted)")
+
+
+def _v(quote="", title="", contexts=None, verdict="mentioned"):
+    return PubVerdict("p", None, title, 1, verdict, quote, contexts=contexts or [])
+
+
+def _ctx(text, term="x", part="body", **kw):
+    return {"term": term, "role": "alias", "part": part, "text": text, **kw}
+
+
+def test_partial_snippet_credits_only_aliases_with_the_same_acronym_head():
+    v = _v(contexts=[_ctx("wave data", term="ADD Health Study", match="partial")], verdict="not_mentioned")
+    ev = build_evidence({"publications": []})
+    ev.verdicts = [v]
+    st = attribute_terms(ev, ["Add Health", "ADD Health Study"])
+    assert st["ADD Health Study"].fp == 1
+    assert st["Add Health"].fp == 0
+
+
+def test_underscore_is_a_word_separator():
+    v = _v(contexts=[_ctx("loaded the WR_dataset files")])
+    assert term_in("WR dataset", v)
+    assert "wr dataset" in v.text
+
+
+def test_title_snippets_do_not_count_for_evidence_but_do_for_attribution():
+    v = _v(contexts=[_ctx("The BLS report", part="title")])
+    assert not term_in_evidence("BLS", v)
+    assert term_in("BLS", v)
+    assert not term_in_evidence("BLS", _v(title="The BLS report"))
+
+
+def test_truncated_edge_tokens_next_to_an_ellipsis_do_not_match():
+    assert not term_in("ACE", _v(contexts=[_ctx("…ace of the matter and more")]))
+    assert not term_in("ACE", _v(contexts=[_ctx("the matter of surf…ace…")]))
+    assert not term_in("ACE", _v(contexts=[_ctx("more text and ace…")]))
+    assert term_in("ACE", _v(contexts=[_ctx("…the ACE study was used…")]))
+
+
+def test_as_quote_falls_back_to_the_snippet_for_the_term():
+    v = _v(contexts=[_ctx("first snippet"), _ctx("the BLS wages table")])
+    assert v.as_quote("BLS").quote == "the BLS wages table"
+    assert v.as_quote().quote == "first snippet"
+    assert _v(quote="validator quote", contexts=[_ctx("snip")]).as_quote("BLS").quote == "validator quote"
+    assert _v().as_quote("BLS").quote == ""

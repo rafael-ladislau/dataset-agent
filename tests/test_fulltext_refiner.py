@@ -506,3 +506,64 @@ def test_new_alias_shaped_like_acronym_suffix_is_rejected():
     assert calls == []   # rejected before any Dimensions count
     note = next(n for n in r.notes if n.startswith("rejected alias candidates"))
     assert "WR dataset (short acronym plus generic suffix)" in note and "UI data (short acronym" in note
+
+
+def test_flag_proposed_twice_in_different_case_costs_one_count_and_covered_is_noted():
+    pubs = [pub(f"g{i}", 40 - i, True, "we used the NHIS files from the Census Bureau") for i in range(4)]
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": ["Census Bureau", "census bureau", "BLS"],
+                   "new_aliases": [], "reasoning": ""})
+    calls = []
+
+    def count(t):
+        calls.append(t)
+        return 10
+
+    cand = QueryCandidate("X", safe=["NHIS"], flag_terms=["BLS"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=llm, dataset_name="X", count_fn=count)
+    assert calls == ["Census Bureau"]
+    assert any("already in the query" in n and "BLS" in n for n in r.notes)
+
+
+def test_group_note_shows_the_verified_count():
+    def fp(i):
+        p = pub(f"f{i}", 30 - i, False, "")
+        p["validated_datasets"] = []
+        p["term_contexts"] = [{"term": "NHIS", "role": "alias", "part": "body", "text": "NHIS nursing home"}]
+        return p
+
+    pubs = [pub(f"g{i}", 40 - i, True, "we used Alpha Survey data") for i in range(3)] + [fp(i) for i in range(4)]
+    llm = FakeLLM({"false_positive_groups": [{"label": "nursing", "cause_term": "NHIS", "papers": 6,
+                                              "exclude_terms": []}],
+                   "exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""})
+    r = refine_candidate(QueryCandidate("X", safe=["Alpha Survey"]), ev(pubs), settings=S, agent=llm,
+                         dataset_name="X")
+    assert any("(~6 per LLM, 4 verified" in n for n in r.notes)
+
+
+def test_alias_evidence_falls_back_to_snippet_when_the_quote_is_empty():
+    def fp(i):
+        p = pub(f"f{i}", 30 - i, False, "")
+        p["validated_datasets"] = []
+        p["term_contexts"] = [{"term": "NHIS", "role": "alias", "part": "body", "text": "NHIS nursing home"}]
+        return p
+
+    pubs = [fp(i) for i in range(4)] + [pub(f"g{i}", 40 - i, True, "Alpha Survey data") for i in range(3)]
+    cand = QueryCandidate("X", safe=["NHIS", "Alpha Survey"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=None, dataset_name="X")
+    assert diff(r, "alias", "NHIS").action == "drop"
+    assert all(e.quote == "NHIS nursing home" for e in diff(r, "alias", "NHIS").evidence)
+
+
+def test_prompt_asks_for_proper_name_flags():
+    from dataset_agent.adapters.fulltext_refiner import propose_refinements
+
+    seen = {}
+
+    class Spy(FakeLLM):
+        def get_structured(self, prompt, result_tool):
+            seen["p"] = prompt
+            return {}
+
+    propose_refinements(Spy({}), dataset_name="X", genuine=[], false_positives=[], aliases=[],
+                        flag_terms=[], exclude_terms=[])
+    assert "proper name" in seen["p"] and "lower-case context word" in seen["p"]

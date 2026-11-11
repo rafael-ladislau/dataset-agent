@@ -333,3 +333,17 @@ def test_impact_checks_stop_at_the_budget_reserve(tmp_path):
     assert uc._dims_calls == 12
     with pytest.raises(Exception, match="reserve"):
         _a.run(uc._exclude_impact("A", "b"))
+
+
+def test_refine_count_raises_at_the_budget_reserve_instead_of_returning_zero(tmp_path):
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(),
+        settings=make_settings(tmp_path, optimize_max_dimensions_calls=20, refine_impact_budget_reserve=8))
+    uc._dims_calls = 11
+    assert asyncio.run(uc._refine_count("b")) == 100
+    assert uc._dims_calls == 12
+    with pytest.raises(Exception, match="reserve"):
+        asyncio.run(uc._refine_count("b"))
+    # Phase 1's counter is unchanged: it returns 0 only when the whole budget is gone.
+    uc._dims_calls = 20
+    assert asyncio.run(uc._count("b")) == 0

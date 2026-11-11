@@ -10,6 +10,7 @@ from dataset_agent.adapters.query_heuristics import (
     check_suffix_necessity,
     detect_rhetorical_name,
     detect_sub_products,
+    head_acronym,
     generate_multilingual_aliases,
     is_short_acronym,
     platform_exclude_suggestions,
@@ -128,3 +129,15 @@ def test_is_acronym_suffix_form() -> None:
     assert all(is_acronym_suffix_form(a) for a in ["WR dataset", "Wr dataset", "QWR program", "ONET data", "Wrp dataset"])
     assert not any(is_acronym_suffix_form(a) for a in
                    ["Life data", "Census data", "Ui Wage Records survey", "WR", "NHANES dataset", "O*NET data"])
+
+
+def test_head_acronym_rule() -> None:
+    assert head_acronym("ADD Health Study") == "ADD"
+    assert head_acronym("Wrp Panel") == "Wrp"  # no vowels
+    assert head_acronym("A1 Panel") == "A1"
+    assert head_acronym("Add Health") is None  # has vowels, not upper case
+    assert head_acronym("NHIS") is None  # single word
+    assert head_acronym("12 Panel") is None  # no letter
+    assert head_acronym("ABCDEFG Panel") is None  # too long
+    assert head_acronym("A Panel") is None  # too short
+    assert head_acronym("AB-C Panel") is None  # not alphanumeric

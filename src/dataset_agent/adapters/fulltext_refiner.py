@@ -21,6 +21,7 @@ from typing import Callable
 from dataset_agent.adapters.fulltext_evidence import (
     Evidence,
     PubVerdict,
+    _fold,
     _phrase_in,
     attribute_terms,
     singular_variants,
@@ -28,7 +29,6 @@ from dataset_agent.adapters.fulltext_evidence import (
     term_in_evidence,
     term_in_quote,
 )
-from dataset_agent.adapters.literature import _stem_text
 from dataset_agent.adapters.query_heuristics import is_acronym_suffix_form
 from dataset_agent.adapters.seed_mapping import QueryCandidate
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
@@ -57,8 +57,8 @@ class RefineResult:
         return any(d.action != "keep" for d in self.diffs)
 
 
-def _quotes(verdicts: list[PubVerdict]):
-    return [v.as_quote() for v in verdicts[:_MAX_EVIDENCE]]
+def _quotes(verdicts: list[PubVerdict], term: str | None = None):
+    return [v.as_quote(term) for v in verdicts[:_MAX_EVIDENCE]]
 
 
 def _is_quote_char(ch: str) -> bool:
@@ -119,8 +119,10 @@ them in (for example an acronym that also names a medical condition, a technolog
 for each group give the query term that caused it and short exclude phrases that occur in that
 group's snippets or titles but in none of the matching papers.
 Then look at the matching papers TOGETHER: give flag terms (context words they share around the
-dataset name, such as the agency or program) and new alias forms of the dataset name that appear in
-their quotes or snippets but are missing from the current aliases.
+dataset name). A flag term must be a proper name (an agency, program or product such as
+"Census Bureau"), never a lower-case context word such as "state" or "survey data". Also give new
+alias forms of the dataset name that appear in their quotes or snippets but are missing from the
+current aliases.
 Only use words that literally occur in the text above.
 
 Use emit_refinement_candidates exactly once."""
@@ -221,8 +223,8 @@ def _generic_word(term: str) -> bool:
 
 
 def _covered(term: str, existing: list[str]) -> bool:
-    stem = _stem_text(term)
-    return any(_stem_text(e) == stem for e in existing)
+    stem = _fold(term)
+    return any(_fold(e) == stem for e in existing)
 
 
 def refine_candidate(
@@ -264,6 +266,7 @@ def refine_candidate(
     new_flags: list[tuple[str, list[PubVerdict]]] = []
     new_aliases: list[tuple[str, list[PubVerdict]]] = []
     notes: list[str] = []
+    already: list[str] = []
     impacts: dict[str, int] = {}
     if enough:
         notes.extend(category_patterns(evidence, settings.refine_category_min_fp_papers))
@@ -278,14 +281,21 @@ def refine_candidate(
             exclude_terms=candidate.exclude_terms,
         )
         for g in prop.get("groups") or []:
+            verified = (
+                sum(1 for v in evidence.false_positives if term_in(g["cause_term"], v))
+                if g["cause_term"] else 0
+            )
             notes.append(
                 f"full-text pattern: false-positive group '{g['label']}' "
-                f"(~{g['papers']} paper(s), via '{g['cause_term']}')"
+                f"(~{g['papers']} per LLM, {verified} verified; via '{g['cause_term']}')"
                 + (f"; candidate excludes {g['exclude_terms']}" if g["exclude_terms"] else "")
             )
+        for key in ("exclude_terms", "flag_terms", "new_aliases"):
+            prop[key] = dedupe_strings_ci_preserve_order(prop[key])
         candidates_ex: list[tuple[str, list[PubVerdict]]] = []
         for t in prop["exclude_terms"]:
             if _covered(t, candidate.exclude_terms):
+                already.append(t)
                 continue
             # NOT ("term") runs over all of full_data: an exclude inside or containing a
             # kept alias, or inside a flag, would silently drop the query's own matches.
@@ -329,6 +339,7 @@ def refine_candidate(
         flag_hits: dict[str, int] = {}
         for t in prop["flag_terms"]:
             if _covered(t, candidate.flag_terms):
+                already.append(t)
                 continue
             hit_gen = [v for v in evidence.genuine if term_in_evidence(t, v)]
             if len(hit_gen) < 2 or len(hit_gen) < settings.refine_flag_min_share * n_match:
@@ -354,6 +365,7 @@ def refine_candidate(
             new_flags.append((t, hit_gen))
         for t in prop["new_aliases"]:
             if _covered(t, aliases):
+                already.append(t)
                 continue
             # "UI data", "WR dataset": an acronym plus a generic suffix still matches the
             # acronym's other meanings; the refiner never adds one.
@@ -366,6 +378,10 @@ def refine_candidate(
                 new_aliases.append((t, hit_gen))
             else:
                 reject("alias", t, "not literally in a matching quote")
+
+    if already:
+        logger.info("refine: proposals skipped, already in the query: %s", already)
+        notes.append("proposals skipped, already in the query: " + "; ".join(already[:8]))
 
     flags = list(candidate.flag_terms) + [t for t, _ in new_flags]
 
@@ -392,20 +408,20 @@ def refine_candidate(
             diffs.append(TermDiff(
                 kind="alias", term=a, action="drop", status="verified",
                 reason=f"{st.fp}/{st.n} verified papers with this term do not mention the dataset",
-                evidence=_quotes(st.fp_papers), **base))
+                evidence=_quotes(st.fp_papers, a), **base))
             n_remaining -= 1
         elif share >= settings.refine_demote_fp_share and is_safe and flags:
             diffs.append(TermDiff(
                 kind="alias", term=a, action="demote", status="verified",
                 reason=f"{st.fp}/{st.n} verified papers do not mention the dataset; now requires flag terms",
-                evidence=_quotes(st.fp_papers), **base))
+                evidence=_quotes(st.fp_papers, a), **base))
             keep_risky.append(a)
         else:
             reason = "verified mentions in full text" if share < settings.refine_demote_fp_share else (
                 "high FP share but cannot be dropped/demoted (last alias or no flag terms)")
             diffs.append(TermDiff(
                 kind="alias", term=a, action="keep", status="verified", reason=reason,
-                evidence=_quotes(st.matched_papers), **base))
+                evidence=_quotes(st.matched_papers, a), **base))
             (keep_safe if is_safe else keep_risky).append(a)
 
     # --- new aliases (re-probe Dimensions counts) ------------------------------------
@@ -432,7 +448,7 @@ def refine_candidate(
             kind="alias", term=t, action="add", status="verified",
             reason=f"mention form in {len(hits)} matching quote(s); {c} Dimensions hits"
             + (" (risky: requires flags)" if risky else ""),
-            stats={"dimensions_count": c, "matching_papers": len(hits)}, evidence=_quotes(hits)))
+            stats={"dimensions_count": c, "matching_papers": len(hits)}, evidence=_quotes(hits, t)))
 
     for kind, items in rejected.items():
         if items:
@@ -450,7 +466,7 @@ def refine_candidate(
         diffs.append(TermDiff(
             kind="flag", term=t, action="add", status="verified",
             reason=f"occurs in the quote or snippets of {len(hits)} matching paper(s)"
-            + (f"; {flag_hits[t]} Dimensions hits" if t in flag_hits else ""), evidence=_quotes(hits),
+            + (f"; {flag_hits[t]} Dimensions hits" if t in flag_hits else ""), evidence=_quotes(hits, t),
             stats={"matching_papers": len(hits), **({"dimensions_count": flag_hits[t]} if t in flag_hits else {})}))
     for e in candidate.exclude_terms:
         diffs.append(TermDiff(kind="exclude", term=e, action="keep", status="unverified", reason="unchanged"))
@@ -459,7 +475,7 @@ def refine_candidate(
             kind="exclude", term=t, action="add", status="verified",
             reason=_exclude_reason(t, hits)
             + (f"; removes {impacts[t]} of the current results" if t in impacts else ""),
-            evidence=_quotes(hits),
+            evidence=_quotes(hits, t),
             stats={"fp_papers": len(hits), **({"removes": impacts[t]} if t in impacts else {})}))
 
     refined = QueryCandidate(

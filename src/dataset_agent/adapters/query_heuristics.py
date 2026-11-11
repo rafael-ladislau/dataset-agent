@@ -79,6 +79,22 @@ def is_acronym_suffix_form(alias: str) -> bool:
     return head.isupper() or not any(ch in "aeiouyAEIOUY" for ch in head)
 
 
+def head_acronym(term: str) -> str | None:
+    """First word of a multi-word term when it looks like an acronym, else None.
+
+    2-6 alphanumeric characters with at least one letter, upper case or without vowels.
+    Shared rule: keep identical to the extraction pipeline's copy."""
+    words = (term or "").split()
+    if len(words) < 2:
+        return None
+    head = words[0]
+    if not 2 <= len(head) <= 6 or not head.isalnum() or not any(ch.isalpha() for ch in head):
+        return None
+    if head.isupper() or not any(ch in "aeiouyAEIOUY" for ch in head):
+        return head
+    return None
+
+
 def apply_short_acronym_heuristic(
     safe: Sequence[str],
     risky: Sequence[str] | None = None,

@@ -19,7 +19,32 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dataset_agent.adapters.literature import _stem_text
+from dataset_agent.adapters.query_heuristics import head_acronym
 from dataset_agent.domain.proposals import EvidenceQuote, IterationMetrics
+
+
+def _fold(text: str) -> str:
+    """Normalize like the extraction side: NFKC, lower case, and every non-alphanumeric
+    character (underscore included) becomes a space. ``literature._stem_text`` keeps
+    ``_`` and phase 1 depends on that, so the fold is local to the full-text evidence."""
+    return _stem_text(unicodedata.normalize("NFKC", text or "").replace("_", " "))
+
+
+_ELLIPSES = ("…", "...")
+
+
+def _snippet_tokens(text: str) -> list[str]:
+    """Tokens of a full-text snippet. A snippet that starts or ends with an ellipsis was
+    cut mid-word, so the first/last token next to the ellipsis is dropped."""
+    t = (text or "").strip()
+    lead = t.startswith(_ELLIPSES)
+    trail = t.endswith(_ELLIPSES)
+    toks = _fold(t).split()
+    if trail and toks:
+        toks = toks[:-1]
+    if lead and toks:
+        toks = toks[1:]
+    return toks
 
 
 @dataclass
@@ -50,18 +75,30 @@ class PubVerdict:
 
     @property
     def text(self) -> str:
-        return _stem_text(f"{self.quote} {self.title} {self.context_text}")
+        return _fold(f"{self.quote} {self.title} {self.context_text}")
 
     @property
     def quote_text(self) -> str:
-        return _stem_text(self.quote)
+        return _fold(self.quote)
 
-    def as_quote(self) -> EvidenceQuote:
+    def evidence_quote_text(self, term: str | None = None) -> str:
+        """The validator quote, or when it is empty the snippet for *term* (else the
+        first snippet), so exclude/alias evidence is never empty."""
+        if self.quote.strip():
+            return self.quote
+        snippets = [str(c.get("text") or "") for c in self.contexts if c.get("text")]
+        if term:
+            for sn in snippets:
+                if _phrase_in(term, sn):
+                    return sn
+        return snippets[0] if snippets else self.quote
+
+    def as_quote(self, term: str | None = None) -> EvidenceQuote:
         return EvidenceQuote(
             publication_id=self.publication_id,
             doi=self.doi,
             title=self.title or None,
-            quote=self.quote,
+            quote=self.evidence_quote_text(term),
             verdict=self.verdict,  # type: ignore[arg-type]
         )
 
@@ -186,7 +223,7 @@ def build_evidence(results: dict[str, Any], top_n: int | None = None) -> Evidenc
 
 
 def _tokens(text: str) -> list[str]:
-    return _stem_text(unicodedata.normalize("NFKC", text or "")).split()
+    return _fold(text).split()
 
 
 def _token_matches(term_token: str, text_token: str, plural_ok: bool) -> bool:
@@ -203,13 +240,7 @@ def _token_matches(term_token: str, text_token: str, plural_ok: bool) -> bool:
     return text_token in plurals
 
 
-def _phrase_in(term: str, text: str, *, plural_ok: bool = True) -> bool:
-    """Whole-word phrase match on normalized tokens: ``ACE`` never matches ``placebo``,
-    and ``Family Survey`` matches ``family surveys`` (text-side plural only)."""
-    want = _tokens(term)
-    have = _tokens(text)
-    if not want:
-        return False
+def _in_tokens(want: list[str], have: list[str], plural_ok: bool) -> bool:
     n = len(want)
     return any(
         all(_token_matches(w, h, plural_ok) for w, h in zip(want, have[i : i + n]))
@@ -217,14 +248,41 @@ def _phrase_in(term: str, text: str, *, plural_ok: bool = True) -> bool:
     )
 
 
+def _phrase_in(term: str, text: str, *, plural_ok: bool = True) -> bool:
+    """Whole-word phrase match on normalized tokens: ``ACE`` never matches ``placebo``,
+    and ``Family Survey`` matches ``family surveys`` (text-side plural only)."""
+    want = _tokens(term)
+    return bool(want) and _in_tokens(want, _tokens(text), plural_ok)
+
+
+def _in_segments(term: str, texts: list[str], snippets: list[str], plural_ok: bool = True) -> bool:
+    """Match inside any of *texts* (whole) or *snippets* (edge tokens next to an
+    ellipsis dropped); a phrase never spans two segments."""
+    want = _tokens(term)
+    if not want:
+        return False
+    return any(_in_tokens(want, _tokens(t), plural_ok) for t in texts) or any(
+        _in_tokens(want, _snippet_tokens(s), plural_ok) for s in snippets
+    )
+
+
+def _snippets(verdict: PubVerdict, *, with_title: bool) -> list[str]:
+    return [
+        str(c.get("text") or "")
+        for c in verdict.contexts
+        if c.get("text") and (with_title or c.get("part") != "title")
+    ]
+
+
 def term_in(term: str, verdict: PubVerdict) -> bool:
     """Quote, title or a full-text snippet of the query's terms."""
-    return _phrase_in(term, f"{verdict.quote} {verdict.title} {verdict.context_text}")
+    return _in_segments(term, [verdict.quote, verdict.title], _snippets(verdict, with_title=True))
 
 
 def term_in_evidence(term: str, verdict: PubVerdict) -> bool:
-    """Quote or full-text snippets; the title never counts."""
-    return _phrase_in(term, f"{verdict.quote} {verdict.context_text}")
+    """Quote or full-text snippets; the title never counts (neither the paper title nor
+    a snippet whose part is ``title``)."""
+    return _in_segments(term, [verdict.quote], _snippets(verdict, with_title=False))
 
 
 def singular_variants(term: str) -> list[str]:
@@ -249,7 +307,7 @@ def singular_variants(term: str) -> list[str]:
 def term_in_quote(term: str, verdict: PubVerdict, *, exact: bool = False) -> bool:
     """Quote-only match (the title never counts). ``exact`` disables the text-side
     plural, for checks that need the literal form (new aliases)."""
-    return _phrase_in(term, verdict.quote, plural_ok=not exact)
+    return _in_segments(term, [verdict.quote], [], plural_ok=not exact)
 
 
 @dataclass
@@ -287,6 +345,12 @@ def _head(term: str) -> str:
     return words[0].casefold() if len(words) >= 2 else ""
 
 
+def _alias_head(term: str) -> str:
+    """Head of an alias that may own a partial snippet: only a real leading acronym."""
+    h = head_acronym(term)
+    return h.casefold() if h else ""
+
+
 def _partial_owners(terms: list[str], verdict: PubVerdict) -> set[str]:
     """Aliases a ``match=partial`` snippet is attributed to.
 
@@ -301,7 +365,7 @@ def _partial_owners(terms: list[str], verdict: PubVerdict) -> set[str]:
         if c.get("match") != "partial":
             continue
         head = _head(str(c.get("term") or ""))
-        sharing = [t for t in terms if head and _head(t) == head]
+        sharing = [t for t in terms if head and _alias_head(t) == head]
         if not sharing:
             continue
         fewest = min(len(t.split()) for t in sharing)

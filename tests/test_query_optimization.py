@@ -660,6 +660,9 @@ def test_optimize_listed_acronym_suffix_alias_is_risky_with_flags(
     assert "ONET dataset" in out.aliases.risky
     assert "ONET dataset" not in out.aliases.safe
     assert "suffix_risky: 'ONET dataset'" in out.notes
+    assert out.notes.count("suffix_risky: 'ONET dataset'") == 1
+    entry = next(e for e in out.alias_counts if e.alias == "ONET dataset")
+    assert entry.risk == "risky"
 
 
 def test_optimize_suffix_promotes_risky_alias(

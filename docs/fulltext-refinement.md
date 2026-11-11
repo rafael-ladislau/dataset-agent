@@ -73,13 +73,27 @@ hyphens (`WR. Dataset`), as a Dimensions phrase search does. When no alias occur
 paper's text at all, extraction returns `partial` snippets around the leading acronym of
 each multi-word alias (`WR` for `WR dataset`). The paper is attributed to the alias with
 that acronym and the fewest words (the most ambiguous phrase), whichever alias extraction
-tagged.
+tagged. Only an alias whose own leading word is an acronym (2-6 alphanumeric characters,
+at least one letter, upper case or without vowels; `head_acronym()`, the same rule as in
+the extraction pipeline) can own a `partial` snippet, so with the aliases `Add Health` and
+`ADD Health Study` a snippet tagged `ADD Health Study` is credited only to the latter.
+
+Matching normalizes text like extraction does: case, punctuation and `_` all separate
+words (`WR_dataset` matches `WR dataset`). Snippets are cut at fixed widths, so one that
+starts or ends with `…` begins or ends mid-word: the token next to the ellipsis is ignored
+(a `surface` cut to `ace` cannot match the alias `ACE`). A snippet whose part is `title`
+counts for attribution but, like the paper title, never for flags or new aliases. The
+evidence quote shown for a term is the validator quote, or, when that is empty, the
+snippet around that term, so exclude and alias evidence is never empty.
 
 One LLM call sees the papers together, up to 40 per side with two snippets each. It
 groups the false positives by the other meaning that pulled them in (for example "UI =
 user interface"), naming the query term that caused each group and exclude phrases for
 it, and reads the matching papers for shared context (flags) and alias forms. The
-groups are written to the iteration notes and the proposal. Fields of research that
+groups are written to the iteration notes and the proposal, with the LLM's paper count
+next to the number of false-positive papers whose title or snippets really contain the
+group's cause term ("~6 per LLM, 4 verified"). The prompt asks for flag terms that are
+proper names (agency, program, product), not lower-case context words. Fields of research that
 hold at least half of the false positives (and at least
 `refine_category_min_fp_papers`) but at most 10% of the matches are reported as a
 manual suggestion; they are never applied.
@@ -110,10 +124,19 @@ LLM proposals (validated against the quotes before acceptance):
   Statistics" passes), and a proper name needs a Dimensions
   full-data count between 1 and `refine_flag_max_hits` (an unknown count rejects it; at
   most `refine_max_flag_checks` counts per pass);
+* proposals are deduplicated case-insensitively before any Dimensions count (a flag
+  proposed as "Census Bureau" and "census bureau" costs one call), and proposals already
+  in the query are skipped and noted as "already in the query";
 * new aliases: must occur in a matching evidence quote (titles never count) and be absent
   from the query; Dimensions
   counts are re-probed (zero-hit aliases are rejected; very broad ones become risky). A
   `<short acronym> <generic suffix>` form ("UI data", "WR dataset") is never added.
+
+Flag and new-alias counts (and exclude impact checks) share the reserve: once the call
+budget is down to `refine_impact_budget_reserve` they fail as "hit count unknown" instead
+of reading as "0 Dimensions hits". Phase 1 counting is unchanged. When the shape rule
+moves a safe `<short acronym> <generic suffix>` alias to risky, its `alias_counts` entry
+is relabeled risky and the `suffix_risky` note appears once.
 
 Every rejected candidate is logged with its reason and summarized in the iteration
 notes ("rejected exclude candidates: …").

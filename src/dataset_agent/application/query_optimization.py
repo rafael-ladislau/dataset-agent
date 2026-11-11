@@ -230,6 +230,16 @@ class QueryOptimizationUseCase:
         self._dims_calls += 1
         return await run_alias_count(self._dsl, alias, search_in=search_in)
 
+    async def _refine_count(self, term: str) -> int:
+        """Refiner-only count: like ``_exclude_impact`` it raises (instead of returning 0)
+        once the budget is down to ``refine_impact_budget_reserve``."""
+        cap = int(self._settings.optimize_max_dimensions_calls)
+        reserve = int(self._settings.refine_impact_budget_reserve)
+        if cap > 0 and self._dims_calls >= cap - reserve:
+            raise DimensionsDslError("Dimensions budget reserve reached")
+        self._dims_calls += 1
+        return await run_alias_count(self._dsl, term, search_in="full_data")
+
     async def _try_suffix_promote(
         self,
         alias: str,
@@ -423,7 +433,12 @@ class QueryOptimizationUseCase:
             if flag_terms and not self._settings.optimize_suffix_short_acronym_safe:
                 for s_alias in [x for x in safe if is_acronym_suffix_form(x)]:
                     risky.append(s_alias)
-                    notes_parts.append(f"suffix_risky: {s_alias!r} kept risky (short acronym)")
+                    for entry in alias_entries:
+                        if entry.alias == s_alias:
+                            entry.risk = "risky"
+                    note = f"suffix_risky: {s_alias!r} kept risky (short acronym)"
+                    if note not in notes_parts:
+                        notes_parts.append(note)
             risky = dedupe_strings_ci_preserve_order(risky)
             r_low = {r.lower() for r in risky}
             safe = dedupe_strings_ci_preserve_order([s for s in safe if s.lower() not in r_low])
@@ -683,7 +698,7 @@ class QueryOptimizationUseCase:
                     agent=self._agent,
                     dataset_name=request.dataset_name,
                     count_fn=lambda t: asyncio.run_coroutine_threadsafe(
-                        self._count(t), loop
+                        self._refine_count(t), loop
                     ).result(),
                     reference_count=c_full,
                     abstract_fp_aliases={
