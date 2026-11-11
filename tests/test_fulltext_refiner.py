@@ -690,3 +690,17 @@ def test_flag_not_colliding_still_accepted():
                          count_fn=lambda t: 5, reference_count=100)
     assert "All of Us Researcher Workbench" in r.candidate.flag_terms
     assert "AoU" in r.candidate.safe
+
+
+def test_new_alias_aou_dataset_is_rejected_but_add_health_is_not():
+    pubs = [pub(f"g{i}", 40 - i, True, "participants of the AoU dataset and Add Health were linked in All of Us")
+            for i in range(4)]
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": [], "new_aliases": ["AoU dataset"], "reasoning": ""})
+    cand = QueryCandidate("X", safe=["All of Us"], flag_terms=["NIH"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=llm, dataset_name="X",
+                         count_fn=lambda t: 900, reference_count=200)
+    assert not [d for d in r.diffs if d.kind == "alias" and d.action == "add"]
+    note = next(n for n in r.notes if n.startswith("rejected alias candidates"))
+    assert "AoU dataset (short acronym plus generic suffix)" in note
+    from dataset_agent.adapters.query_heuristics import is_acronym_suffix_form
+    assert not is_acronym_suffix_form("Add Health")

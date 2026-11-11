@@ -141,3 +141,15 @@ def test_head_acronym_rule() -> None:
     assert head_acronym("ABCDEFG Panel") is None  # too long
     assert head_acronym("A Panel") is None  # too short
     assert head_acronym("AB-C Panel") is None  # not alphanumeric
+
+
+def test_mixed_case_short_acronym_heads() -> None:
+    from dataset_agent.adapters.query_heuristics import is_acronym_suffix_form
+
+    assert head_acronym("AoU Research Program") == "AoU"
+    assert head_acronym("eICU Collaborative") == "eICU"
+    assert is_acronym_suffix_form("AoU dataset") and is_acronym_suffix_form("eICU data")
+    for plain in ("All of Us", "Add Health", "The Study", "Ohio Panel"):
+        assert head_acronym(plain) is None
+    assert not is_acronym_suffix_form("Add dataset") and not is_acronym_suffix_form("All data")
+    assert not is_acronym_suffix_form("Alongside dataset")  # longer than 4 chars

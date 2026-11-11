@@ -66,23 +66,34 @@ def is_short_acronym(alias: str) -> bool:
     return len(s) <= SHORT_ACRONYM_MAX_LEN
 
 
+def looks_like_acronym_head(head: str, max_len: int = SHORT_ACRONYM_MAX_LEN) -> bool:
+    """Acronym-shaped single token: all upper case, vowelless, or a short mixed-case form
+    with an upper-case letter after its first character ("AoU", "eICU").
+    Title-case words ("All", "Add", "The") do not count."""
+    if not head.isalnum() or not any(ch.isalpha() for ch in head):
+        return False
+    if head.isupper() or not any(ch in "aeiouyAEIOUY" for ch in head):
+        return True
+    return len(head) <= max_len and any(ch.isupper() for ch in head[1:])
+
+
 def is_acronym_suffix_form(alias: str) -> bool:
     """``<short acronym> <generic suffix>`` ("WR dataset", "QWR program", "ONET data"):
     the suffix narrows the acronym but the phrase still matches its other meanings.
-    The acronym must look like one: upper case or without vowels ("Wr", "Wrp")."""
+    The acronym must look like one: upper case, without vowels ("Wr", "Wrp"), or short mixed case ("AoU")."""
     words = (alias or "").split()
     if len(words) != 2 or words[1].lower() not in _SUFFIX_CANDIDATES:
         return False
     head = words[0]
     if not head.isalnum() or len(head) > SHORT_ACRONYM_MAX_LEN:
         return False
-    return head.isupper() or not any(ch in "aeiouyAEIOUY" for ch in head)
+    return looks_like_acronym_head(head)
 
 
 def head_acronym(term: str) -> str | None:
     """First word of a multi-word term when it looks like an acronym, else None.
 
-    2-6 alphanumeric characters with at least one letter, upper case or without vowels.
+    2-6 alphanumeric characters with at least one letter, upper case, without vowels, or (<=4 chars) mixed case with an inner capital ("AoU").
     Shared rule: keep identical to the extraction pipeline's copy."""
     words = (term or "").split()
     if len(words) < 2:
@@ -90,9 +101,7 @@ def head_acronym(term: str) -> str | None:
     head = words[0]
     if not 2 <= len(head) <= 6 or not head.isalnum() or not any(ch.isalpha() for ch in head):
         return None
-    if head.isupper() or not any(ch in "aeiouyAEIOUY" for ch in head):
-        return head
-    return None
+    return head if looks_like_acronym_head(head) else None
 
 
 def apply_short_acronym_heuristic(
