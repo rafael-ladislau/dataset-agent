@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from dataset_agent.adapters.fulltext_evidence import build_evidence
 from dataset_agent.adapters.fulltext_refiner import refine_candidate
 from dataset_agent.adapters.seed_mapping import QueryCandidate
@@ -596,3 +598,37 @@ def test_refinement_reply_without_reasoning_still_yields_proposals():
         assert out["new_aliases"] == ["Alpha Survey"]
         assert "interface design" in out["exclude_terms"] and "user interface" in out["exclude_terms"]
         assert out["groups"][0]["papers"] == 0
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda r: r["false_positive_groups"][0].pop("cause_term"),
+    lambda r: r["false_positive_groups"][0].pop("label"),
+    lambda r: r["false_positive_groups"][0].update(papers=2.5),
+    lambda r: r.update(new_aliases=None),
+    lambda r: r.update(flag_terms=None),
+    lambda r: r.update(false_positive_groups=None),
+])
+def test_refinement_malformed_group_or_null_list_keeps_valid_proposals(mutate):
+    from llm_fakes import STYLES, FakeLLMServer, make_agent
+
+    from dataset_agent.adapters.fulltext_refiner import propose_refinements
+
+    for style in STYLES:
+        reply = {
+            "false_positive_groups": [{"label": "UI = user interface", "cause_term": "UI",
+                                       "papers": 3, "exclude_terms": ["user interface"]}],
+            "exclude_terms": ["usability study"], "flag_terms": ["Department of Labor"],
+            "new_aliases": ["UI records"],
+        }
+        mutate(reply)
+        server = FakeLLMServer(style)
+        server.push(server.structured("emit_refinement_candidates", reply))
+        server.push(server.structured("emit_refinement_candidates", reply))
+        agent = make_agent(style, server)
+        out = propose_refinements(agent, dataset_name="X", genuine=[], false_positives=[],
+                                  aliases=[], flag_terms=[], exclude_terms=[])
+        assert "usability study" in out["exclude_terms"], style
+        if "new_aliases" in reply and reply["new_aliases"] is not None:
+            assert out["new_aliases"] == ["UI records"], style
+        if reply.get("flag_terms") is not None:
+            assert out["flag_terms"] == ["Department of Labor"], style

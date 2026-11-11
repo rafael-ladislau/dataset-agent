@@ -602,32 +602,31 @@ EMIT_REFINEMENT_CANDIDATES: dict = {
         "type": "object",
         "properties": {
             "false_positive_groups": {
-                "type": "array",
+                "type": ["array", "null"],
                 "description": "Other meanings among the false positives, largest first (max 6).",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "label": {"type": "string", "description": "e.g. 'UI = user interface (HCI)'"},
+                        "label": {"type": ["string", "null"], "description": "e.g. 'UI = user interface (HCI)'"},
                         "cause_term": {"type": ["string", "null"], "description": "Query term that matched them"},
-                        "papers": {"type": ["integer", "string", "null"], "description": "Number of false positives in the group"},
+                        "papers": {"type": ["number", "string", "null"], "description": "Number of false positives in the group"},
                         "exclude_terms": {"type": ["array", "null"], "items": {"type": "string"}},
                     },
-                    "required": ["label", "cause_term"],
-                    "additionalProperties": False,
+                    "additionalProperties": True,
                 },
             },
             "exclude_terms": {
-                "type": "array",
+                "type": ["array", "null"],
                 "items": {"type": "string"},
                 "description": "Short phrases present in false-positive titles/snippets, never in matching papers (max 10).",
             },
             "flag_terms": {
-                "type": "array",
+                "type": ["array", "null"],
                 "items": {"type": "string"},
                 "description": "Context words/phrases shared by the matching papers' quotes/snippets (max 10).",
             },
             "new_aliases": {
-                "type": "array",
+                "type": ["array", "null"],
                 "items": {"type": "string"},
                 "description": "Mention forms of the dataset seen in matching quotes (max 5).",
             },
