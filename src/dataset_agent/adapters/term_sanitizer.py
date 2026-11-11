@@ -12,6 +12,8 @@ import re
 import unicodedata
 from collections.abc import Iterable
 
+from dataset_agent.adapters.agent_common import is_sentinel_text
+
 logger = logging.getLogger(__name__)
 
 _DASHES = dict.fromkeys(
@@ -92,6 +94,9 @@ def sanitize_term(term: object) -> str | None:
         # Dimensions ignores them for phrase matching.
         s = re.sub(r"\s+", " ", s.replace('"', "")).strip()
     if not s or not any(ch.isalpha() for ch in s):
+        return None
+    if is_sentinel_text(s):
+        # Agent placeholder/error text must never become a search term.
         return None
     return s
 

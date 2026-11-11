@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from dataset_agent.application import prompts
 from dataset_agent.adapters.llm_output_cleanup import is_llm_list_entry_junk
+from dataset_agent.adapters.agent_common import is_sentinel_text
 from dataset_agent.adapters.term_sanitizer import sanitize_terms
 from dataset_agent.adapters.tools import (
     EMIT_SUFFIX_FORM,
@@ -310,11 +311,16 @@ class DatasetResearchUseCase:
             ),
             tools=TOOL_DEFINITIONS,
         )
+        if is_sentinel_text(desc_home_raw):
+            logger.warning("Step 1: agent returned no usable answer; description left empty")
+            desc_home_raw = ""
         sections = self._extractor.extract_sections(desc_home_raw)
         description = clean_description(sections.get("DESCRIPTION", ""))
         home_url = self._extractor.extract_url(sections.get("HOME_URL", "")) or None
         if not description:
             description = clean_description(desc_home_raw)
+        if is_sentinel_text(description):
+            description = ""
         logger.info(
             "Step 1 done: description=%s chars, home_url=%r",
             len(description),
@@ -327,6 +333,7 @@ class DatasetResearchUseCase:
             prompts.urls_and_access_prompt(name, description, home_url),
             tools=TOOL_DEFINITIONS,
         )
+        urls_raw = "" if is_sentinel_text(urls_raw) else urls_raw
         url_sections = self._extractor.extract_sections(urls_raw)
         data_url = self._extractor.extract_url(url_sections.get("DATA_URL", ""))
         schema_url = self._extractor.extract_url(url_sections.get("SCHEMA_URL", ""))
@@ -352,6 +359,7 @@ class DatasetResearchUseCase:
             tools=TOOL_DEFINITIONS,
         )
         logger.debug("Organizations raw output: %r", org_raw[:500] if org_raw else "")
+        org_raw = "" if is_sentinel_text(org_raw) else org_raw
         org_list = self._extractor.extract_list(org_raw)
         logger.debug("Organizations extracted list: %r", org_list)
         flag_terms = sanitize_terms(process_organizations(org_list), "flag term")
@@ -387,6 +395,7 @@ class DatasetResearchUseCase:
             tools=TOOL_DEFINITIONS,
         )
         logger.debug("Aliases raw output: %r", alias_raw[:500] if alias_raw else "")
+        alias_raw = "" if is_sentinel_text(alias_raw) else alias_raw
         aliases = sanitize_terms(self._extractor.extract_list(alias_raw), "alias")
         logger.debug("Aliases extracted list: %r", aliases)
         ref_for_host = (request.dataset_url or "").strip() or (home_url or "")

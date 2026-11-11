@@ -160,3 +160,9 @@ def test_inner_backticks_removed() -> None:
 
 def test_backtick_apostrophe() -> None:
     assert sanitize_term("O`Brien Cohort") == "O'Brien Cohort"
+
+
+def test_agent_sentinel_text_is_dropped() -> None:
+    assert sanitize_term("No output from agent.") is None
+    assert sanitize_term("Error in agent execution: boom") is None
+    assert sanitize_terms(["No output from agent", "MIDRC"]) == ["MIDRC"]
