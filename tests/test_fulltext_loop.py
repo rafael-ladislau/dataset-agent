@@ -194,6 +194,56 @@ def test_failed_gate_evaluation_is_not_zero_fp(tmp_path, monkeypatch):
     assert "evaluation failed" in str(out.notes)
 
 
+def test_gate_iteration_dimensions_failure_is_noted_and_never_selected(tmp_path, monkeypatch):
+    calls = {"n": 0}
+    ok = {"fp_rate_pct": 5.0, "genuine_count": 10, "fp_count": 0, "matched_count": 10,
+          "total_pubs": 100, "coverage_pct": 100.0, "publications_total": 100, "fp_hits": []}
+
+    def fake_eval(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return dict(ok, for_clause=k.get("for_clause", ""))
+        return {
+            "fp_rate_pct": 0.0, "genuine_count": 0, "matched_count": 0, "total_pubs": 0,
+            "error": "dimensions_query_failed: Dimensions rejected the query: {'query': {...}}",
+            "error_reason": "Service unavailable: Unexpected Error 'NoneType'",
+        }
+
+    monkeypatch.setattr(qopt_mod, "evaluate_for_clause_sync", fake_eval)
+
+    def fp(pid, cites):
+        p = pub(pid, cites, False, "")
+        p["validated_datasets"] = []
+        p["term_contexts"] = [{"term": "Another Long Title Here", "role": "alias", "part": "body",
+                               "text": "Another Long Title Here in the nursing ward"}]
+        p["category_for"] = ["Nursing"]
+        return p
+
+    first = [fp(f"n{i}", 50 - i) for i in range(3)] + [
+        pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(3)]
+    llm = MagicMock()
+    llm.get_structured.return_value = {
+        "false_positive_groups": [{"label": "nursing wards", "cause_term": "Another Long Title Here",
+                                   "papers": 3, "exclude_terms": ["nursing ward"]}],
+        "exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=llm,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, optimize_max_iterations=3,
+                               refine_min_alias_papers=10),
+        extraction_client=FakeClient([{"publications": first}]))
+    out = asyncio.run(uc.execute(REQ))
+    notes = str(out.notes)
+    assert "gate_iter1: Dimensions query failed (Service unavailable" in notes
+    assert "iteration not evaluated" in notes
+    assert "search publications" not in notes
+    assert out.selected_variant.endswith("~gate0")
+    assert not any(v.label.endswith("~gate1") for v in out.all_variants_tested)
+    last = out.fulltext_iterations[-1]
+    assert last.iteration == 1 and last.error and last.fulltext_precision is None
+    assert out.confidence.value == "low"
+    assert any("Gate iteration 1 could not be evaluated" in n for n in out.proposal.notes)
+
+
 def test_small_fulltext_sample_does_not_win_selection(tmp_path):
     bad = [pub(f"n{i}", 50 - i, False, "Another Long Title Here nursing") for i in range(4)] + [
         pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(4)]

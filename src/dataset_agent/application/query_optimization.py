@@ -18,6 +18,7 @@ from dataset_agent.adapters.dimensions_dsl import (
     parse_total_count,
     publication_title,
     run_alias_count,
+    short_dsl_error,
 )
 from dataset_agent.adapters.fp_analysis import (
     classify_alias_mention,
@@ -578,6 +579,7 @@ class QueryOptimizationUseCase:
         best_ev: dict | None = None
         phase3_error: str | None = None
         ft_probe_error: str | None = None
+        ft_eval_error: tuple[int, str] | None = None
         best_variant_entry: VariantTestedEntry | None = None
 
         max_iters = max(1, self._settings.optimize_max_iterations)
@@ -621,10 +623,28 @@ class QueryOptimizationUseCase:
             if ev.get("error"):
                 # A failed evaluation says nothing about precision; never read it as 0% FP.
                 phase3_error = str(ev["error"])
-                notes_parts.append(
-                    f"gate_iter{iteration}: evaluation failed ({phase3_error}); "
-                    "result is partial and confidence is capped at LOW."
-                )
+                reason = str(ev.get("error_reason") or short_dsl_error(phase3_error))
+                if phase3_error.startswith("dimensions_query_failed"):
+                    notes_parts.append(
+                        f"gate_iter{iteration}: Dimensions query failed ({reason}); "
+                        "iteration not evaluated; evaluation failed, result is partial "
+                        "and confidence is capped at LOW."
+                    )
+                    if ft_enabled:
+                        ft_eval_error = (iteration, reason)
+                else:
+                    notes_parts.append(
+                        f"gate_iter{iteration}: evaluation failed ({phase3_error}); "
+                        "result is partial and confidence is capped at LOW."
+                    )
+                if ft_enabled:
+                    ft_iterations.append(
+                        IterationMetrics(
+                            iteration=iteration,
+                            for_clause=current_for_clause,
+                            error=reason,
+                        )
+                    )
                 break
 
             fp_rate = float(ev.get("fp_rate_pct") or 0.0)
@@ -844,7 +864,11 @@ class QueryOptimizationUseCase:
                     diffs=merge_diffs([ft_diffs[i] for i in order]),
                     iterations=ft_iterations,
                     settings=self._settings,
-                    notes=[n for n in notes_parts if "full-text" in n or "refiner" in n],
+                    notes=[
+                        n
+                        for n in notes_parts
+                        if "full-text" in n or "refiner" in n or "Dimensions query failed" in n
+                    ],
                     seed_kw={"extra": {"home_url": request.dataset_url}},
                 )
             except ValueError as exc:
@@ -868,6 +892,12 @@ class QueryOptimizationUseCase:
             if proposal is not None and ft_probe_error is not None:
                 proposal.notes.append(
                     f"A full-text probe failed ({ft_probe_error}); later iterations were not probed."
+                )
+            if proposal is not None and ft_eval_error is not None:
+                proposal.notes.append(
+                    f"Gate iteration {ft_eval_error[0]} could not be evaluated "
+                    f"(Dimensions query failed: {ft_eval_error[1]}); the proposal is based "
+                    "on earlier iterations."
                 )
             if proposal is not None and self._proposal_repo is not None:
                 self._proposal_repo.save(proposal)
