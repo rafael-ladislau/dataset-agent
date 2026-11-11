@@ -337,13 +337,17 @@ class QueryOptimizationUseCase:
             flag_terms=flag_terms, evidence_against=evidence_against,
         )
         if rejected:
-            notes.append("recall check: not eligible: " + "; ".join(rejected[:8]))
+            more = f"; and {len(rejected) - 8} more" if len(rejected) > 8 else ""
+            notes.append("recall check: not eligible: " + "; ".join(rejected[:8]) + more)
         if not eligible:
             return current, diffs, notes, None
 
         # Count stage: the Dimensions hits each candidate would add (tier order, bounded).
         counted: list[tuple[RecallCandidate, int]] = []
-        for cand in eligible[: 3 * s.fulltext_recall_max_candidates]:
+        count_cap = 3 * s.fulltext_recall_max_candidates
+        for cand in eligible[count_cap:]:
+            notes.append(f"recall check: '{cand.term}' not evaluated: over the counting cap")
+        for cand in eligible[:count_cap]:
             if not self._budget_left():
                 notes.append("recall check stopped: Dimensions call budget exhausted")
                 break

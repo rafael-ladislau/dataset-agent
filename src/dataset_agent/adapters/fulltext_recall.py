@@ -29,6 +29,27 @@ from dataset_agent.settings import Settings
 
 _MAX_TERM_LEN = 120
 _MAX_QUOTES = 3
+# Words that describe a kind of resource without naming one ("Data Commons", "Research Center").
+_GENERIC_NAME_WORDS = frozenset({
+    "data", "dataset", "datasets", "database", "databases", "commons", "research", "program",
+    "programme", "project", "study", "studies", "survey", "center", "centre", "resource",
+    "resources", "network", "initiative", "repository", "archive", "portal", "platform",
+    "system", "service", "services", "collection", "registry", "cohort", "consortium",
+    "observatory", "atlas", "hub", "bank", "biobank",
+})
+
+
+def _all_generic_words(term: str) -> bool:
+    toks = [t for t in _fold(term).split() if t not in _NAME_JOINERS]
+    return bool(toks) and all(t in _GENERIC_NAME_WORDS for t in toks)
+
+
+def _acronym_compound(term: str) -> bool:
+    """Two or more short acronym-shaped tokens ("PBO GPS"): no distinctive name."""
+    toks = term.split()
+    return len(toks) >= 2 and all(
+        looks_like_acronym_head(t, max_len=5) and len(t) <= 5 for t in toks
+    )
 
 
 @dataclass
@@ -99,6 +120,13 @@ def recall_candidates(
     against = {_fold(a) for a in (evidence_against or set())}
     safe_f = {_fold(s) for s in current.safe}
     all_names = [n for n in (sanitize_term(x) for x in main_names) if n]
+    # Name-relatedness only: a multi-word alias (even a rhetorical one such as "All of Us"
+    # when every main name is "All of Us NIH") also makes a containing flag a name of the dataset.
+    related_forms = list(all_names)
+    for a in [*current.safe, *current.risky, *known_aliases]:
+        sa = sanitize_term(a)
+        if sa and len(sa.split()) >= 2:
+            related_forms.append(sa)
     acronyms = dataset_acronyms(
         all_names, [*current.safe, *current.risky, *known_aliases]
     )
@@ -130,13 +158,17 @@ def recall_candidates(
             reject("short acronym plus generic suffix")
         elif _generic_word(term):
             reject("not a proper name")
+        elif _all_generic_words(term):
+            reject("generic phrase")
+        elif _acronym_compound(term):
+            reject("acronyms only")
         elif _fold(term) in against:
             reject("full text already rejected it")
         elif detect_rhetorical_name(term):
             reject("rhetorical phrase")
         elif _fold(term) in risky_f and not current.flag_terms:
             reject("already matches without flags")
-        elif source == "flag" and not _flag_names_dataset(term, all_names, acronyms):
+        elif source == "flag" and not _flag_names_dataset(term, related_forms, acronyms):
             reject("not a name of the dataset")
         else:
             eligible.append(RecallCandidate(term=term, source=source, tier=tier))  # type: ignore[arg-type]

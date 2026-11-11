@@ -37,7 +37,7 @@ def test_aou_only_the_program_name_is_eligible():
     notes = "; ".join(res[1])
     assert "NIH (short acronym)" in notes
     assert "National Institutes of Health (not a name of the dataset)" in notes
-    assert "Data and Research Center (not a name of the dataset)" in notes
+    assert "Data and Research Center (generic phrase)" in notes
     assert "All of Us (rhetorical phrase)" in notes
 
 
@@ -154,3 +154,20 @@ def test_judge_rejects_low_precision_and_shortfall():
     assert "OpenAlex budget exhausted" in reason
     ok, reason, stats = judge_complement("Term One", ev(0, 0), 50, S)
     assert not ok and stats["complement_precision"] is None
+
+
+def test_aou_real_main_name_with_agency_suffix_uses_known_alias():
+    res = run(AOU, ["All of Us NIH"], known=["All of Us"])
+    assert "All of Us Research Program" in terms(res)
+    notes = "; ".join(res[1])
+    assert "National Institutes of Health (not a name of the dataset)" in notes
+    assert "NIH" in notes and "NIH" not in terms(res)
+
+
+def test_generic_phrase_and_acronym_compound_rejected():
+    cand = QueryCandidate(main_dataset_name="MIDRC Data Commons", safe=["MIDRC Data Commons"])
+    res = run(cand, ["MIDRC Data Commons"], flags=[], known=["Data Commons", "PBO GPS"])
+    assert terms(res) == []
+    notes = "; ".join(res[1])
+    assert "Data Commons (generic phrase)" in notes
+    assert "PBO GPS (acronyms only)" in notes
