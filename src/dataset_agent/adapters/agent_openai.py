@@ -14,12 +14,16 @@ from openai import APIStatusError, OpenAI
 from dataset_agent.adapters.agent_common import (
     NO_OUTPUT_TEXT,
     SYSTEM_PROMPT,
+    contains_harmony_markup,
     extract_json_object,
+    has_harmony_markup,
+    parse_harmony_tool_calls,
     json_only_prompt,
     prompt_head,
     repair_near_miss,
     retry_prompt,
     run_tool,
+    strip_harmony,
     strip_think,
     to_openai_tool,
     to_openai_tools,
@@ -29,6 +33,12 @@ from dataset_agent.adapters.tools import TOOL_DEFINITIONS
 from dataset_agent.domain.ports import AgentPort
 
 logger = logging.getLogger(__name__)
+
+_HARMONY_RETRY_MESSAGE = (
+    "Your last reply contained raw control markup (angle-bracket pipe tokens) instead of an "
+    "answer or a proper tool call. Reply again with either a real tool call or your plain-text "
+    "answer, without any such tokens."
+)
 
 #: Structured-output strategies, most to least reliable.
 TIER_JSON_SCHEMA = "json_schema"
@@ -157,8 +167,9 @@ class OpenAICompatibleAgent(AgentPort):
         ``tools=[]``    → disable all tools (pure reasoning call).
         ``tools=[...]`` → use only the supplied tool definitions.
 
-        Tool calls written into the message text (instead of ``tool_calls``)
-        are not executed; that text is returned as the answer.
+        Plain JSON tool calls written into the message text are not executed. Harmony
+        tool calls leaked into the text (gpt-oss) are recovered and executed; Harmony
+        markup never appears in the returned answer.
         """
         active_tools: list[Any] = TOOL_DEFINITIONS if tools is None else tools
         logger.info(
@@ -171,6 +182,7 @@ class OpenAICompatibleAgent(AgentPort):
         messages = self._base_messages(prompt)
         openai_tools = to_openai_tools(active_tools) if active_tools else None
         start = time.time()
+        leak_retried = False
 
         try:
             for iteration in range(1, self._max_iterations + 1):
@@ -182,7 +194,39 @@ class OpenAICompatibleAgent(AgentPort):
                     tc for tc in (message.tool_calls or []) if getattr(tc, "type", "") == "function"
                 ]
 
-                if not tool_calls:
+                # (id, name, raw argument text, parsed arguments)
+                calls: list[tuple[str, str, str, dict[str, Any]]] = [
+                    (
+                        tc.id,
+                        tc.function.name,
+                        self._arguments_text(tc.function.arguments),
+                        self._parse_arguments(tc.function.arguments),
+                    )
+                    for tc in tool_calls
+                ]
+
+                if not calls and has_harmony_markup(message.content):
+                    leaked = self._leaked_calls(message.content, active_tools, iteration)
+                    if leaked:
+                        logger.warning(
+                            "Recovered %s tool call(s) leaked as Harmony text in message content",
+                            len(leaked),
+                        )
+                        calls = leaked
+                    elif strip_harmony(strip_think(message.content)):
+                        pass  # a plain final-channel answer wrapped in markup; stripped below
+                    elif not leak_retried:
+                        leak_retried = True
+                        logger.warning(
+                            "Unparseable Harmony markup in assistant content; retrying the turn"
+                        )
+                        messages.append({"role": "user", "content": _HARMONY_RETRY_MESSAGE})
+                        continue
+                    else:
+                        logger.warning("Harmony markup persisted after retry; treating as no answer")
+                        return strip_harmony(strip_think(message.content)) or NO_OUTPUT_TEXT
+
+                if not calls:
                     logger.info(
                         "LLM agent finished in %.2fs (finish_reason=%s)",
                         time.time() - start,
@@ -194,38 +238,38 @@ class OpenAICompatibleAgent(AgentPort):
                     "Iteration %s/%s: %s tool call(s)",
                     iteration,
                     self._max_iterations,
-                    len(tool_calls),
+                    len(calls),
                 )
                 messages.append(
                     {
                         "role": "assistant",
-                        "content": strip_think(message.content) or None,
+                        "content": (
+                            None
+                            if has_harmony_markup(message.content)
+                            else strip_think(message.content) or None
+                        ),
                         "tool_calls": [
                             {
-                                "id": tc.id,
+                                "id": call_id,
                                 "type": "function",
-                                "function": {
-                                    "name": tc.function.name,
-                                    "arguments": self._arguments_text(tc.function.arguments),
-                                },
+                                "function": {"name": name, "arguments": raw},
                             }
-                            for tc in tool_calls
+                            for call_id, name, raw, _ in calls
                         ],
                     }
                 )
-                for tc in tool_calls:
-                    args = self._parse_arguments(tc.function.arguments)
+                for call_id, name, _, args in calls:
                     logger.info(
                         "Executing tool %s (id=%s) args=%s",
-                        tc.function.name,
-                        tc.id,
+                        name,
+                        call_id,
                         json.dumps(args, ensure_ascii=False)[:200],
                     )
                     messages.append(
                         {
                             "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": run_tool(tc.function.name, args),
+                            "tool_call_id": call_id,
+                            "content": run_tool(name, args),
                         }
                     )
 
@@ -240,6 +284,20 @@ class OpenAICompatibleAgent(AgentPort):
         except Exception as exc:
             logger.exception("Agent failed")
             return f"Error in agent execution: {exc}"
+
+    @staticmethod
+    def _leaked_calls(
+        content: Any, active_tools: list[Any], iteration: int
+    ) -> list[tuple[str, str, str, dict[str, Any]]]:
+        """Harmony tool calls in *content* for offered tools; ``[]`` if any is unusable."""
+        parsed = parse_harmony_tool_calls(content)
+        offered = {t["name"] for t in active_tools}
+        if not parsed or any(name not in offered for name, _ in parsed):
+            return []
+        return [
+            (f"harmony_{iteration}_{i}", name, json.dumps(args, ensure_ascii=False), args)
+            for i, (name, args) in enumerate(parsed, start=1)
+        ]
 
     @staticmethod
     def _parse_arguments(raw: Any) -> dict[str, Any]:
@@ -263,7 +321,10 @@ class OpenAICompatibleAgent(AgentPort):
     @staticmethod
     def _extract_text(message: Any) -> str:
         """Visible answer text; reasoning fields and ``<think>`` blocks are dropped."""
-        return strip_think(getattr(message, "content", None)) or NO_OUTPUT_TEXT
+        text = strip_think(getattr(message, "content", None))
+        if has_harmony_markup(text):
+            text = strip_harmony(text)
+        return text or NO_OUTPUT_TEXT
 
     # ------------------------------------------------------------------
     # Structured output
@@ -319,6 +380,8 @@ class OpenAICompatibleAgent(AgentPort):
                 except Exception:
                     logger.exception("get_structured failed (tool=%s tier=%s)", tool_name, tier)
                     return self._structured_fallback(tool_name, schema, near_miss, near_miss_tier)
+                if result is not None and contains_harmony_markup(result):
+                    result, error = None, "the reply contained Harmony control markup"
                 if rejected and not answered:
                     # A lower tier answered 2xx and no higher tier did: the higher ones
                     # are really unsupported. If a higher tier answered 2xx with bad
@@ -449,7 +512,10 @@ class OpenAICompatibleAgent(AgentPort):
     def _object_from_text(
         message: Any, *, allow_reasoning: bool = False
     ) -> tuple[dict[str, Any] | None, str]:
-        parsed = extract_json_object(getattr(message, "content", None))
+        content = getattr(message, "content", None)
+        if has_harmony_markup(content):
+            content = strip_harmony(strip_think(content))
+        parsed = extract_json_object(content)
         if parsed is None and allow_reasoning:
             for attr in ("reasoning_content", "reasoning"):
                 value = getattr(message, attr, None)

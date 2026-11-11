@@ -152,3 +152,26 @@ def test_refinement_schema_tolerates_null_informational_group_fields(field, valu
     assert validate_against_schema(reply, schema) is None
     fixed, err = repair_near_miss(reply, schema)
     assert err == "" and fixed["exclude_terms"] == ["graphical interface"]
+
+
+def test_harmony_helpers():
+    from dataset_agent.adapters.agent_common import (
+        contains_harmony_markup,
+        has_harmony_markup,
+        parse_harmony_tool_calls,
+        strip_harmony,
+    )
+
+    leaked = (
+        '<|start|>assistant<|channel|>commentary to=functions.web_search '
+        '<|constrain|>json<|message|>{"query":"earthquake gnss unavco dataset"}'
+    )
+    assert has_harmony_markup(leaked)
+    assert not has_harmony_markup("plain text")
+    assert parse_harmony_tool_calls(leaked) == [
+        ("web_search", {"query": "earthquake gnss unavco dataset"})
+    ]
+    assert parse_harmony_tool_calls("plain") is None
+    assert strip_harmony(leaked) == ""
+    assert contains_harmony_markup({"a": ["x", "<|end|>"]})
+    assert not contains_harmony_markup({"a": ["x"]})

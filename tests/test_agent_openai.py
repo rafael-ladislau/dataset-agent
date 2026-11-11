@@ -404,3 +404,114 @@ def test_tool_tier_falls_back_to_object_tool_choice_on_400(server):
         "function": {"name": "emit_names"},
     }
     assert agent.last_structured_tier == TIER_TOOL_CALL
+
+
+# ---------------------------------------------------------------------------
+# Harmony tool calls leaked into message content (gpt-oss on LM Studio)
+# ---------------------------------------------------------------------------
+
+LEAKED = (
+    '<|start|>assistant<|channel|>commentary to=functions.web_search '
+    '<|constrain|>json<|message|>{"query":"earthquake gnss unavco dataset"}'
+)
+
+
+def test_leaked_harmony_tool_call_is_executed(server, monkeypatch):
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setitem(tools.TOOL_DISPATCH, "web_search", lambda a: calls.append(a) or "results")
+    agent = make_agent(OPENAI, server)
+    server.push(server.text(LEAKED), server.text("GNSS data from UNAVCO."))
+
+    assert agent.get_information("Search.") == "GNSS data from UNAVCO."
+    assert calls == [{"query": "earthquake gnss unavco dataset"}]
+    history = server.requests[1]["messages"]
+    assistant, tool = history[2], history[3]
+    assert assistant["content"] is None
+    assert assistant["tool_calls"][0]["function"]["name"] == "web_search"
+    assert tool["role"] == "tool" and tool["tool_call_id"] == assistant["tool_calls"][0]["id"]
+    assert tool["content"] == "results"
+    assert "<|" not in json.dumps(history)
+
+
+def test_multiple_leaked_harmony_calls_are_all_executed(server, monkeypatch):
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setitem(tools.TOOL_DISPATCH, "web_search", lambda a: calls.append(a) or "r")
+    agent = make_agent(OPENAI, server)
+    two = (
+        LEAKED
+        + '<|call|><|start|>assistant<|channel|>commentary to=functions.web_search '
+        '<|constrain|>json<|message|>{"query":"second"}<|call|>'
+    )
+    server.push(server.text(two), server.text("done"))
+
+    assert agent.get_information("Search.") == "done"
+    assert [c["query"] for c in calls] == ["earthquake gnss unavco dataset", "second"]
+    ids = [t["id"] for t in server.requests[1]["messages"][2]["tool_calls"]]
+    assert len(set(ids)) == 2
+
+
+def test_unparseable_harmony_retries_once_then_recovers(server, monkeypatch):
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setitem(tools.TOOL_DISPATCH, "web_search", lambda a: calls.append(a) or "r")
+    agent = make_agent(OPENAI, server)
+    broken = "<|channel|>commentary to=functions.web_search <|message|>{not json"
+    server.push(server.text(broken), server.text("A plain answer."))
+
+    assert agent.get_information("Search.") == "A plain answer."
+    assert calls == []
+    assert "control markup" in server.requests[1]["messages"][-1]["content"]
+    assert "<|" not in json.dumps(server.requests[1]["messages"][2:])
+
+
+def test_persistent_harmony_leak_is_never_returned(server):
+    agent = make_agent(OPENAI, server)
+    broken = "<|channel|>commentary to=functions.web_search <|message|>{not json"
+    server.push(server.text(broken), server.text(broken))
+
+    assert agent.get_information("Search.") == "No output from agent."
+    assert len(server.requests) == 2
+
+
+def test_harmony_call_for_unoffered_tool_is_not_executed(server, monkeypatch):
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setitem(tools.TOOL_DISPATCH, "web_search", lambda a: calls.append(a) or "r")
+    agent = make_agent(OPENAI, server)
+    server.push(server.text(LEAKED), server.text(LEAKED))
+
+    assert agent.get_information("Q?", tools=[]) == "No output from agent."
+    assert calls == []
+
+
+def test_final_text_with_harmony_final_channel_is_stripped(server):
+    agent = make_agent(OPENAI, server)
+    server.push(
+        server.text(
+            "<|channel|>analysis<|message|>thinking<|end|>"
+            "<|start|>assistant<|channel|>final<|message|>The answer.<|return|>"
+        )
+    )
+
+    assert agent.get_information("Q?", tools=[]) == "The answer."
+
+
+def test_summary_after_iteration_cap_is_sanitized(server, monkeypatch):
+    monkeypatch.setitem(tools.TOOL_DISPATCH, "web_search", lambda a: "r")
+    agent = make_agent(OPENAI, server, max_iterations=1)
+    server.push(server.tool_call("web_search", {"query": "x"}), server.text(LEAKED))
+
+    assert agent.get_information("Search.") == "No output from agent."
+
+
+def test_structured_text_json_with_harmony_markup_is_rejected_and_retried(server):
+    agent = make_agent(OPENAI, server)
+    server.push(
+        server.error(400),
+        server.error(400),
+        server.error(400),
+        server.text(
+            '<|channel|>final<|message|>{"names": ["<|start|>bad"]}<|return|>'
+        ),
+        server.text('<|channel|>final<|message|>{"names": ["ACS"]}<|return|>'),
+    )
+
+    assert agent.get_structured("Names?", RESULT_TOOL) == VALID

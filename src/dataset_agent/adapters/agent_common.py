@@ -89,6 +89,85 @@ def strip_think(text: str | None) -> str:
     return out.strip()
 
 
+#: Harmony control tokens (gpt-oss) that must never reach a stored answer.
+_HARMONY_TOKEN_RE = re.compile(r"<\|(?:start|end|channel|message|constrain|call|return)\|>")
+_HARMONY_TOOL_RE = re.compile(r"\bto=functions\.[A-Za-z0-9_\-]+")
+_HARMONY_CALL_RE = re.compile(
+    r"to=(?:functions\.)?([A-Za-z0-9_\-]+)"
+    r"(?:\s*<\|constrain\|>\s*[A-Za-z0-9_\-]+|\s+[A-Za-z0-9_\-]+)?"
+    r"\s*<\|message\|>\s*"
+)
+_HARMONY_SEGMENT_RE = re.compile(
+    r"(?:<\|start\|>[^<]*)?<\|channel\|>\s*([A-Za-z0-9_\-]+)([^<]*)"
+    r"(?:<\|constrain\|>\s*[A-Za-z0-9_\-]+)?\s*<\|message\|>"
+    r"(.*?)(?=<\|(?:end|call|return|start)\|>|\Z)",
+    re.DOTALL,
+)
+
+
+def has_harmony_markup(text: str | None) -> bool:
+    """True when *text* carries gpt-oss Harmony control tokens or a ``to=functions.X`` header."""
+    if not text:
+        return False
+    return bool(_HARMONY_TOKEN_RE.search(text) or _HARMONY_TOOL_RE.search(text))
+
+
+def parse_harmony_tool_calls(text: str | None) -> list[tuple[str, dict[str, Any]]] | None:
+    """Tool calls a model leaked into message content as Harmony text.
+
+    Returns ``(name, arguments)`` in order, or ``None`` when *text* has no leaked call
+    or any leaked call has unparseable JSON arguments (callers must not guess).
+    """
+    if not text or not has_harmony_markup(text):
+        return None
+    decoder = json.JSONDecoder()
+    calls: list[tuple[str, dict[str, Any]]] = []
+    for m in _HARMONY_CALL_RE.finditer(text):
+        try:
+            value, _ = decoder.raw_decode(text, m.end())
+        except ValueError:
+            return None
+        if not isinstance(value, dict):
+            return None
+        calls.append((m.group(1), value))
+    return calls or None
+
+
+def strip_harmony(text: str | None) -> str:
+    """Remove Harmony markup; keep only ``final``-channel message bodies when present."""
+    if not text:
+        return ""
+    if not has_harmony_markup(text):
+        return text.strip()
+    bodies = [
+        m.group(3).strip()
+        for m in _HARMONY_SEGMENT_RE.finditer(text)
+        if m.group(1).lower() == "final" and "to=" not in m.group(2)
+    ]
+    if bodies:
+        out = " ".join(b for b in bodies if b)
+    elif _HARMONY_SEGMENT_RE.search(text) or _HARMONY_TOOL_RE.search(text):
+        # Only analysis/commentary/tool-call segments: no answer text.
+        out = ""
+    else:
+        out = _HARMONY_TOKEN_RE.sub(" ", text)
+    out = _HARMONY_TOKEN_RE.sub(" ", out)
+    if "<|" in out:
+        return ""
+    return re.sub(r"[ \t]{2,}", " ", out).strip()
+
+
+def contains_harmony_markup(value: Any) -> bool:
+    """True when any string inside a JSON-like *value* carries Harmony markup."""
+    if isinstance(value, str):
+        return has_harmony_markup(value) or "<|" in value
+    if isinstance(value, dict):
+        return any(contains_harmony_markup(v) for v in value.values())
+    if isinstance(value, list):
+        return any(contains_harmony_markup(v) for v in value)
+    return False
+
+
 def _balanced_objects(text: str):
     """Yield each balanced ``{...}`` substring in order, honoring JSON strings."""
     start = text.find("{")
