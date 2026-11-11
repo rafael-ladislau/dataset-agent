@@ -29,6 +29,7 @@ from dataset_agent.adapters.fulltext_evidence import (
     term_in_quote,
 )
 from dataset_agent.adapters.literature import _stem_text
+from dataset_agent.adapters.query_heuristics import is_acronym_suffix_form
 from dataset_agent.adapters.seed_mapping import QueryCandidate
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
 from dataset_agent.adapters.tools import EMIT_REFINEMENT_CANDIDATES
@@ -401,7 +402,9 @@ def refine_candidate(
         if c <= 0:
             reject("alias", t, "0 Dimensions hits")
             continue
-        risky = c > 10 * max(1, reference_count)
+        # Broad by count, or shaped like "WR dataset" (flag-gated as in phase 1).
+        risky = c > 10 * max(1, reference_count) or bool(
+            flags and not settings.optimize_suffix_short_acronym_safe and is_acronym_suffix_form(t))
         if risky and not flags:
             reject("alias", t, f"{c} Dimensions hits: risky and there are no flag terms")
             continue

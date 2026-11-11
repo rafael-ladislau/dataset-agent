@@ -490,3 +490,16 @@ def test_new_alias_count_rejections_are_noted():
     r = refine_candidate(QueryCandidate("X", safe=["NHIS"]), ev(pubs), settings=S, agent=llm,
                          dataset_name="X", count_fn=lambda t: 0, reference_count=100)
     assert any("NHIS Public Use Files (0 Dimensions hits)" in n for n in r.notes)
+
+
+def test_new_alias_shaped_like_acronym_suffix_is_flag_gated():
+    pubs = [pub(f"g{i}", 40 - i, True, "we linked the WR dataset from the Department of Workforce Services")
+            for i in range(4)]
+    llm = FakeLLM({"exclude_terms": [], "flag_terms": [], "new_aliases": ["WR dataset"], "reasoning": ""})
+    cand = QueryCandidate("X", safe=["Wage Record Data"], flag_terms=["Department of Workforce Services"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=llm, dataset_name="X",
+                         count_fn=lambda t: 900, reference_count=200)
+    assert "WR dataset" in r.candidate.risky and "WR dataset" not in r.candidate.safe
+    no_flags = refine_candidate(QueryCandidate("X", safe=["Wage Record Data"]), ev(pubs), settings=S, agent=llm,
+                                dataset_name="X", count_fn=lambda t: 900, reference_count=200)
+    assert "WR dataset" in no_flags.candidate.safe
