@@ -304,3 +304,13 @@ def test_final_read_asks_for_term_contexts_once():
     srv = _PoolServer({"p0": False, "p1": True, "p2": True, "p3": True})
     _topup(srv)
     assert srv.context_reads == 1
+
+
+@pytest.mark.parametrize("status", ["FAILED", "ERROR", "failed"])
+def test_start_search_stops_immediately_on_terminal_failure(status):
+    srv = _Server([{"status": status, "error_message": "QuerySyntaxErrors"}])
+    with pytest.raises(ExtractionError, match="QuerySyntaxErrors"):
+        _client(srv).start_search({"main_dataset_name": "X"}, 300)
+    status_calls = [c for c in srv.calls if c[1] == "/pipelines/T1/status"]
+    assert len(status_calls) == 1
+    assert [c for c in srv.calls if c[1] == "/pipelines/cleanup"] == [("POST", "/pipelines/cleanup", ["T1"])]

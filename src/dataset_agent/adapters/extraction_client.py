@@ -23,6 +23,7 @@ from dataset_agent.settings import Settings
 logger = logging.getLogger(__name__)
 
 _SEARCH_DONE = {"DONE", "COMPLETED", "COMPLETE"}
+_TERMINAL_FAILURE = {"FAILED", "FAILURE", "ERROR", "CANCELLED", "CANCELED"}
 
 
 _NOT_ATTEMPTED = "not_attempted"
@@ -85,6 +86,15 @@ class ProbeStatus:
     llm_done: bool
     llm_pending: int = 0
     raw: dict[str, Any] = field(default_factory=dict)
+
+
+def failure_reason(payload: dict[str, Any]) -> str | None:
+    """Reason when the status payload reports a terminal task failure, else None."""
+    status = str(payload.get("status") or "").upper()
+    err = payload.get("error_message") or payload.get("error")
+    if status in _TERMINAL_FAILURE:
+        return str(err or f"task status {status}")[:500]
+    return None
 
 
 def parse_status(payload: dict[str, Any]) -> ProbeStatus:
@@ -264,6 +274,9 @@ class ExtractionClient:
         delay = self._poll_interval
         while True:
             st = parse_status(self._request("GET", f"/pipelines/{task_id}/status"))
+            reason = failure_reason(st.raw)
+            if reason:
+                raise ExtractionError(f"probe {task_id} failed: {reason}")
             if until(st):
                 return st
             if self._clock() + delay > deadline:
