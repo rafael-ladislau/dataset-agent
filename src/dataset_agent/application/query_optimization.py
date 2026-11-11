@@ -263,6 +263,8 @@ class QueryOptimizationUseCase:
         *,
         notes_parts: list[str],
         suffix_checked: int,
+        c_full: int | None = None,
+        has_fn: bool = True,
     ) -> tuple[str | None, int]:
         """Return (suffixed safe form, updated suffix_checked) or (None, suffix_checked)."""
         if not self._settings.optimize_suffix_check_enabled:
@@ -276,14 +278,24 @@ class QueryOptimizationUseCase:
             if is_short_acronym(alias)
             else float(self._settings.optimize_suffix_ratio_threshold)
         )
+        counts: dict[str, int] = {}
         suffixed = await check_suffix_necessity(
             self._dsl,
             alias,
             bare_count=bare_count,
             ratio_threshold=ratio,
+            counts_out=counts,
         )
         self._dims_calls += len(_SUFFIX_CANDIDATES)
         suffix_checked += 1
+        if suffixed and c_full is not None and suffixed in counts:
+            # A promoted form keeps the risk rules: it must pass them on its own count.
+            if _alias_risk_label(counts[suffixed], c_full, has_fn) == "risky":
+                notes_parts.append(
+                    f"suffix_rejected: {suffixed!r} still risky "
+                    f"({counts[suffixed]} hits); {alias!r} stays risky"
+                )
+                return None, suffix_checked
         if suffixed:
             notes_parts.append(f"suffix_promoted: {alias!r} -> {suffixed!r}")
         return suffixed, suffix_checked
@@ -424,7 +436,8 @@ class QueryOptimizationUseCase:
                     risky.append(a)
                     continue
                 suffixed, suffix_checked = await self._try_suffix_promote(
-                    a, c, notes_parts=notes_parts, suffix_checked=suffix_checked
+                    a, c, notes_parts=notes_parts, suffix_checked=suffix_checked,
+                    c_full=c_full, has_fn=has_fn,
                 )
                 if suffixed:
                     safe.append(suffixed)
@@ -445,7 +458,8 @@ class QueryOptimizationUseCase:
                     continue
                 if risk == "risky":
                     suffixed, suffix_checked = await self._try_suffix_promote(
-                        a, c, notes_parts=notes_parts, suffix_checked=suffix_checked
+                        a, c, notes_parts=notes_parts, suffix_checked=suffix_checked,
+                        c_full=c_full, has_fn=has_fn,
                     )
                     if suffixed:
                         safe.append(suffixed)

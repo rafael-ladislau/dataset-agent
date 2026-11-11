@@ -153,3 +153,40 @@ def test_mixed_case_short_acronym_heads() -> None:
         assert head_acronym(plain) is None
     assert not is_acronym_suffix_form("Add dataset") and not is_acronym_suffix_form("All data")
     assert not is_acronym_suffix_form("Alongside dataset")  # longer than 4 chars
+
+
+def test_check_suffix_necessity_skips_alias_already_ending_in_suffix() -> None:
+    from types import SimpleNamespace
+
+    calls: list[str] = []
+
+    class _P:
+        async def execute_dsl(self, dsl: str) -> object:
+            calls.append(dsl)
+            return SimpleNamespace(count_total=1)
+
+    async def _go() -> None:
+        # Bare count is huge and every suffixed form is rare, yet no "survey survey".
+        assert await check_suffix_necessity(_P(), "MIDAS survey", bare_count=289) is None
+        assert await check_suffix_necessity(_P(), "MIDAS Survey", bare_count=289) is None
+        assert calls == []
+
+    asyncio.run(_go())
+
+
+def test_check_suffix_necessity_reports_count_of_promoted_form() -> None:
+    from types import SimpleNamespace
+
+    class _P:
+        async def execute_dsl(self, dsl: str) -> object:
+            return SimpleNamespace(count_total=289 if "survey" in dsl else 99999)
+
+    async def _go() -> None:
+        counts: dict[str, int] = {}
+        rec = await check_suffix_necessity(
+            _P(), "MIDAS", bare_count=183_973, counts_out=counts
+        )
+        assert rec == "MIDAS survey"
+        assert counts == {"MIDAS survey": 289}
+
+    asyncio.run(_go())

@@ -939,3 +939,75 @@ def test_phase1_sanitizes_junk_aliases_before_counting(tmp_path) -> None:
     junk = "MIDRC" + "\xa0​\xa0\xa0" * 4 + "..."
     _optimize(tmp_path, dsl, ["MIDRC Data Commons", junk])
     assert not any("\xa0" in q or "​" in q or "..." in q for q in dsl.calls)
+
+
+class _KeyedDSL:
+    """Counts keyed by the quoted phrase found in the DSL string."""
+
+    def __init__(self, counts: dict[str, int]) -> None:
+        self._counts = counts
+
+    async def execute_dsl(self, dsl: str) -> SimpleNamespace:
+        for phrase, n in self._counts.items():
+            if f'\\"{phrase}\\"' in dsl:
+                return SimpleNamespace(count_total=n, publications=[])
+        return SimpleNamespace(count_total=0, publications=[])
+
+
+def _midas_phase1(tmp_path, counts: dict[str, int], aliases: list[str]):
+    settings = Settings(
+        tasks_db=tmp_path / "t.db",
+        output_dir=tmp_path / "out",
+        dimensions_api_key="test-key",
+        optimize_max_dimensions_calls=80,
+        optimize_signal3_max_titles=0,
+        optimize_abstract_exclude_max_hits=0,
+        optimize_abstract_classify_max_calls=0,
+        optimize_suffix_check_enabled=True,
+        optimize_suffix_check_max_aliases=5,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0,
+    )
+    uc = QueryOptimizationUseCase(
+        dsl_port=_KeyedDSL(counts), research=MagicMock(), agent=MagicMock(), settings=settings
+    )
+    return asyncio.run(
+        uc.execute(
+            OptimizeRequest(
+                dataset_name="MIDRC Data Commons",
+                dataset_names=["MIDRC Data Commons", *aliases],
+                flag_terms=["radiology"],
+            )
+        )
+    )
+
+
+_MIDAS_COUNTS = {
+    "MIDRC Data Commons": 24,
+    "MIDAS": 183_973,
+    "MIDAS dataset": 434,
+    "MIDAS survey": 289,
+    "MIDAS program": 1295,
+    "MIDAS data": 1825,
+    "MIDAS study": 1210,
+    "MIDAS survey survey": 2,
+}
+
+
+def test_midas_survey_promotion_is_not_safe_and_not_doubled(tmp_path) -> None:
+    out = _midas_phase1(tmp_path, _MIDAS_COUNTS, ["MIDAS", "MIDAS survey"])
+    assert out.aliases is not None
+    safe = [a.lower() for a in out.aliases.safe]
+    assert "midas survey" not in safe
+    assert "midas survey survey" not in safe
+    assert "MIDAS survey survey" not in out.notes
+    assert "suffix_rejected: 'MIDAS survey'" in out.notes
+    assert "MIDAS" in out.aliases.risky
+
+
+def test_promoted_form_that_passes_risk_rules_stays_safe(tmp_path) -> None:
+    counts = {**_MIDAS_COUNTS, "MIDAS survey": 20}
+    out = _midas_phase1(tmp_path, counts, ["MIDAS"])
+    assert out.aliases is not None
+    assert "MIDAS survey" in out.aliases.safe
+    assert "suffix_rejected" not in out.notes
