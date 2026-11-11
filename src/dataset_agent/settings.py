@@ -156,6 +156,10 @@ class Settings(BaseSettings):
 
     #: Minimum interval between consecutive Dimensions DSL query *starts* (serial throttle).
     dimensions_rate_limit_seconds: float = 2.1
+    #: (connect, read) timeout for every Dimensions HTTP call; dimcli sets none, so a
+    #: stalled server response would otherwise block forever.
+    dimensions_connect_timeout_seconds: float = Field(default=15.0, gt=0)
+    dimensions_timeout_seconds: float = Field(default=180.0, gt=0)
     #: Publications sample size for false-positive verification (capped at 10_000).
     fp_sample_size: int = 1000
     #: Hard cap on Dimensions calls per optimize run (0 = no extra cap beyond use-case logic).

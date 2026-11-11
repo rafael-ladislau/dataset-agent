@@ -810,17 +810,18 @@ def execute_dimensions_literature_query(settings: Settings, q: str) -> tuple[obj
     from dataset_agent.adapters.dimensions_dsl import parse_total_count
 
     try:
-        import dimcli  # type: ignore
+        import dimcli  # type: ignore  # noqa: F401
     except ImportError as exc:
         raise RuntimeError("dimcli is not installed") from exc
 
     api_key = (settings.dimensions_api_key or "").strip()
     if not api_key:
         raise ValueError("Dimensions API key is not configured")
-    dimcli.login(key=api_key)
-    dsl = dimcli.Dsl()
+    from dataset_agent.adapters.dimensions_dsl import dimcli_login_dsl, run_dsl_with_transient_retry
+
+    dsl = dimcli_login_dsl(settings, api_key)
     logger.info("Dimensions: running query: %s", q)
-    result = dsl.query(q)
+    result = run_dsl_with_transient_retry(dsl.query, q)
     return result, parse_total_count(result)
 
 
@@ -934,7 +935,7 @@ def evaluate_for_clause_sync(
     dimcli = None
     if dsl_runner is None:
         try:
-            import dimcli  # type: ignore[import-not-found]
+            import dimcli  # type: ignore[import-not-found]  # noqa: F401
         except ImportError:
             return {
                 "fp_rate_pct": 0.0,
@@ -962,8 +963,9 @@ def evaluate_for_clause_sync(
     )
 
     if dsl_runner is None:
-        dimcli.login(key=api_key)
-        dsl_client = dimcli.Dsl()
+        from dataset_agent.adapters.dimensions_dsl import dimcli_login_dsl
+
+        dsl_client = dimcli_login_dsl(settings, api_key)
 
         def run_query(query: str) -> Any:
             from dataset_agent.adapters import dimensions_dsl as _dd

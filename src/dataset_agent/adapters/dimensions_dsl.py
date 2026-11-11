@@ -31,6 +31,65 @@ _TRANSIENT_TEXT_RE = re.compile(
 )
 
 
+class _TimeoutRequests:
+    """Proxy for the ``requests`` module that adds a default ``timeout`` to HTTP verbs."""
+
+    _VERBS = frozenset({"get", "post", "put", "delete", "patch", "head", "request"})
+
+    def __init__(self, real: Any, timeout: tuple[float, float]) -> None:
+        self._real = real
+        self.timeout = timeout
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._real, name)
+        if name not in self._VERBS:
+            return attr
+
+        def _call(*args: Any, **kwargs: Any) -> Any:
+            if kwargs.get("timeout") is None:
+                kwargs["timeout"] = self.timeout
+            return attr(*args, **kwargs)
+
+        return _call
+
+
+def install_dimcli_timeout(settings: Settings) -> tuple[float, float]:
+    """Make every dimcli HTTP call use a (connect, read) timeout. Idempotent.
+
+    dimcli calls ``requests.post`` with no timeout (login and queries), so a stalled
+    server blocks the thread forever. The ``requests`` name in dimcli's modules is
+    replaced by a proxy that fills in the timeout when the caller gave none.
+    """
+    timeout = (
+        float(settings.dimensions_connect_timeout_seconds),
+        float(settings.dimensions_timeout_seconds),
+    )
+    import importlib
+
+    for mod_name in ("dimcli.core.api", "dimcli.core.auth"):
+        try:
+            mod = importlib.import_module(mod_name)
+        except ImportError:  # pragma: no cover
+            continue
+        cur = getattr(mod, "requests", None)
+        if cur is None:
+            continue
+        if isinstance(cur, _TimeoutRequests):
+            cur.timeout = timeout
+        else:
+            mod.requests = _TimeoutRequests(cur, timeout)
+    return timeout
+
+
+def dimcli_login_dsl(settings: Settings, key: str) -> Any:
+    """``dimcli.login`` + ``dimcli.Dsl()`` with the HTTP timeout installed first."""
+    import dimcli  # type: ignore[import-not-found]
+
+    install_dimcli_timeout(settings)
+    dimcli.login(key=key)
+    return dimcli.Dsl()
+
+
 class DimensionsDslError(RuntimeError):
     """Raised when Dimensions credentials, dimcli, or DSL execution fails."""
 
@@ -455,13 +514,12 @@ class AsyncThrottledDimensionsDsl(DimensionsDslPort):
         async with self._get_lock():
             def _sync_run() -> Any:
                 try:
-                    import dimcli  # type: ignore[import-not-found]
+                    import dimcli  # type: ignore[import-not-found]  # noqa: F401
                 except ImportError as exc:  # pragma: no cover
                     raise DimensionsDslError(
                         "dimcli is not installed; install the optional dependency to query Dimensions",
                     ) from exc
-                dimcli.login(key=key)
-                dsl_client = dimcli.Dsl()
+                dsl_client = dimcli_login_dsl(self._settings, key)
                 logger.debug("Dimensions DSL: %s", dsl[:500] + ("..." if len(dsl) > 500 else ""))
                 return dsl_client.query(dsl)
             retry_extra = 0.0
