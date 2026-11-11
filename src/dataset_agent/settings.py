@@ -115,7 +115,7 @@ class Settings(BaseSettings):
     openai_compatible_base_url: str = ""
     openai_compatible_model: str = ""
     openai_compatible_api_key: str = ""
-    llm_max_tokens: int = 4096
+    llm_max_tokens: int = 8192
     llm_api_key: str = Field(
         default="local",
         validation_alias=AliasChoices("LMSTUDIO_API_KEY", "DATASET_AGENT_LLM_API_KEY"),

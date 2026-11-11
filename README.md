@@ -56,6 +56,7 @@ All variables use the `DATASET_AGENT_` prefix.
 | `DATASET_AGENT_OPENAI_COMPATIBLE_BASE_URL` | _(empty, required)_ | Base URL of any other OpenAI-compatible server, used as given |
 | `DATASET_AGENT_OPENAI_COMPATIBLE_MODEL` | _(empty, required)_ | Model id for that server |
 | `DATASET_AGENT_OPENAI_COMPATIBLE_API_KEY` | _(empty)_ | Optional key (falls back to `DATASET_AGENT_LLM_API_KEY`) |
+| `DATASET_AGENT_LLM_MAX_TOKENS` | `8192` | Max completion tokens per LLM call; reasoning models such as gpt-oss spend reasoning tokens from this budget, so keep it generous |
 
 ##### Using LM Studio
 
@@ -228,6 +229,10 @@ pytest tests/test_llm_live.py -s
 ```
 
 The output shows which structured-output strategy each target used.
+
+gpt-oss structured-output smokes are gated separately by `DATASET_AGENT_LIVE_GPT_OSS_ENDPOINTS`
+(comma-separated `<host_root>|<model>` pairs; `/v1` is appended), for example
+`http://127.0.0.1:1234|gpt-oss-120b,http://127.0.0.1:11434|gpt-oss:120b`.
 
 Reference outputs from previous agent runs are stored in `results/` (70 datasets) and `workforce/` (11 datasets). These can be used to validate output format and compare quality against the refactored agent.
 
