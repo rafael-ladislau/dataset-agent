@@ -171,3 +171,59 @@ def test_generic_phrase_and_acronym_compound_rejected():
     notes = "; ".join(res[1])
     assert "Data Commons (generic phrase)" in notes
     assert "PBO GPS (acronyms only)" in notes
+
+
+# Real gpt-oss inputs (aou-g2 / midrc-g2 / gnss-b2): bare "All of Us" is not a known name.
+AOU_G2 = QueryCandidate(
+    main_dataset_name="All of Us NIH",
+    safe=["All of Us NIH", "All of Us Researcher Workbench study", "All of Us Researcher Workspace",
+          "All of Us Dataset"],
+    risky=["All", "All of Us Data"],
+    flag_terms=["All of Us Research Program", "NIH"],
+)
+AOU_G2_ALIASES = ["All of Us NIH", "All of Us Researcher Workbench study", "All of Us Researcher Workspace",
+                  "All of Us Dataset", "All of Us Data", "All"]
+MIDRC_G2_FLAGS = ["National Cancer Institute", "NCI", "Medical Imaging & Data Resource Center", "MIDRC",
+                  "National Institutes of Health", "NIH", "Association of Academic Health Centers"]
+GNSS_B2_FLAGS = ["NSF", "National Science Foundation", "UNAVCO", "EarthScope Consortium", "IRIS Consortium",
+                 "Incorporated Research Institutions for Seismology"]
+
+
+def test_aou_g2_shared_phrase_makes_research_program_eligible():
+    res = run(AOU_G2, ["All of Us NIH"], known=AOU_G2_ALIASES)
+    assert [c.term for c in res[0] if c.source == "flag"] == ["All of Us Research Program"]
+    assert "All of Us Data" in terms(res)  # tier-1 risky alias, unchanged behavior
+    assert "NIH (short acronym)" in "; ".join(res[1])
+
+
+def test_midrc_g2_agency_flags_still_rejected():
+    cand = QueryCandidate(main_dataset_name="MIDRC Data Commons",
+                          safe=["MIDRC Data Commons", "MIDRC Commons"], flag_terms=MIDRC_G2_FLAGS)
+    res = run(cand, ["MIDRC Data Commons"],
+              known=["MIDRC Commons", "Medical Imaging & Data Resource Center Data Commons"])
+    notes = "; ".join(res[1])
+    for t in ("National Cancer Institute", "National Institutes of Health",
+              "Association of Academic Health Centers"):
+        assert f"{t} (not a name of the dataset)" in notes
+    assert not {"NCI", "NIH", "National Cancer Institute", "National Institutes of Health",
+                "Association of Academic Health Centers"} & set(terms(res))
+
+
+def test_gnss_b2_agency_flags_still_rejected():
+    cand = QueryCandidate(main_dataset_name="GNSS EarthScope UNAVCO Earthquakes",
+                          risky=["GNSS Earthquakes", "PBO GPS Data", "Plate Boundary Observatory GPS",
+                                 "GNSS Time Series dataset"], flag_terms=GNSS_B2_FLAGS)
+    res = run(cand, ["GNSS EarthScope UNAVCO Earthquakes"],
+              known=["GNSS Time Series", "PBO GPS Data", "Plate Boundary Observatory GPS"])
+    got = set(terms(res))
+    for agency in ("NSF", "National Science Foundation", "UNAVCO", "IRIS Consortium",
+                   "Incorporated Research Institutions for Seismology"):
+        assert agency not in got
+
+
+def test_generic_shared_phrases_do_not_make_a_flag_related():
+    cand = QueryCandidate(main_dataset_name="NHIS", flag_terms=["National Institutes of Health", "Research Program"])
+    res = run(cand, ["National Health Interview Survey"],
+              known=["Health Research Program Survey", "Research Program Data"])
+    assert "National Institutes of Health" not in terms(res)
+    assert "Research Program" not in terms(res)

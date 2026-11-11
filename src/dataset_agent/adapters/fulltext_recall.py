@@ -88,8 +88,42 @@ def dataset_acronyms(names: list[str], aliases: list[str]) -> set[str]:
     return out
 
 
+# Words too generic (or agency-like) to anchor a shared name phrase on their own.
+_PHRASE_GENERIC_WORDS = _GENERIC_NAME_WORDS | frozenset({
+    "national", "institute", "institutes", "health", "medical", "science", "sciences",
+    "foundation", "agency", "department", "office", "bureau", "federal", "united", "states",
+    "american", "international", "center", "centers", "university", "college", "council",
+    "association", "society", "laboratory", "laboratories", "information", "management",
+    "analysis", "statistics", "services", "public", "general",
+})
+
+
+def _shared_name_phrase(flag: str, forms: list[str]) -> bool:
+    """True when *flag* and some name or multi-word alias share a contiguous token phrase
+    with 2+ non-joiner words that are not all generic ("All of Us" in "All of Us NIH" and
+    "All of Us Research Program"; never "National ... Health" overlaps)."""
+    ftoks = _fold(flag).split()
+
+    def grams(toks: list[str]) -> set[tuple[str, ...]]:
+        out: set[tuple[str, ...]] = set()
+        for i in range(len(toks)):
+            for j in range(i + 2, len(toks) + 1):
+                g = toks[i:j]
+                if g[0] in _NAME_JOINERS or g[-1] in _NAME_JOINERS:
+                    continue
+                words = [t for t in g if t not in _NAME_JOINERS]
+                if len(words) >= 2 and not all(w in _PHRASE_GENERIC_WORDS for w in words):
+                    out.add(tuple(g))
+        return out
+
+    fg = grams(ftoks)
+    return bool(fg) and any(fg & grams(_fold(f).split()) for f in forms if f)
+
+
 def _flag_names_dataset(flag: str, names: list[str], acronyms: set[str]) -> bool:
     if any(_phrase_in(n, flag, plural_ok=False) for n in names if n):
+        return True
+    if _shared_name_phrase(flag, names):
         return True
     toks = _fold(flag).split()
     if not toks:
