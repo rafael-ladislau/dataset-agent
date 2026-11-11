@@ -34,17 +34,9 @@ _ELLIPSES = ("…", "...")
 
 
 def _snippet_tokens(text: str) -> list[str]:
-    """Tokens of a full-text snippet. A snippet that starts or ends with an ellipsis was
-    cut mid-word, so the first/last token next to the ellipsis is dropped."""
-    t = (text or "").strip()
-    lead = t.startswith(_ELLIPSES)
-    trail = t.endswith(_ELLIPSES)
-    toks = _fold(t).split()
-    if trail and toks:
-        toks = toks[:-1]
-    if lead and toks:
-        toks = toks[1:]
-    return toks
+    """Tokens of a full-text snippet. Extraction cuts snippets on word boundaries, so
+    the tokens next to an ellipsis are whole words and are kept."""
+    return _fold((text or "").strip()).split()
 
 
 @dataclass
@@ -256,8 +248,7 @@ def _phrase_in(term: str, text: str, *, plural_ok: bool = True) -> bool:
 
 
 def _in_segments(term: str, texts: list[str], snippets: list[str], plural_ok: bool = True) -> bool:
-    """Match inside any of *texts* (whole) or *snippets* (edge tokens next to an
-    ellipsis dropped); a phrase never spans two segments."""
+    """Match inside any of *texts* (whole) or *snippets*; a phrase never spans two segments."""
     want = _tokens(term)
     if not want:
         return False

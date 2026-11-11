@@ -286,6 +286,7 @@ class OpenAICompatibleAgent(AgentPort):
         start = time.time()
         errors: list[str] = []
         rejected = False
+        answered = False  # a higher tier already answered 2xx (even with bad content)
         near_miss: dict[str, Any] | None = None
         near_miss_tier: str | None = None
         for tier in STRUCTURED_TIERS[first:]:
@@ -301,10 +302,13 @@ class OpenAICompatibleAgent(AgentPort):
                 except Exception:
                     logger.exception("get_structured failed (tool=%s tier=%s)", tool_name, tier)
                     return self._structured_fallback(tool_name, schema, near_miss, near_miss_tier)
-                if rejected:
-                    # A lower tier answered 2xx: the higher ones are really unsupported.
+                if rejected and not answered:
+                    # A lower tier answered 2xx and no higher tier did: the higher ones
+                    # are really unsupported. If a higher tier answered 2xx with bad
+                    # content, it is supported, so the cache stays put.
                     self._demote_cached_tier(cache_key, tier)
-                    rejected = False
+                rejected = False
+                answered = True
                 if result is not None and not error:
                     error = validate_against_schema(result, schema) or ""
                     if error:

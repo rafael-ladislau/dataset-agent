@@ -259,6 +259,18 @@ def test_truncated_reply_does_not_demote_cached_tier(server):
     assert CACHE_KEY not in _TIER_CACHE
 
 
+def test_content_failure_then_tool_call_400_does_not_demote_cached_tier(server):
+    agent = make_agent(OPENAI, server)
+    server.push(
+        server.text('{"foo": 1}'),
+        server.text('{"foo": 1}'),
+        server.error(400, "tool_choice must be none|auto|required"),
+        server.text(json.dumps(VALID)),
+    )
+    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
+    assert CACHE_KEY not in _TIER_CACHE
+
+
 def _with_dict_arguments(reply, args):
     payload = reply.json()
     payload["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] = args

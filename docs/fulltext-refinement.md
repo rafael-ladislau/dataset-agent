@@ -79,9 +79,8 @@ the extraction pipeline) can own a `partial` snippet, so with the aliases `Add H
 `ADD Health Study` a snippet tagged `ADD Health Study` is credited only to the latter.
 
 Matching normalizes text like extraction does: case, punctuation and `_` all separate
-words (`WR_dataset` matches `WR dataset`). Snippets are cut at fixed widths, so one that
-starts or ends with `…` begins or ends mid-word: the token next to the ellipsis is ignored
-(a `surface` cut to `ace` cannot match the alias `ACE`). A snippet whose part is `title`
+words (`WR_dataset` matches `WR dataset`). Extraction cuts snippets on word
+boundaries, so the words next to a `…` are whole words and count like any other. A snippet whose part is `title`
 counts for attribution but, like the paper title, never for flags or new aliases. The
 evidence quote shown for a term is the validator quote, or, when that is empty, the
 snippet around that term, so exclude and alias evidence is never empty.

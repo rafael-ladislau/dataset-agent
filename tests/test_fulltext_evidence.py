@@ -135,11 +135,10 @@ def test_title_snippets_do_not_count_for_evidence_but_do_for_attribution():
     assert not term_in_evidence("BLS", _v(title="The BLS report"))
 
 
-def test_truncated_edge_tokens_next_to_an_ellipsis_do_not_match():
-    assert not term_in("ACE", _v(contexts=[_ctx("…ace of the matter and more")]))
-    assert not term_in("ACE", _v(contexts=[_ctx("the matter of surf…ace…")]))
-    assert not term_in("ACE", _v(contexts=[_ctx("more text and ace…")]))
-    assert term_in("ACE", _v(contexts=[_ctx("…the ACE study was used…")]))
+def test_whole_words_next_to_an_ellipsis_match():
+    assert term_in_evidence("Census Bureau", _v(contexts=[_ctx("filler the Census Bureau…")]))
+    assert term_in_evidence("ACE", _v(contexts=[_ctx("…ACE study was used")]))
+    assert not term_in("ACE", _v(contexts=[_ctx("the surface…")]))
 
 
 def test_as_quote_falls_back_to_the_snippet_for_the_term():
