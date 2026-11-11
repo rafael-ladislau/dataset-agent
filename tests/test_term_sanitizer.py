@@ -122,3 +122,23 @@ def test_curly_inner_quotes_are_removed_and_seed_accepts_term() -> None:
     assert cleaned == "All of Us Research Program"
     seed = candidate_to_seed(QueryCandidate(cleaned, safe=[cleaned]))
     assert cleaned in seed["standalone_names"]
+
+
+def test_trailing_question_mark_is_stripped_and_logged(caplog) -> None:
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="dataset_agent.adapters.term_sanitizer"):
+        assert sanitize_term("MIDAS?") == "MIDAS"
+    assert any("uncertainty marker" in r.message for r in caplog.records)
+    assert sanitize_term("MIDAS (?)") == "MIDAS"
+    assert sanitize_term("MIDAS [?].") == "MIDAS"
+    assert sanitize_term("MIDAS survey?") == "MIDAS survey"
+    assert sanitize_term("MIDRC Data Commons") == "MIDRC Data Commons"
+    assert sanitize_terms(["MIDAS?", "MIDRC"]) == ["MIDAS", "MIDRC"]
+
+
+def test_question_mark_only_terms_are_dropped() -> None:
+    assert sanitize_term("?") is None
+    assert sanitize_term("(?)") is None
+    assert sanitize_term("???") is None
+    assert sanitize_terms(["?", "MIDRC"]) == ["MIDRC"]

@@ -24,13 +24,16 @@ _QUOTES = {
 }
 _PAIRS = {"(": ")", "[": "]", "{": "}", "<": ">"}
 _QUOTE_CHARS = "\"'`"
+_UNCERTAIN_TAIL = re.compile(r"\s*[(\[]\s*\?+\s*[)\]]\s*$")
 
 
 def _strip_edges(s: str) -> str:
     """Strip whitespace, trailing ``.,;:`` and only unbalanced/wrapping brackets and quotes."""
     for _ in range(20):
         prev = s
-        s = s.strip().rstrip(".,;:").lstrip(",;:").strip()
+        s = s.strip().rstrip(".,;:?").lstrip(",;:").strip()
+        # LLM uncertainty markers: "MIDAS?", "MIDAS (?)", "MIDAS [?]".
+        s = _UNCERTAIN_TAIL.sub("", s).strip()
         if len(s) >= 2:
             if s[0] in _QUOTE_CHARS and s[-1] == s[0] and s.count(s[0]) == 2:
                 s = s[1:-1]
@@ -70,7 +73,10 @@ def sanitize_term(term: object) -> str | None:
     # Placeholder echoes: check before stripping trailing punctuation.
     if "..." in s or "…" in s:
         return None
+    before = s
     s = _strip_edges(s)
+    if before.rstrip(".,;: ").endswith("?") or _UNCERTAIN_TAIL.search(before):
+        logger.info("Stripped uncertainty marker from term %r -> %r", term, s)
     if not had_ascii_dq:
         # Inner double quotes came from curly quotes; seeds reject them and
         # Dimensions ignores them for phrase matching.
