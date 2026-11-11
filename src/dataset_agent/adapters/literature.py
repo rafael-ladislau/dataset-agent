@@ -8,7 +8,6 @@ import re
 import time
 from typing import Any, Callable
 from dataset_agent.adapters.dimensions_dsl import (
-    parse_total_count,
     publication_title,
     publications_from_result,
     short_dsl_error,
@@ -974,8 +973,14 @@ def evaluate_for_clause_sync(
     else:
         run_query = dsl_runner
     try:
-        result = run_query(q)
-        total = parse_total_count(result)
+        from dataset_agent.adapters.dimensions_dsl import fetch_publications_resilient
+
+        pubs, total, _paged = fetch_publications_resilient(
+            run_query,
+            for_clause,
+            fields="basics+title+abstract+reference_ids+times_cited",
+            limit=pull_size,
+        )
     except Exception as exc:
         logger.warning("evaluate_for_clause_sync: main query failed: %s", exc)
         return {
@@ -986,7 +991,6 @@ def evaluate_for_clause_sync(
             "error": f"dimensions_query_failed: {exc}",
             "error_reason": short_dsl_error(exc),
         }
-    pubs = publications_from_result(result)
 
     if not pubs:
         return {

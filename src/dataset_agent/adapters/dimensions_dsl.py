@@ -376,6 +376,110 @@ def raise_for_dsl_errors(result: object) -> None:
         )
 
 
+def is_dimensions_server_error(exc: BaseException) -> bool:
+    """Server-side failure ('Service unavailable' / 'Unexpected Error'); never a syntax error.
+
+    The "'NoneType' object has no attribute 'simplify'" variant is deterministic for large
+    multi-row pulls; the transient retry still runs first (it is also the signature of real
+    blips, and existing behavior), then callers fall back to smaller pages."""
+    if isinstance(exc, DimensionsDslError):
+        errors = exc.errors
+        if errors is not None:
+            return is_transient_dsl_errors(errors)
+        text = str(exc).casefold()
+        if any(m in text for m in _SYNTAX_MARKERS):
+            return False
+        return "service unavailable" in text or "unexpected error" in text
+    return False
+
+
+def fetch_publications_resilient(
+    run_query: Any,
+    for_clause: str,
+    *,
+    fields: str,
+    limit: int,
+    search_in: str = "full_data",
+    page_size: int = 100,
+    min_page_size: int = 10,
+) -> tuple[list[dict], int, bool]:
+    """Single big ``sort by times_cited limit N`` pull, with a paged fallback.
+
+    Returns ``(publications, total_count, used_paging)``. The one-shot query is tried first.
+    If it fails with a Dimensions server error (never a syntax/semantic error), the same query
+    is re-fetched in ``limit page_size skip k`` pages up to *limit* rows; a page that still
+    fails is halved down to *min_page_size*, then skipped with a warning. Rows keep
+    times_cited order and are de-duplicated by id. Other errors propagate.
+    """
+    big = build_search_publications_paged_dsl(
+        for_clause, search_in=search_in, limit=limit, skip=0, fields=fields
+    )
+    try:
+        result = run_query(big)
+        raise_for_dsl_errors(result)
+        return publications_from_result(result), parse_total_count(result), False
+    except Exception as exc:
+        if limit <= page_size or not is_dimensions_server_error(exc):
+            raise
+        logger.warning(
+            "Dimensions server error on limit %s pull (%s); falling back to pages of %s",
+            limit,
+            short_dsl_error(exc),
+            page_size,
+        )
+    out: list[dict] = []
+    seen: set[str] = set()
+    total = 0
+    skip = 0
+    calls = 0
+    last_exc: Exception | None = None
+    max_calls = 4 * -(-limit // page_size) + 40
+    while skip < limit and calls < max_calls:
+        size = min(page_size, limit - skip)
+        while True:
+            calls += 1
+            dsl = build_search_publications_paged_dsl(
+                for_clause, search_in=search_in, limit=size, skip=skip, fields=fields
+            )
+            try:
+                res = run_query(dsl)
+                raise_for_dsl_errors(res)
+            except Exception as exc:
+                if not is_dimensions_server_error(exc):
+                    raise
+                if size > min_page_size and calls < max_calls:
+                    size = max(min_page_size, size // 2)
+                    continue
+                logger.warning(
+                    "Dimensions page skip=%s limit=%s failed (%s); skipping this page",
+                    skip,
+                    size,
+                    short_dsl_error(exc),
+                )
+                last_exc = exc
+                res = None
+            break
+        if res is None:
+            skip += size
+            continue
+        if not total:
+            total = parse_total_count(res)
+        rows = publications_from_result(res)
+        for pub in rows:
+            pid = str(pub.get("id") or "")
+            if pid:
+                if pid in seen:
+                    continue
+                seen.add(pid)
+            out.append(pub)
+        if len(rows) < size:
+            break
+        skip += size
+    if not out and last_exc is not None and not total:
+        raise last_exc  # every page failed: surface the error instead of an empty result
+    return out[:limit], total, True
+
+
 def run_dsl_with_transient_retry(
     run_query: Any,
     dsl: str,

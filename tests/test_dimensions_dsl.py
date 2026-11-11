@@ -268,3 +268,63 @@ def test_short_dsl_error_omits_query_text() -> None:
     s = short_dsl_error(exc)
     assert s.startswith("Service unavailable: Unexpected Error")
     assert "search publications" not in s
+
+
+def _page_runner(fail_if, total=450):
+    """Fake Dimensions: serves ids 0..total-1; raises the simplify error when fail_if(limit, skip)."""
+    import re
+
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError
+
+    calls: list[tuple[int, int]] = []
+
+    def run(dsl: str):
+        lim = int(re.search(r"limit (\d+)", dsl).group(1))
+        sk = int(re.search(r"skip (\d+)", dsl).group(1))
+        calls.append((lim, sk))
+        if fail_if(lim, sk):
+            raise DimensionsDslError("rejected", errors=_AOU_ERRORS, transient=True)
+        rows = [{"id": f"p{i}", "times_cited": total - i} for i in range(sk, min(total, sk + lim))]
+        return SimpleNamespace(
+            publications=rows, count_total=total, errors=None, get=lambda k, d=None: rows
+        )
+
+    return run, calls
+
+
+def test_fetch_publications_resilient_pages_after_big_pull_fails() -> None:
+    from dataset_agent.adapters.dimensions_dsl import fetch_publications_resilient
+
+    run, calls = _page_runner(lambda lim, sk: lim >= 200)
+    pubs, total, paged = fetch_publications_resilient(run, "x", fields="basics", limit=1000)
+    assert paged and total == 450
+    assert [p["id"] for p in pubs] == [f"p{i}" for i in range(450)]  # times_cited order kept
+    assert calls[0] == (1000, 0) and calls[1:] == [(100, 0), (100, 100), (100, 200), (100, 300), (100, 400)]
+
+
+def test_fetch_publications_resilient_halves_then_skips_bad_page() -> None:
+    from dataset_agent.adapters.dimensions_dsl import fetch_publications_resilient
+
+    # page at skip 100 fails for any size >= 10 covering rows 100..109 -> skipped at floor
+    run, calls = _page_runner(lambda lim, sk: lim >= 200 or sk == 100)
+    pubs, _total, paged = fetch_publications_resilient(run, "x", fields="basics", limit=1000)
+    ids = [p["id"] for p in pubs]
+    assert paged and not {f"p{i}" for i in range(100, 110)} & set(ids) and "p110" in ids
+    assert "p99" in ids and "p200" in ids
+    assert (50, 100) in calls and (25, 100) in calls and (12, 100) in calls and (10, 100) in calls
+
+
+def test_fetch_publications_resilient_no_paging_for_syntax_or_success() -> None:
+    import pytest
+
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError, fetch_publications_resilient
+
+    run, calls = _page_runner(lambda lim, sk: False)
+    pubs, total, paged = fetch_publications_resilient(run, "x", fields="basics", limit=1000)
+    assert not paged and len(pubs) == 450 and total == 450 and len(calls) == 1
+
+    def syntax(dsl: str):
+        raise DimensionsDslError("bad", errors={"query": "QuerySyntaxErrors"}, transient=False)
+
+    with pytest.raises(DimensionsDslError):
+        fetch_publications_resilient(syntax, "x", fields="basics", limit=1000)
