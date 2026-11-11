@@ -63,3 +63,13 @@ def test_clean_description_strips_echoed_label() -> None:
     assert clean_description("**DESCRIPTION:** A resource.") == "A resource."
     # A real sentence starting with the word is untouched.
     assert clean_description("Description of cohorts follows.") == "Description of cohorts follows."
+
+
+def test_clean_description_discards_leaked_control_tokens():
+    from dataset_agent.adapters.text_processing import clean_description
+
+    leaked = (
+        '<|start|>assistant<|channel|>commentary to=functions.web_search '
+        '<|constrain|>json<|message|>{"query":"x"}'
+    )
+    assert clean_description(leaked) == ""

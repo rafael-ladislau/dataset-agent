@@ -75,6 +75,9 @@ def clean_description(text: str) -> str:
     """Remove common model artifacts (thinking blocks, excessive whitespace)."""
     if not text:
         return ""
+    if "<|" in text:
+        # Leaked model control tokens (e.g. gpt-oss Harmony): never store as a description.
+        return ""
     # Strip fenced thinking / analysis blocks often seen in models
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"```(?:thinking)?\s*.*?```", "", text, flags=re.DOTALL | re.IGNORECASE)
