@@ -23,11 +23,14 @@ class AgentPort(ABC):
 
     @abstractmethod
     def get_structured(self, prompt: str, result_tool: dict) -> dict:
-        """Force a single structured response via tool_use.
+        """Return one structured response shaped by *result_tool*.
 
-        The model is instructed to call *result_tool* exactly once.
-        The tool's ``input`` dict is returned directly, bypassing any
-        text parsing or regex extraction.
+        *result_tool* is a ``{name, description, input_schema}`` tool dict.
+        Adapters obtain a JSON object for ``input_schema`` (a forced tool call,
+        a JSON-schema response format, or JSON parsed from the reply text) and
+        validate it, retrying once on errors. If no valid object is obtained,
+        the last parsed object is leniently coerced to the schema and returned
+        when it then validates; otherwise the result is ``{}``.
         """
         pass
 

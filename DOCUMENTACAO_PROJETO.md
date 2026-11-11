@@ -336,9 +336,13 @@ Prefixo: `DATASET_AGENT_`.
 Principais variaveis:
 
 - LLM
-  - `LLM_PROVIDER` (`ollama` | `openrouter`)
+  - `LLM_PROVIDER` (`lmstudio` (padrao) | `ollama` | `openrouter` | `openllm` | `openai_compatible`)
+  - `LLM_API_STYLE` (`openai` | `anthropic`; vazio = padrao do provedor: `openai` para lmstudio/openllm/openai_compatible, `anthropic` para ollama/openrouter)
+  - `LMSTUDIO_BASE_URL`, `LMSTUDIO_MODEL` (ou `LLM_MODEL`), `LLM_API_KEY`
   - `OLLAMA_MODEL`, `OLLAMA_BASE_URL`
   - `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL`
+  - `OPENLLM_BASE_URL`, `OPENLLM_MODEL`, `OPENLLM_API_KEY`
+  - `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_MODEL`, `OPENAI_COMPATIBLE_API_KEY`
 - Runtime de agente
   - `AGENT_MAX_ITERATIONS`
   - `AGENT_TIMEOUT_SECONDS`
