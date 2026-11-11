@@ -7,7 +7,12 @@ import logging
 import re
 import time
 from typing import Any, Callable
-from dataset_agent.adapters.dimensions_dsl import parse_total_count, publication_title, publications_from_result
+from dataset_agent.adapters.dimensions_dsl import (
+    parse_total_count,
+    publication_title,
+    publications_from_result,
+    short_dsl_error,
+)
 from dataset_agent.adapters.fp_analysis import classify_alias_mention
 from dataset_agent.adapters.tools import EMIT_RELEVANCE_SCORE, EMIT_TERMS_EVALUATION
 from dataset_agent.domain.ports import AgentPort, LiteratureGatePort, LiteratureGateResult
@@ -959,11 +964,16 @@ def evaluate_for_clause_sync(
     if dsl_runner is None:
         dimcli.login(key=api_key)
         dsl_client = dimcli.Dsl()
-        run_query = dsl_client.query
+
+        def run_query(query: str) -> Any:
+            from dataset_agent.adapters import dimensions_dsl as _dd
+
+            return _dd.run_dsl_with_transient_retry(dsl_client.query, query)
     else:
         run_query = dsl_runner
     try:
         result = run_query(q)
+        total = parse_total_count(result)
     except Exception as exc:
         logger.warning("evaluate_for_clause_sync: main query failed: %s", exc)
         return {
@@ -972,8 +982,8 @@ def evaluate_for_clause_sync(
             "matched_count": 0,
             "total_pubs": 0,
             "error": f"dimensions_query_failed: {exc}",
+            "error_reason": short_dsl_error(exc),
         }
-    total = parse_total_count(result)
     pubs = publications_from_result(result)
 
     if not pubs:

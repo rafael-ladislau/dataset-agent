@@ -142,3 +142,129 @@ def test_alias_count_dsl_escapes_ampersand() -> None:
 
     dsl = build_publications_count_dsl("Medical Imaging & Data Resource Center")
     assert 'Medical Imaging \\& Data' in dsl
+
+
+_AOU_ERRORS = {
+    "query": {
+        "header": "Service unavailable",
+        "details": ["Unexpected Error 'NoneType' object has no attribute 'simplify'"],
+        "query": 'search publications for "AoU"',
+    }
+}
+
+
+def _patched_dsl(monkeypatch, outcomes):
+    """AsyncThrottledDimensionsDsl whose worker thread yields *outcomes* in order."""
+    calls = {"n": 0}
+
+    async def fake_to_thread(fn, /, *args, **kwargs):  # noqa: ANN001
+        i = calls["n"]
+        calls["n"] += 1
+        out = outcomes[min(i, len(outcomes) - 1)]
+        if isinstance(out, BaseException):
+            raise out
+        return out
+
+    monkeypatch.setattr("dataset_agent.adapters.dimensions_dsl.asyncio.to_thread", fake_to_thread)
+    dsl = AsyncThrottledDimensionsDsl(
+        Settings(dimensions_api_key="k", dimensions_rate_limit_seconds=0.0),
+        transient_backoff=(0.0, 0.0),
+    )
+    return dsl, calls
+
+
+def test_is_transient_dsl_errors_classification() -> None:
+    from dataset_agent.adapters.dimensions_dsl import is_transient_dsl_errors
+
+    assert is_transient_dsl_errors(_AOU_ERRORS) is True
+    assert is_transient_dsl_errors({"query": "QuerySyntaxErrors"}) is False
+    assert is_transient_dsl_errors({"query": {"header": "LexerErrors"}}) is False
+    assert is_transient_dsl_errors({"query": {"header": "Semantic errors"}}) is False
+    echoed = {"query": {"header": "QuerySyntaxErrors", "query": "service unavailable"}}
+    assert is_transient_dsl_errors(echoed) is False
+
+
+def test_execute_dsl_retries_transient_service_unavailable(monkeypatch) -> None:
+    good = SimpleNamespace(count_total=3, errors=None)
+    bad = SimpleNamespace(count_total=None, errors=_AOU_ERRORS)
+    dsl, calls = _patched_dsl(monkeypatch, [bad, bad, good])
+    out = asyncio.run(dsl.execute_dsl("search publications return publications limit 1"))
+    assert calls["n"] == 3 and out is good
+
+
+def test_execute_dsl_gives_up_after_two_transient_retries(monkeypatch) -> None:
+    import pytest
+
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError
+
+    bad = SimpleNamespace(count_total=None, errors=_AOU_ERRORS)
+    dsl, calls = _patched_dsl(monkeypatch, [bad])
+    with pytest.raises(DimensionsDslError) as ei:
+        asyncio.run(dsl.execute_dsl("search publications return publications limit 1"))
+    assert calls["n"] == 3 and ei.value.transient is True
+
+
+def test_execute_dsl_never_retries_syntax_errors(monkeypatch) -> None:
+    import pytest
+
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError
+
+    bad = SimpleNamespace(count_total=None, errors={"query": "QuerySyntaxErrors"})
+    dsl, calls = _patched_dsl(monkeypatch, [bad])
+    with pytest.raises(DimensionsDslError):
+        asyncio.run(dsl.execute_dsl("search publications return publications limit 1"))
+    assert calls["n"] == 1
+
+
+def test_execute_dsl_retries_connection_error_and_5xx(monkeypatch) -> None:
+    good = SimpleNamespace(count_total=1, errors=None)
+    dsl, calls = _patched_dsl(
+        monkeypatch,
+        [ConnectionError("reset"), RuntimeError("HTTP 503 Service Unavailable"), good],
+    )
+    out = asyncio.run(dsl.execute_dsl("search publications return publications limit 1"))
+    assert calls["n"] == 3 and out is good
+
+
+def test_execute_dsl_second_429_still_raises(monkeypatch) -> None:
+    import pytest
+
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError
+
+    dsl, calls = _patched_dsl(monkeypatch, [RuntimeError("HTTP 429 Retry-After: 0.01")])
+    with pytest.raises(DimensionsDslError):
+        asyncio.run(dsl.execute_dsl("search publications return publications limit 1"))
+    assert calls["n"] == 2
+
+
+def test_run_dsl_with_transient_retry_sync() -> None:
+    import pytest
+
+    from dataset_agent.adapters.dimensions_dsl import (
+        DimensionsDslError,
+        run_dsl_with_transient_retry,
+    )
+
+    good = SimpleNamespace(count_total=1, errors=None)
+    bad = SimpleNamespace(count_total=None, errors=_AOU_ERRORS)
+    seq = [bad, bad, good]
+    sleeps: list[float] = []
+    out = run_dsl_with_transient_retry(
+        lambda q: seq.pop(0), "q", backoff=(1.0, 4.0), sleep=sleeps.append
+    )
+    assert out is good and sleeps == [1.0, 4.0]
+
+    sleeps.clear()
+    syntax = SimpleNamespace(count_total=None, errors={"query": "QuerySyntaxErrors"})
+    with pytest.raises(DimensionsDslError):
+        run_dsl_with_transient_retry(lambda q: syntax, "q", sleep=sleeps.append)
+    assert sleeps == []
+
+
+def test_short_dsl_error_omits_query_text() -> None:
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError, short_dsl_error
+
+    exc = DimensionsDslError("Dimensions rejected the query: {...}", errors=_AOU_ERRORS)
+    s = short_dsl_error(exc)
+    assert s.startswith("Service unavailable: Unexpected Error")
+    assert "search publications" not in s

@@ -122,3 +122,62 @@ def test_optimizer_eval_calls_count_against_budget(tmp_path):
 
     assert asyncio.run(go()) is True
     assert uc._dims_calls == 2 and calls == ["q1", "q2"]
+
+
+def _install_scripted_dimcli(monkeypatch, outcomes, calls):
+    class _Dsl:
+        def query(self, q):
+            calls.append(q)
+            return outcomes[min(len(calls) - 1, len(outcomes) - 1)]
+
+    fake = types.ModuleType("dimcli")
+    fake.login = lambda **kw: None  # type: ignore[attr-defined]
+    fake.Dsl = _Dsl  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "dimcli", fake)
+
+
+def test_evaluator_raw_path_retries_transient_then_succeeds(monkeypatch):
+    from types import SimpleNamespace
+
+    from dataset_agent.adapters import dimensions_dsl
+
+    monkeypatch.setattr(dimensions_dsl, "TRANSIENT_BACKOFF_SECONDS", (0.0, 0.0))
+    transient = SimpleNamespace(
+        count_total=None,
+        errors={"query": {"header": "Service unavailable", "details": ["Unexpected Error x"]}},
+    )
+    good = {"publications": [], "_stats": {"total_count": 0}}
+    calls: list = []
+    _install_scripted_dimcli(monkeypatch, [transient, good], calls)
+    out = lit.evaluate_for_clause_sync("NHIS", ["NHIS"], "NHIS", Settings(dimensions_api_key="k"))
+    assert "error" not in out
+    assert len(calls) == 2
+
+
+def test_evaluator_raw_path_errors_result_returns_error_dict(monkeypatch):
+    from types import SimpleNamespace
+
+    bad = SimpleNamespace(count_total=None, errors={"query": "QuerySyntaxErrors"})
+    calls: list = []
+    _install_scripted_dimcli(monkeypatch, [bad], calls)
+    out = lit.evaluate_for_clause_sync("NHIS", ["NHIS"], "NHIS", Settings(dimensions_api_key="k"))
+    assert out["error"].startswith("dimensions_query_failed")
+    assert out["error_reason"]
+    assert len(calls) == 1
+
+
+def test_evaluator_runner_path_is_not_double_retried(monkeypatch):
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError
+
+    monkeypatch.setitem(sys.modules, "dimcli", None)
+    seen: list[str] = []
+
+    def runner(q):
+        seen.append(q)
+        raise DimensionsDslError("boom", transient=True)
+
+    out = lit.evaluate_for_clause_sync(
+        "NHIS", ["NHIS"], "NHIS", Settings(dimensions_api_key="k"), dsl_runner=runner
+    )
+    assert out["error"].startswith("dimensions_query_failed")
+    assert len(seen) == 1

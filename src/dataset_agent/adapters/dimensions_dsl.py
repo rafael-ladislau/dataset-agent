@@ -19,8 +19,99 @@ logger = logging.getLogger(__name__)
 _DSL_INNER_SPECIAL = frozenset('^:~[]{}()!|&+"')
 
 
+TRANSIENT_RETRIES = 2
+TRANSIENT_BACKOFF_SECONDS: tuple[float, ...] = (2.0, 5.0)
+
+_SYNTAX_MARKERS = ("querysyntaxerror", "lexererror", "semantic error", "syntax error")
+_TRANSIENT_TEXT_RE = re.compile(
+    r"service unavailable|bad gateway|gateway timeout|timed out|"
+    r"connection (?:reset|aborted|refused)|"
+    r"(?:server error|http|status)\D{0,12}\b5\d\d\b|\b5\d\d\b\D{0,12}server error",
+    flags=re.I,
+)
+
+
 class DimensionsDslError(RuntimeError):
     """Raised when Dimensions credentials, dimcli, or DSL execution fails."""
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        errors: object | None = None,
+        transient: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.errors = errors
+        self.transient = transient
+
+
+def _errors_text(errors: object) -> str:
+    """Header + details of a Dimensions errors payload, never the echoed query text."""
+    if isinstance(errors, dict):
+        q = errors.get("query")
+        if isinstance(q, dict):
+            parts = [str(q.get("header") or "")]
+            det = q.get("details")
+            if isinstance(det, (list, tuple)):
+                parts.extend(str(d) for d in det)
+            elif det:
+                parts.append(str(det))
+            return " ".join(parts)
+        if isinstance(q, str):
+            return q
+    return str(errors)
+
+
+def is_transient_dsl_errors(errors: object) -> bool:
+    """True for server-side hiccups ('Service unavailable', 'Unexpected Error').
+
+    Syntax, lexer and semantic errors are never transient.
+    """
+    text = _errors_text(errors).casefold()
+    if any(m in text for m in _SYNTAX_MARKERS):
+        return False
+    return "service unavailable" in text or "unexpected error" in text
+
+
+def is_transient_exception(exc: BaseException) -> bool:
+    """True for connection problems and HTTP 5xx style failures (never 429)."""
+    if isinstance(exc, DimensionsDslError):
+        return exc.transient
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    try:
+        import requests  # type: ignore[import-untyped]
+
+        if isinstance(
+            exc,
+            (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+                requests.exceptions.ChunkedEncodingError,
+            ),
+        ):
+            return True
+    except ImportError:  # pragma: no cover
+        pass
+    msg = str(exc)
+    if "429" in msg or "too many requests" in msg.lower():
+        return False
+    return bool(_TRANSIENT_TEXT_RE.search(msg))
+
+
+def short_dsl_error(exc_or_text: object, limit: int = 120) -> str:
+    """Short human reason for a Dimensions failure; never includes the query text."""
+    errors = getattr(exc_or_text, "errors", None)
+    if isinstance(errors, dict) and isinstance(errors.get("query"), dict):
+        q = errors["query"]
+        header = str(q.get("header") or "").strip()
+        det = q.get("details")
+        first = str(det[0]).strip() if isinstance(det, (list, tuple)) and det else ""
+        text = ": ".join(x for x in (header, first) if x)
+        if text:
+            return re.sub(r"\s+", " ", text)[:limit]
+    return re.sub(r"\s+", " ", str(exc_or_text)).strip()[:limit]
 
 
 def _parse_retry_after_seconds(message: str) -> float | None:
@@ -218,7 +309,42 @@ def raise_for_dsl_errors(result: object) -> None:
     """Raise DimensionsDslError when *result* carries Dimensions query errors."""
     errors = dsl_result_errors(result)
     if errors is not None:
-        raise DimensionsDslError(f"Dimensions rejected the query: {str(errors)[:500]}")
+        raise DimensionsDslError(
+            f"Dimensions rejected the query: {str(errors)[:500]}",
+            errors=errors,
+            transient=is_transient_dsl_errors(errors),
+        )
+
+
+def run_dsl_with_transient_retry(
+    run_query: Any,
+    dsl: str,
+    *,
+    retries: int = TRANSIENT_RETRIES,
+    backoff: tuple[float, ...] | None = None,
+    sleep: Any = time.sleep,
+) -> Any:
+    """Run ``run_query(dsl)`` and retry transient Dimensions failures (sync)."""
+    delays = TRANSIENT_BACKOFF_SECONDS if backoff is None else backoff
+    attempt = 0
+    while True:
+        try:
+            result = run_query(dsl)
+            raise_for_dsl_errors(result)
+            return result
+        except Exception as exc:
+            if attempt >= retries or not is_transient_exception(exc):
+                raise
+            delay = delays[min(attempt, len(delays) - 1)] if delays else 0.0
+            attempt += 1
+            logger.warning(
+                "Dimensions transient failure (attempt %s/%s): %s; retrying in %.1fs",
+                attempt,
+                retries + 1,
+                short_dsl_error(exc),
+                delay,
+            )
+            sleep(delay)
 
 
 def parse_total_count(result: object) -> int:
@@ -300,8 +426,14 @@ async def fetch_reference_titles(
 class AsyncThrottledDimensionsDsl(DimensionsDslPort):
     """Serial throttle between query *starts*; runs dimcli in a worker thread."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        transient_backoff: tuple[float, ...] | None = None,
+    ) -> None:
         self._settings = settings
+        self._transient_backoff = transient_backoff
         self._lock: asyncio.Lock | None = None
         self._last_start_monotonic = 0.0
 
@@ -333,7 +465,19 @@ class AsyncThrottledDimensionsDsl(DimensionsDslPort):
                 logger.debug("Dimensions DSL: %s", dsl[:500] + ("..." if len(dsl) > 500 else ""))
                 return dsl_client.query(dsl)
             retry_extra = 0.0
-            for attempt in range(2):
+            rate_retries_left = 1
+            transient_left = TRANSIENT_RETRIES
+            delays = (
+                TRANSIENT_BACKOFF_SECONDS
+                if self._transient_backoff is None
+                else self._transient_backoff
+            )
+            transient_used = 0
+
+            def _next_delay() -> float:
+                return delays[min(transient_used - 1, len(delays) - 1)] if delays else 0.0
+
+            while True:
                 now = time.monotonic()
                 wait_base = 0.0
                 if self._last_start_monotonic > 0.0 and rate > 0.0:
@@ -341,6 +485,7 @@ class AsyncThrottledDimensionsDsl(DimensionsDslPort):
                     if elapsed < rate:
                         wait_base = rate - elapsed
                 wait_total = max(wait_base, retry_extra)
+                retry_extra = 0.0
                 if wait_total > 0.0:
                     await asyncio.sleep(wait_total)
                 self._last_start_monotonic = time.monotonic()
@@ -348,12 +493,23 @@ class AsyncThrottledDimensionsDsl(DimensionsDslPort):
                     result = await asyncio.to_thread(_sync_run)
                     raise_for_dsl_errors(result)
                     return result
-                except DimensionsDslError:
+                except DimensionsDslError as exc:
+                    if exc.transient and transient_left > 0:
+                        transient_left -= 1
+                        transient_used += 1
+                        retry_extra = _next_delay()
+                        logger.warning(
+                            "Dimensions transient failure: %s; retrying in %.1fs",
+                            short_dsl_error(exc),
+                            retry_extra,
+                        )
+                        continue
                     raise
                 except Exception as exc:
                     msg = str(exc)
                     is_429 = "429" in msg or "too many requests" in msg.lower()
-                    if attempt == 0 and is_429:
+                    if rate_retries_left > 0 and is_429:
+                        rate_retries_left -= 1
                         retry_after = _parse_retry_after_seconds(msg)
                         retry_extra = retry_after if retry_after is not None else retry_fallback
                         logger.warning(
@@ -361,5 +517,14 @@ class AsyncThrottledDimensionsDsl(DimensionsDslPort):
                             retry_extra,
                         )
                         continue
+                    if not is_429 and is_transient_exception(exc) and transient_left > 0:
+                        transient_left -= 1
+                        transient_used += 1
+                        retry_extra = _next_delay()
+                        logger.warning(
+                            "Dimensions transient failure: %s; retrying in %.1fs",
+                            short_dsl_error(exc),
+                            retry_extra,
+                        )
+                        continue
                     raise DimensionsDslError(msg) from exc
-            raise DimensionsDslError("Dimensions query failed after retry")
