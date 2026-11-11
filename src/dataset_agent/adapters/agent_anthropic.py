@@ -10,7 +10,8 @@ from typing import Any
 from anthropic import Anthropic
 
 from dataset_agent.adapters.agent_common import (
-    NO_OUTPUT_TEXT,
+    FINAL_SUMMARY_REQUEST,
+    ToolRunCache,
     SYSTEM_PROMPT,
     prompt_head,
     repair_near_miss,
@@ -122,6 +123,7 @@ class AnthropicAgent(AgentPort):
 
         messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
         start = time.time()
+        cache = ToolRunCache(self._run_tool)
 
         try:
             for iteration in range(1, self._max_iterations + 1):
@@ -172,6 +174,7 @@ class AnthropicAgent(AgentPort):
 
                 # Execute each tool and build the tool_result message
                 tool_results: list[dict[str, Any]] = []
+                all_repeats = True
                 for block in tool_use_blocks:
                     tool_input = block.input if isinstance(block.input, dict) else {}
                     logger.info(
@@ -180,7 +183,8 @@ class AnthropicAgent(AgentPort):
                         block.id,
                         json.dumps(tool_input, ensure_ascii=False)[:200],
                     )
-                    result_text = self._run_tool(block.name, tool_input)
+                    result_text, was_repeat = cache.run(block.name, tool_input)
+                    all_repeats = all_repeats and was_repeat
                     tool_results.append(
                         {
                             "type": "tool_result",
@@ -189,6 +193,10 @@ class AnthropicAgent(AgentPort):
                         }
                     )
 
+                if all_repeats:
+                    logger.warning("Only repeated tool calls in iteration %s; finalizing", iteration)
+                    messages.append({"role": "user", "content": tool_results})
+                    break
                 messages.append({"role": "user", "content": tool_results})
 
             # Exhausted iterations — one final call without tools to get a summary
@@ -196,6 +204,13 @@ class AnthropicAgent(AgentPort):
                 "Max iterations (%s) reached; requesting final summary",
                 self._max_iterations,
             )
+            if messages[-1]["role"] == "user" and isinstance(messages[-1]["content"], list):
+                if not any(
+                    b.get("text") == FINAL_SUMMARY_REQUEST for b in messages[-1]["content"]
+                ):
+                    messages[-1]["content"].append(
+                        {"type": "text", "text": FINAL_SUMMARY_REQUEST}
+                    )
             final = client.messages.create(
                 model=self._model_name,
                 max_tokens=self._max_tokens,
@@ -318,4 +333,4 @@ class AnthropicAgent(AgentPort):
     def _extract_text(response: Any) -> str:
         """Pull all text blocks from an Anthropic response, minus ``<think>`` blocks."""
         parts = [block.text for block in response.content if hasattr(block, "text") and block.text]
-        return strip_think("\n".join(parts)) or NO_OUTPUT_TEXT
+        return strip_think("\n".join(parts)) 

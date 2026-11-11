@@ -261,3 +261,38 @@ def test_temperature_reaches_request_body(server, style):
     agent.get_structured("Names?", RESULT_TOOL)
 
     assert [r["temperature"] for r in server.requests] == [0.2, 0.2]
+
+
+def test_cap_then_empty_summary_returns_empty_string_not_sentinel(server, style, lookup_calls):
+    agent = make_agent(style, server, max_iterations=5)
+    server.push(
+        *[server.tool_call("lookup", {"q": f"query {i}"}, call_id=f"c{i}") for i in range(5)],
+        server.text(""),
+    )
+
+    out = agent.get_information("Research.", tools=[LOOKUP_TOOL])
+
+    assert out == ""
+    assert len(lookup_calls) == 5
+    assert "tools" not in server.requests[5]
+    last = server.requests[5]["messages"][-1]
+    assert "tool-call limit" in json.dumps(last)
+
+
+def test_identical_tool_call_is_cached_and_not_reexecuted(server, style, lookup_calls):
+    agent = make_agent(style, server, max_iterations=5)
+    server.push(
+        server.tool_call("lookup", {"q": "GNSS EarthScope"}, call_id="c1"),
+        server.tool_call("lookup", {"q": "  gnss   earthscope "}, call_id="c2"),
+        server.text("Final answer."),
+    )
+
+    out = agent.get_information("Research.", tools=[LOOKUP_TOOL])
+
+    assert out == "Final answer."
+    assert len(lookup_calls) == 1
+    # An iteration made only of repeats finalizes early: no third tool turn offered.
+    assert len(server.requests) == 3
+    assert "tools" not in server.requests[2]
+    sent = json.dumps(server.requests[2]["messages"])
+    assert "LOOKUP-RESULT" in sent and "already ran this exact tool call" in sent

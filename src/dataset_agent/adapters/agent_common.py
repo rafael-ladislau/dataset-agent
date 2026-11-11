@@ -24,7 +24,65 @@ SYSTEM_PROMPT = (
     "publisher websites). Be concise and factual."
 )
 
+#: Legacy placeholder the adapters used to return for an empty answer.  Adapters now
+#: return ``""``; the text is kept only so consumers can drop it defensively.
 NO_OUTPUT_TEXT = "No output from agent."
+
+#: Sent after the iteration cap (no tools offered) to force a prose answer.
+FINAL_SUMMARY_REQUEST = (
+    "You have reached the tool-call limit, and no further tool calls are available. "
+    "Using only the information already gathered in the tool results above, write your "
+    "final answer to the original request now, in the requested format. If the results "
+    "are incomplete, answer with what they support. Do not call any tools."
+)
+
+REPEAT_CALL_NOTE = (
+    "Note: you already ran this exact tool call; the result above is the same one. Do not "
+    "repeat it. Either give your final answer from the results you have, or try a "
+    "materially different query."
+)
+
+_SENTINEL_RE = re.compile(
+    r"^\s*(?:no output from agent|error in agent execution\b.*)\W*$", re.IGNORECASE | re.DOTALL
+)
+
+
+def is_sentinel_text(text: object) -> bool:
+    """True for the agent's placeholder/error strings that must never be stored as content."""
+    return isinstance(text, str) and bool(_SENTINEL_RE.match(text))
+
+
+def call_key(name: str, args: dict[str, Any]) -> str:
+    """Normalized identity of a tool call: tool name plus case/whitespace-folded arguments."""
+
+    def norm(v: Any) -> Any:
+        if isinstance(v, str):
+            return " ".join(v.lower().split())
+        if isinstance(v, dict):
+            return {str(k): norm(x) for k, x in sorted(v.items())}
+        if isinstance(v, list):
+            return [norm(x) for x in v]
+        return v
+
+    return f"{name}:{json.dumps(norm(args), sort_keys=True, ensure_ascii=False, default=str)}"
+
+
+class ToolRunCache:
+    """Per-loop memo of executed tool calls so identical repeats are not re-run."""
+
+    def __init__(self, runner: Any = None) -> None:
+        self._results: dict[str, str] = {}
+        self._runner = runner or run_tool
+
+    def run(self, name: str, args: dict[str, Any]) -> tuple[str, bool]:
+        """Return ``(result, was_repeat)``; a repeat carries a short note, no re-execution."""
+        key = call_key(name, args)
+        if key in self._results:
+            logger.info("Repeated identical tool call %s; returning cached result", name)
+            return f"{self._results[key]}\n\n{REPEAT_CALL_NOTE}", True
+        result = self._runner(name, args)
+        self._results[key] = result
+        return result, False
 
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 _THINK_OPEN_RE = re.compile(r"<think>", re.IGNORECASE)

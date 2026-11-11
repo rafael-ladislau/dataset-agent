@@ -12,7 +12,8 @@ from typing import Any
 from openai import APIStatusError, OpenAI
 
 from dataset_agent.adapters.agent_common import (
-    NO_OUTPUT_TEXT,
+    FINAL_SUMMARY_REQUEST,
+    ToolRunCache,
     SYSTEM_PROMPT,
     contains_harmony_markup,
     extract_json_object,
@@ -22,7 +23,6 @@ from dataset_agent.adapters.agent_common import (
     prompt_head,
     repair_near_miss,
     retry_prompt,
-    run_tool,
     strip_harmony,
     strip_think,
     to_openai_tool,
@@ -183,6 +183,7 @@ class OpenAICompatibleAgent(AgentPort):
         openai_tools = to_openai_tools(active_tools) if active_tools else None
         start = time.time()
         leak_retried = False
+        cache = ToolRunCache()
 
         try:
             for iteration in range(1, self._max_iterations + 1):
@@ -224,7 +225,7 @@ class OpenAICompatibleAgent(AgentPort):
                         continue
                     else:
                         logger.warning("Harmony markup persisted after retry; treating as no answer")
-                        return strip_harmony(strip_think(message.content)) or NO_OUTPUT_TEXT
+                        return strip_harmony(strip_think(message.content))
 
                 if not calls:
                     logger.info(
@@ -258,6 +259,7 @@ class OpenAICompatibleAgent(AgentPort):
                         ],
                     }
                 )
+                all_repeats = True
                 for call_id, name, _, args in calls:
                     logger.info(
                         "Executing tool %s (id=%s) args=%s",
@@ -265,19 +267,19 @@ class OpenAICompatibleAgent(AgentPort):
                         call_id,
                         json.dumps(args, ensure_ascii=False)[:200],
                     )
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call_id,
-                            "content": run_tool(name, args),
-                        }
-                    )
+                    result, was_repeat = cache.run(name, args)
+                    all_repeats = all_repeats and was_repeat
+                    messages.append({"role": "tool", "tool_call_id": call_id, "content": result})
+                if all_repeats:
+                    logger.warning("Only repeated tool calls in iteration %s; finalizing", iteration)
+                    break
 
             logger.warning(
                 "Max iterations (%s) reached; requesting final summary",
                 self._max_iterations,
             )
-            final = self._create(messages)
+            messages.append({"role": "user", "content": FINAL_SUMMARY_REQUEST})
+            final = self._create(messages)  # no tools offered
             logger.info("LLM agent finished in %.2fs (hit iteration cap)", time.time() - start)
             return self._extract_text(final.choices[0].message)
 
@@ -324,7 +326,7 @@ class OpenAICompatibleAgent(AgentPort):
         text = strip_think(getattr(message, "content", None))
         if has_harmony_markup(text):
             text = strip_harmony(text)
-        return text or NO_OUTPUT_TEXT
+        return text
 
     # ------------------------------------------------------------------
     # Structured output

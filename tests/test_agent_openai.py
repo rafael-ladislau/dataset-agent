@@ -182,11 +182,11 @@ def test_reasoning_fields_are_ignored(server):
     assert agent.get_information("Q?", tools=[]) == "The answer."
 
 
-def test_empty_content_returns_placeholder(server):
+def test_empty_content_returns_empty_string(server):
     agent = make_agent(OPENAI, server)
     server.push(server.text("<think>only reasoning, never finished"))
 
-    assert agent.get_information("Q?", tools=[]) == "No output from agent."
+    assert agent.get_information("Q?", tools=[]) == ""
 
 
 def test_tool_call_written_as_text_is_not_executed(server, monkeypatch):
@@ -468,7 +468,7 @@ def test_persistent_harmony_leak_is_never_returned(server):
     broken = "<|channel|>commentary to=functions.web_search <|message|>{not json"
     server.push(server.text(broken), server.text(broken))
 
-    assert agent.get_information("Search.") == "No output from agent."
+    assert agent.get_information("Search.") == ""
     assert len(server.requests) == 2
 
 
@@ -478,7 +478,7 @@ def test_harmony_call_for_unoffered_tool_is_not_executed(server, monkeypatch):
     agent = make_agent(OPENAI, server)
     server.push(server.text(LEAKED), server.text(LEAKED))
 
-    assert agent.get_information("Q?", tools=[]) == "No output from agent."
+    assert agent.get_information("Q?", tools=[]) == ""
     assert calls == []
 
 
@@ -499,7 +499,7 @@ def test_summary_after_iteration_cap_is_sanitized(server, monkeypatch):
     agent = make_agent(OPENAI, server, max_iterations=1)
     server.push(server.tool_call("web_search", {"query": "x"}), server.text(LEAKED))
 
-    assert agent.get_information("Search.") == "No output from agent."
+    assert agent.get_information("Search.") == ""
 
 
 def test_structured_text_json_with_harmony_markup_is_rejected_and_retried(server):
