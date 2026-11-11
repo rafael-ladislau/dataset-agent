@@ -102,3 +102,43 @@ def test_execute_dsl_retries_once_on_429(monkeypatch) -> None:
         assert getattr(out, "count_total", -1) == 0
 
     asyncio.run(_run())
+
+
+def test_parse_total_count_raises_on_result_with_errors() -> None:
+    import pytest
+
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError, parse_total_count
+
+    bad = SimpleNamespace(count_total=None, errors={"query": {"header": "Query Error"}})
+    with pytest.raises(DimensionsDslError, match="Query Error"):
+        parse_total_count(bad)
+    assert parse_total_count(SimpleNamespace(count_total=5, errors=None)) == 5
+    assert parse_total_count(SimpleNamespace(count_total=0, errors={})) == 0
+
+
+def test_execute_dsl_and_alias_count_raise_on_errors_result(monkeypatch) -> None:
+    import pytest
+
+    from dataset_agent.adapters.dimensions_dsl import DimensionsDslError, run_alias_count
+
+    async def _run() -> None:
+        async def fake_to_thread(fn, /, *args, **kwargs):  # noqa: ANN001
+            return SimpleNamespace(count_total=None, errors={"query": "QuerySyntaxErrors"})
+
+        monkeypatch.setattr("dataset_agent.adapters.dimensions_dsl.asyncio.to_thread", fake_to_thread)
+        dsl = AsyncThrottledDimensionsDsl(
+            Settings(dimensions_api_key="k", dimensions_rate_limit_seconds=0.0)
+        )
+        with pytest.raises(DimensionsDslError, match="QuerySyntaxErrors"):
+            await dsl.execute_dsl("search publications return publications limit 1")
+        with pytest.raises(DimensionsDslError):
+            await run_alias_count(dsl, "Medical Imaging & Data Resource Center")
+
+    asyncio.run(_run())
+
+
+def test_alias_count_dsl_escapes_ampersand() -> None:
+    from dataset_agent.adapters.dimensions_dsl import build_publications_count_dsl
+
+    dsl = build_publications_count_dsl("Medical Imaging & Data Resource Center")
+    assert 'Medical Imaging \\& Data' in dsl

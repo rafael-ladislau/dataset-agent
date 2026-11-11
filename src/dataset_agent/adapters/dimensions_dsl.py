@@ -14,6 +14,8 @@ from dataset_agent.settings import Settings
 logger = logging.getLogger(__name__)
 
 # See docs/spec-gap-analysis.md §2.2 (plus backslash and double-quote for inner terms).
+# Verified live (2026-11-11): inside a quoted full_data phrase a bare "&" is a lexer
+# error, "\\&" lexes and matches (same count as the "and" variant); "\\\\&" fails again.
 _DSL_INNER_SPECIAL = frozenset('^:~[]{}()!|&+"')
 
 
@@ -200,10 +202,34 @@ def top_titles_from_result(result: object, *, max_titles: int = 10) -> list[str]
     return titles
 
 
+def dsl_result_errors(result: object) -> object | None:
+    """The ``errors`` payload of a dimcli result, or None when it carries none.
+
+    dimcli returns a ``DslDataset`` with ``errors`` set (instead of raising) when
+    Dimensions rejects a query, e.g. a ``QuerySyntaxErrors`` lexer error.
+    """
+    errors = getattr(result, "errors", None)
+    if isinstance(errors, (dict, list, tuple, str)) and errors:
+        return errors
+    return None
+
+
+def raise_for_dsl_errors(result: object) -> None:
+    """Raise DimensionsDslError when *result* carries Dimensions query errors."""
+    errors = dsl_result_errors(result)
+    if errors is not None:
+        raise DimensionsDslError(f"Dimensions rejected the query: {str(errors)[:500]}")
+
+
 def parse_total_count(result: object) -> int:
-    """Best-effort total hit count from a dimcli DSL result object."""
+    """Total hit count from a dimcli DSL result object.
+
+    Raises DimensionsDslError when the result carries query errors, so a rejected
+    query is never read as a count of 0.
+    """
     if result is None:
         return 0
+    raise_for_dsl_errors(result)
     if hasattr(result, "count_total"):
         try:
             return int(getattr(result, "count_total"))  # type: ignore[arg-type]
@@ -319,7 +345,11 @@ class AsyncThrottledDimensionsDsl(DimensionsDslPort):
                     await asyncio.sleep(wait_total)
                 self._last_start_monotonic = time.monotonic()
                 try:
-                    return await asyncio.to_thread(_sync_run)
+                    result = await asyncio.to_thread(_sync_run)
+                    raise_for_dsl_errors(result)
+                    return result
+                except DimensionsDslError:
+                    raise
                 except Exception as exc:
                     msg = str(exc)
                     is_429 = "429" in msg or "too many requests" in msg.lower()
