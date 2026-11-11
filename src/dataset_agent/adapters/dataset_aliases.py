@@ -6,6 +6,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Literal
 
+from dataset_agent.adapters.term_sanitizer import sanitize_terms
 from dataset_agent.application import prompts
 from dataset_agent.adapters.tools import (
     EMIT_DATASET_NAMES,
@@ -116,7 +117,9 @@ def refine_dataset_names_with_llm(
 
     names = result.get("dataset_names")
     if isinstance(names, list):
-        parsed = [x.strip() for x in names if isinstance(x, str) and x.strip()][:25]
+        parsed = sanitize_terms(
+            [x for x in names if isinstance(x, str)], "dataset name"
+        )[:25]
         if parsed:
             cleaned = _dedupe_ci_preserve_order(parsed)
             logger.info(

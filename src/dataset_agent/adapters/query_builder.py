@@ -14,6 +14,7 @@ from dataset_agent.adapters.dimensions_dsl import (
     top_titles_from_result,
 )
 from dataset_agent.adapters.query_heuristics import apply_short_acronym_heuristic
+from dataset_agent.adapters.term_sanitizer import sanitize_term
 from dataset_agent.domain.ports import DimensionsDslPort
 
 VariantId = Literal["V1", "V2", "V3", "V4", "V5"]
@@ -26,7 +27,7 @@ def _clean(terms: Sequence[str] | None) -> list[str]:
     for t in terms:
         if not isinstance(t, str):
             continue
-        s = t.strip()
+        s = sanitize_term(t)
         if s:
             out.append(s)
     return out

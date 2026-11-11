@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+from dataset_agent.adapters.literature import evaluate_terms_with_llm
+from dataset_agent.adapters.query_builder import build_for_clause
+from dataset_agent.adapters.term_sanitizer import sanitize_term, sanitize_terms
+
+NBSP_JUNK = "MIDRC" + "\xa0​\xa0\xa0" * 4 + "..."
+
+
+def test_nbsp_zero_width_and_ellipsis_junk_is_dropped() -> None:
+    assert sanitize_term(NBSP_JUNK) is None
+    assert sanitize_term("MIDRC\xa0​\xa0\xa0\xa0…") is None
+
+
+def test_nbsp_runs_collapse_to_single_space() -> None:
+    assert sanitize_term("MIDRC\xa0\xa0Data​\xa0Commons") == "MIDRC Data Commons"
+
+
+def test_unicode_dashes_become_ascii_hyphen() -> None:
+    assert sanitize_term("ARPA‑H") == "ARPA-H"
+    for ch in "‐‒–—―−﹘﹣－":
+        assert sanitize_term(f"A{ch}B") == "A-B"
+
+
+def test_curly_quotes_and_surrounding_punctuation() -> None:
+    assert sanitize_term("“MIDRC Commons”") == "MIDRC Commons"
+    assert sanitize_term("O’Brien Study") == "O'Brien Study"
+    assert sanitize_term("  'Foo Bar',  ") == "Foo Bar"
+
+
+def test_ampersand_kept_and_no_letters_dropped() -> None:
+    name = "Medical Imaging & Data Resource Center Data Commons"
+    assert sanitize_term(name) == name
+    assert sanitize_term("2020-2021") is None
+    assert sanitize_term("") is None
+    assert sanitize_term(None) is None
+
+
+def test_sanitize_terms_keeps_order_and_drops_bad() -> None:
+    out = sanitize_terms(
+        [NBSP_JUNK, "MIDRC Data Commons", "ARPA‑H", "x..."], "alias"
+    )
+    assert out == ["MIDRC Data Commons", "ARPA-H"]
+
+
+def test_terms_evaluation_suggestions_are_sanitized() -> None:
+    class Agent:
+        def get_structured(self, prompt, tool):
+            return {
+                "is_effective": False,
+                "dataset_names_score": 3,
+                "flag_terms_score": 3,
+                "issues": ["Rationale: x"],
+                "suggested_dataset_names": [NBSP_JUNK, "MIDRC\xa0Commons"],
+                "suggested_flag_terms": ["ARPA‑H"],
+                "suggested_exclude_terms": ["foo...", "bar baz"],
+                "reasoning": "r",
+            }
+
+    res = evaluate_terms_with_llm("MIDRC", "d", ["a"], ["b"], [], Agent())  # type: ignore[arg-type]
+    assert res["suggested_dataset_names"] == ["MIDRC Commons"]
+    assert res["suggested_flag_terms"] == ["ARPA-H"]
+    assert res["suggested_exclude_terms"] == ["bar baz"]
+
+
+def test_query_builder_never_emits_junk_terms() -> None:
+    clause = build_for_clause(
+        safe=["MIDRC Data Commons", NBSP_JUNK],
+        risky=["MIDRC"],
+        variant="V3",
+        flag_terms=["ARPA‑H"],
+    )
+    assert "\xa0" not in clause and "​" not in clause and "‑" not in clause
+    assert "..." not in clause
+    assert "ARPA-H" in clause
+
+
+def test_query_builder_escapes_ampersand_inside_phrase() -> None:
+    clause = build_for_clause(
+        safe=["Medical Imaging & Data Resource Center"], risky=[], flag_terms=[]
+    )
+    assert "Imaging \\& Data" in clause

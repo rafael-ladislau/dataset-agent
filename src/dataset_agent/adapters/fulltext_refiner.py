@@ -18,6 +18,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable
 
+from dataset_agent.adapters.term_sanitizer import sanitize_terms
 from dataset_agent.adapters.fulltext_evidence import (
     Evidence,
     PubVerdict,
@@ -137,7 +138,9 @@ Use emit_refinement_candidates exactly once."""
             return []
         # Strip wrapping quotes the LLM may add; a term that still contains a double
         # quote cannot be sent to extraction (seed terms reject it), so drop it.
-        terms = [_unquote(x) for x in v if isinstance(x, str)]
+        terms = sanitize_terms(
+            [_unquote(x) for x in v if isinstance(x, str)], "refiner term"
+        )
         return dedupe_strings_ci_preserve_order(
             [t for t in terms if len(t) > 2 and '"' not in t]
         )[:cap]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from dataset_agent.adapters.term_sanitizer import sanitize_terms
 from dataset_agent.adapters.dimensions_dsl import (
     build_for_clause_count_dsl,
     parse_total_count,
@@ -223,7 +224,7 @@ Use emit_exclude_terms exactly once."""
     terms = raw.get("exclude_terms")
     if not isinstance(terms, list):
         return []
-    return [str(x).strip() for x in terms if isinstance(x, str) and x.strip()][:25]
+    return sanitize_terms([x for x in terms if isinstance(x, str)], "exclude term")[:25]
 
 
 def web_search_alias_meanings(agent: AgentPort, alias: str) -> dict[str, list[str]]:

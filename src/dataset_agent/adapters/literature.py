@@ -7,6 +7,7 @@ import logging
 import re
 import time
 from typing import Any, Callable
+from dataset_agent.adapters.term_sanitizer import sanitize_terms
 from dataset_agent.adapters.dimensions_dsl import (
     publication_title,
     publications_from_result,
@@ -474,9 +475,15 @@ def evaluate_terms_with_llm(
                 "dataset_names_score": min(10, max(0, int(raw.get("dataset_names_score", 5)))),
                 "flag_terms_score": min(10, max(0, int(raw.get("flag_terms_score", 5)))),
                 "issues": list(raw.get("issues", []))[:5],
-                "suggested_dataset_names": list(raw.get("suggested_dataset_names", []))[:5],
-                "suggested_flag_terms": list(raw.get("suggested_flag_terms", []))[:5],
-                "suggested_exclude_terms": list(raw.get("suggested_exclude_terms", []))[:5],
+                "suggested_dataset_names": sanitize_terms(
+                    list(raw.get("suggested_dataset_names", [])), "suggested dataset name"
+                )[:5],
+                "suggested_flag_terms": sanitize_terms(
+                    list(raw.get("suggested_flag_terms", [])), "suggested flag term"
+                )[:5],
+                "suggested_exclude_terms": sanitize_terms(
+                    list(raw.get("suggested_exclude_terms", [])), "suggested exclude term"
+                )[:5],
                 "reasoning": str(raw.get("reasoning", ""))[:200],
             }
             if raw

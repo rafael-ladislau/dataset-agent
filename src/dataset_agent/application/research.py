@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from dataset_agent.application import prompts
 from dataset_agent.adapters.llm_output_cleanup import is_llm_list_entry_junk
+from dataset_agent.adapters.term_sanitizer import sanitize_terms
 from dataset_agent.adapters.tools import TOOL_DEFINITIONS, make_request, web_search
 from dataset_agent.adapters.organizations import process_organizations
 from dataset_agent.adapters.text_processing import (
@@ -348,7 +349,7 @@ class DatasetResearchUseCase:
         logger.debug("Organizations raw output: %r", org_raw[:500] if org_raw else "")
         org_list = self._extractor.extract_list(org_raw)
         logger.debug("Organizations extracted list: %r", org_list)
-        flag_terms = process_organizations(org_list)
+        flag_terms = sanitize_terms(process_organizations(org_list), "flag term")
         logger.info("Step 3 done: %s context terms (before refine)", len(flag_terms))
 
         flags_before_refine = list(flag_terms)
@@ -365,6 +366,7 @@ class DatasetResearchUseCase:
                 len(flags_before_refine),
             )
             flag_terms = flags_before_refine
+        flag_terms = sanitize_terms(flag_terms, "flag term")
         logger.info("Step 4 done: %s flag terms for literature", len(flag_terms))
 
         # Step 5: Aliases (1 LLM call, uses orgs + home_url context)
@@ -380,7 +382,7 @@ class DatasetResearchUseCase:
             tools=TOOL_DEFINITIONS,
         )
         logger.debug("Aliases raw output: %r", alias_raw[:500] if alias_raw else "")
-        aliases = self._extractor.extract_list(alias_raw)
+        aliases = sanitize_terms(self._extractor.extract_list(alias_raw), "alias")
         logger.debug("Aliases extracted list: %r", aliases)
         ref_for_host = (request.dataset_url or "").strip() or (home_url or "")
         host_alias = hostname_from_http_url(ref_for_host)
@@ -420,6 +422,7 @@ class DatasetResearchUseCase:
                 len(names_before_refine),
             )
             dataset_names = names_before_refine
+        dataset_names = sanitize_terms(dataset_names, "dataset name")
         dataset_names, flag_terms, overlap_removed = validate_no_flag_alias_overlap(
             dataset_names,
             flag_terms,
@@ -518,6 +521,7 @@ class DatasetResearchUseCase:
             defaults=self._settings,
         )
         record.alias_collisions = collision_domains
+        record.exclude_terms = sanitize_terms(record.exclude_terms, "exclude term")
         if suffix_forms:
             # Store suffix forms in a way that's accessible; for now attach to record
             # We don't have a dedicated field, so use a private detail or extend aliases
@@ -528,4 +532,6 @@ class DatasetResearchUseCase:
                     record.dataset_names.append(suffixed)
                     existing_lower.add(suffixed.lower())
             record.dataset_names = dedupe_strings_ci_preserve_order(record.dataset_names)
+        record.dataset_names = sanitize_terms(record.dataset_names, "dataset name")
+        record.flag_terms = sanitize_terms(record.flag_terms, "flag term")
         return record
