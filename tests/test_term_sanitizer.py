@@ -80,3 +80,36 @@ def test_query_builder_escapes_ampersand_inside_phrase() -> None:
         safe=["Medical Imaging & Data Resource Center"], risky=[], flag_terms=[]
     )
     assert "Imaging \\& Data" in clause
+
+
+def test_balanced_parentheses_and_quotes_are_preserved() -> None:
+    assert (
+        sanitize_term("National Health and Nutrition Examination Survey (NHANES)")
+        == "National Health and Nutrition Examination Survey (NHANES)"
+    )
+    assert sanitize_term("Add Health (Wave I)") == "Add Health (Wave I)"
+    assert sanitize_term("NIH ‘All of Us’") == "NIH 'All of Us'"
+    assert sanitize_term("Yelp!") == "Yelp!"
+
+
+def test_wrapping_and_unbalanced_edges_are_removed() -> None:
+    assert sanitize_term('"MIDRC Data Commons".') == "MIDRC Data Commons"
+    assert sanitize_term("(MIDRC)") == "MIDRC"
+    assert sanitize_term("MIDRC)") == "MIDRC"
+    assert sanitize_term("'MIDRC") == "MIDRC"
+
+
+def test_acronym_survives_for_validation_terms() -> None:
+    from dataset_agent.adapters.literature import build_dataset_validation_terms
+    from dataset_agent.domain.models import DatasetRecord, Group, YearsRange
+
+    name = sanitize_term("National Health and Nutrition Examination Survey (NHANES)")
+    rec = DatasetRecord(
+        engine="dimensions",
+        group=Group(name="default"),
+        main_dataset_name=name,
+        description="x",
+        dataset_names=[name],
+        years_range=YearsRange(start_year=2015, end_year=2025),
+    )
+    assert "NHANES" in build_dataset_validation_terms(rec)

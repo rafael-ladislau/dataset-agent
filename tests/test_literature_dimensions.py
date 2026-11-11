@@ -81,3 +81,12 @@ def test_attach_dimensions_preview_if_needed(monkeypatch) -> None:
     _attach_dimensions_preview_if_needed(record, settings, sample_size=10)
     assert record.dsl_query == dsl
     assert record.publications_total == 12345
+
+
+def test_preview_query_escapes_ampersand_in_phrases() -> None:
+    rec = _sample_record().model_copy(
+        update={"dataset_names": ["Medical Imaging & Data Resource Center Data Commons"]}
+    )
+    q = build_dimensions_literature_query(rec, sample_size=5)
+    assert "Imaging \\& Data" in q
+    assert "Imaging & Data" not in q

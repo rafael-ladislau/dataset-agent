@@ -791,12 +791,14 @@ def build_dataset_validation_terms(record: DatasetRecord) -> list[str]:
 
 def build_dimensions_literature_query(record: DatasetRecord, *, sample_size: int) -> str:
     """Build the Dimensions DSL string used by the literature gate and research preview."""
+    from dataset_agent.adapters.dimensions_dsl import inner_quoted_term
+
     dataset_terms_raw = [record.main_dataset_name]
     if record.dataset_names:
         dataset_terms_raw.extend(record.dataset_names)
-    dataset_terms_query = [t.replace('"', '\\"') for t in dataset_terms_raw if t and len(t) > 2]
+    dataset_terms_query = [inner_quoted_term(t) for t in dataset_terms_raw if t and len(t) > 2]
     flag_terms_raw = record.flag_terms if record.flag_terms else []
-    flag_terms_query = [t.replace('"', '\\"') for t in flag_terms_raw if t and len(t) > 2]
+    flag_terms_query = [inner_quoted_term(t) for t in flag_terms_raw if t and len(t) > 2]
     dataset_clause = " OR ".join(f'\\"{t}\\"' for t in dataset_terms_query)
     if flag_terms_query:
         flag_clause = " OR ".join(f'\\"{t}\\"' for t in flag_terms_query)

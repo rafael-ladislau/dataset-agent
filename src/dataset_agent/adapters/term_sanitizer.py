@@ -22,7 +22,35 @@ _QUOTES = {
     0x2018: "'", 0x2019: "'", 0x201A: "'", 0x201B: "'", 0x2032: "'",
     0x201C: '"', 0x201D: '"', 0x201E: '"', 0x201F: '"', 0x2033: '"',
 }
-_STRIP_CHARS = " \t\r\n\"'`.,;:!?()[]{}<>"
+_PAIRS = {"(": ")", "[": "]", "{": "}", "<": ">"}
+_QUOTE_CHARS = "\"'`"
+
+
+def _strip_edges(s: str) -> str:
+    """Strip whitespace, trailing ``.,;:`` and only unbalanced/wrapping brackets and quotes."""
+    for _ in range(20):
+        prev = s
+        s = s.strip().rstrip(".,;:").lstrip(",;:").strip()
+        if len(s) >= 2:
+            if s[0] in _QUOTE_CHARS and s[-1] == s[0] and s.count(s[0]) == 2:
+                s = s[1:-1]
+                continue
+            if s[0] in _PAIRS and s[-1] == _PAIRS[s[0]] and s.count(s[0]) == 1 and s.count(s[-1]) == 1:
+                s = s[1:-1]
+                continue
+        if s:
+            if s[-1] in _QUOTE_CHARS and s.count(s[-1]) % 2 == 1:
+                s = s[:-1]
+            elif s[0] in _QUOTE_CHARS and s.count(s[0]) % 2 == 1:
+                s = s[1:]
+            for op, cl in _PAIRS.items():
+                if s and s[-1] == cl and s.count(cl) > s.count(op):
+                    s = s[:-1]
+                if s and s[0] == op and s.count(op) > s.count(cl):
+                    s = s[1:]
+        if s == prev:
+            break
+    return s
 
 
 def sanitize_term(term: object) -> str | None:
@@ -41,7 +69,7 @@ def sanitize_term(term: object) -> str | None:
     # Placeholder echoes: check before stripping trailing punctuation.
     if "..." in s or "…" in s:
         return None
-    s = s.strip(_STRIP_CHARS)
+    s = _strip_edges(s)
     if not s or not any(ch.isalpha() for ch in s):
         return None
     return s
