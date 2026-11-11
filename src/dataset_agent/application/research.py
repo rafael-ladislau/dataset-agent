@@ -11,7 +11,12 @@ from typing import TYPE_CHECKING
 from dataset_agent.application import prompts
 from dataset_agent.adapters.llm_output_cleanup import is_llm_list_entry_junk
 from dataset_agent.adapters.term_sanitizer import sanitize_terms
-from dataset_agent.adapters.tools import TOOL_DEFINITIONS, make_request, web_search
+from dataset_agent.adapters.tools import (
+    EMIT_SUFFIX_FORM,
+    TOOL_DEFINITIONS,
+    make_request,
+    web_search,
+)
 from dataset_agent.adapters.organizations import process_organizations
 from dataset_agent.adapters.text_processing import (
     clean_description,
@@ -501,10 +506,12 @@ class DatasetResearchUseCase:
                         "'survey', 'data', or 'study' for a literature search? "
                         "If yes, return the suggested suffixed form. If no, return '' (empty string)."
                     )
-                    raw = self._agent.get_structured(prompt, {"type": "string"})
-                    if isinstance(raw, str) and raw.strip():
-                        suffix_forms[alias] = raw.strip()
-                        logger.info("Suffix promoted (LLM): %r -> %r", alias, raw.strip())
+                    raw = self._agent.get_structured(prompt, EMIT_SUFFIX_FORM)
+                    value = raw.get("suffixed_form") if isinstance(raw, dict) else None
+                    cleaned = sanitize_terms([value], "suffixed alias") if isinstance(value, str) else []
+                    if cleaned:
+                        suffix_forms[alias] = cleaned[0]
+                        logger.info("Suffix promoted (LLM): %r -> %r", alias, cleaned[0])
                 except Exception as exc:
                     logger.warning("LLM suffix fallback failed for %r: %s", alias, exc)
         logger.info("Building DatasetRecord with config defaults")

@@ -125,3 +125,66 @@ def test_multilingual_aliases_skipped_when_disabled(
     )
     record = uc._run_pipeline_once(ResearchRequest(dataset_name="Current Population Survey"))
     assert record.dataset_names
+
+
+class _StrictToolAgent:
+    """Mimics real agents: ``get_structured`` needs a tool dict with a ``name``."""
+
+    def __init__(self, suffix_answer: str) -> None:
+        self.suffix_answer = suffix_answer
+        self.tools: list[str] = []
+
+    def get_information(self, *_a, **_k) -> str:
+        return "stub"
+
+    def get_structured(self, prompt: str, result_tool: dict) -> dict:
+        self.tools.append(result_tool["name"])  # KeyError: 'name' for a bare schema
+        assert "suffixed_form" in result_tool["input_schema"]["properties"]
+        return {"suffixed_form": self.suffix_answer}
+
+
+def _run_suffix_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path, answer: str):
+    for attr, fn in {
+        "web_search": lambda *_a, **_k: "",
+        "refine_flag_terms_with_llm": lambda _agent, **kw: kw["flag_terms"],
+        "refine_dataset_names_with_llm": lambda _agent, **kw: kw["dataset_names"],
+        "validate_no_flag_alias_overlap": lambda a, f: (a, f, []),
+        "detect_subdataset_aliases": lambda _agent, _m, a: (a, []),
+    }.items():
+        monkeypatch.setattr(research_mod, attr, fn)
+    agent = _StrictToolAgent(answer)
+    settings = Settings(
+        tasks_db=tmp_path / "t.db",
+        output_dir=tmp_path / "out",
+        research_multilingual_aliases=False,
+        research_collision_max_aliases=0,
+        research_suffix_check_max_aliases=3,
+    )
+    uc = DatasetResearchUseCase(
+        agent=agent,  # type: ignore[arg-type]
+        extractor=_minimal_extractor(),
+        repository=MagicMock(),
+        settings=settings,
+        literature_gate=None,
+    )
+    record = uc._run_pipeline_once(ResearchRequest(dataset_name="Current Population Survey"))
+    return agent, record
+
+
+def test_llm_suffix_fallback_uses_a_named_tool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, caplog
+) -> None:
+    caplog.set_level("WARNING")
+    agent, record = _run_suffix_fallback(
+        monkeypatch, tmp_path, "Current Population Survey dataset"
+    )
+    assert agent.tools == ["emit_suffix_form"]
+    assert "Current Population Survey dataset" in record.dataset_names
+    assert "suffix fallback failed" not in caplog.text
+
+
+def test_llm_suffix_fallback_empty_answer_adds_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _agent, record = _run_suffix_fallback(monkeypatch, tmp_path, "")
+    assert record.dataset_names == ["Current Population Survey"]

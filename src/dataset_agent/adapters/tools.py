@@ -493,6 +493,26 @@ EMIT_MULTILINGUAL_ALIASES: dict = {
     },
 }
 
+EMIT_SUFFIX_FORM: dict = {
+    "name": "emit_suffix_form",
+    "description": (
+        "Return the alias with a suffix such as 'dataset', 'survey', 'data' or 'study' "
+        "when that makes a literature search more specific, otherwise an empty string. "
+        "Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "suffixed_form": {
+                "type": "string",
+                "description": "Suggested suffixed form, or '' when no suffix is needed.",
+            },
+        },
+        "required": ["suffixed_form"],
+        "additionalProperties": False,
+    },
+}
+
 EMIT_RELEVANCE_SCORE: dict = {
     "name": "emit_relevance_score",
     "description": (
