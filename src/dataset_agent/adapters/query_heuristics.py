@@ -66,6 +66,19 @@ def is_short_acronym(alias: str) -> bool:
     return len(s) <= SHORT_ACRONYM_MAX_LEN
 
 
+def is_acronym_suffix_form(alias: str) -> bool:
+    """``<short acronym> <generic suffix>`` ("WR dataset", "QWR program", "ONET data"):
+    the suffix narrows the acronym but the phrase still matches its other meanings.
+    The acronym must look like one: upper case or without vowels ("Wr", "Wrp")."""
+    words = (alias or "").split()
+    if len(words) != 2 or words[1].lower() not in _SUFFIX_CANDIDATES:
+        return False
+    head = words[0]
+    if not head.isalnum() or len(head) > SHORT_ACRONYM_MAX_LEN:
+        return False
+    return head.isupper() or not any(ch in "aeiouyAEIOUY" for ch in head)
+
+
 def apply_short_acronym_heuristic(
     safe: Sequence[str],
     risky: Sequence[str] | None = None,

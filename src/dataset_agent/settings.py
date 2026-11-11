@@ -100,8 +100,9 @@ class Settings(BaseSettings):
     fp_sample_size: int = 1000
     #: Hard cap on Dimensions calls per optimize run (0 = no extra cap beyond use-case logic).
     optimize_max_dimensions_calls: int = Field(default=64, ge=0)
-    # A suffixed form of a short acronym ("WR" -> "WR dataset") still collides with other
-    # meanings of the acronym; keep it risky (flag-gated) unless this is set.
+    # "<short acronym> <generic suffix>" aliases ("WR dataset"), listed by research or
+    # promoted by the suffix check, still collide with other meanings of the acronym;
+    # they are risky (flag-gated) when flag terms exist, unless this is set.
     optimize_suffix_short_acronym_safe: bool = False
     #: Top publication titles scored with LLM Signal 3 on the primary variant (0 = skip).
     optimize_signal3_max_titles: int = Field(default=5, ge=0, le=20)

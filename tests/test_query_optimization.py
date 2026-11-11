@@ -601,7 +601,7 @@ def test_optimize_short_acronym_suffix_via_rk0(
         assert "suffix_risky" not in out.notes
 
 
-def test_optimize_explicit_alias_equal_to_suffixed_acronym_stays_safe(
+def test_optimize_listed_acronym_suffix_alias_is_risky_with_flags(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Short acronyms pre-bucketed as risky (e.g. ONET) still get suffix promotion."""
@@ -656,9 +656,10 @@ def test_optimize_explicit_alias_equal_to_suffixed_acronym_stays_safe(
     )
     assert out.success is True
     assert out.aliases is not None
-    # Research listed "ONET dataset" itself and its own count is safe.
-    assert "ONET dataset" in out.aliases.safe
-    assert "ONET dataset" not in out.aliases.risky
+    # Research listing "ONET dataset" itself does not make it safe: same shape, same risk.
+    assert "ONET dataset" in out.aliases.risky
+    assert "ONET dataset" not in out.aliases.safe
+    assert "suffix_risky: 'ONET dataset'" in out.notes
 
 
 def test_optimize_suffix_promotes_risky_alias(

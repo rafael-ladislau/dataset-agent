@@ -40,6 +40,7 @@ from dataset_agent.adapters.query_heuristics import (
     apply_short_acronym_heuristic,
     check_suffix_necessity,
     detect_rhetorical_name,
+    is_acronym_suffix_form,
     is_short_acronym,
     platform_exclude_suggestions,
     rhetorical_exclusions,
@@ -372,7 +373,6 @@ class QueryOptimizationUseCase:
         t_phase1 = time.perf_counter()
         try:
             st0, rk0 = apply_short_acronym_heuristic(aliases, [])
-            explicit = {x.lower() for x in st0}
             c_full = await self._count(request.dataset_name)
             alias_entries: list[AliasCountEntry] = []
             risky: list[str] = []
@@ -392,18 +392,8 @@ class QueryOptimizationUseCase:
                 suffixed, suffix_checked = await self._try_suffix_promote(
                     a, c, notes_parts=notes_parts, suffix_checked=suffix_checked
                 )
-                if suffixed and (
-                    self._settings.optimize_suffix_short_acronym_safe
-                    or not flag_terms
-                    or suffixed.lower() in explicit
-                ):
-                    # Without flag terms a risky alias would never be searched; an alias
-                    # the research listed itself is judged by its own count instead.
+                if suffixed:
                     safe.append(suffixed)
-                elif suffixed:
-                    # "WR dataset" still matches other meanings of "WR": flag-gated.
-                    risky.append(suffixed)
-                    notes_parts.append(f"suffix_risky: {suffixed!r} kept risky (short acronym)")
                 else:
                     risky.append(a)
 
@@ -427,6 +417,13 @@ class QueryOptimizationUseCase:
                 else:
                     safe.append(a)
 
+            # "WR dataset" still matches other meanings of "WR", whether research listed it
+            # or the suffix check promoted it: flag-gated. Without flag terms a risky alias
+            # would never be searched, so it stays safe then.
+            if flag_terms and not self._settings.optimize_suffix_short_acronym_safe:
+                for s_alias in [x for x in safe if is_acronym_suffix_form(x)]:
+                    risky.append(s_alias)
+                    notes_parts.append(f"suffix_risky: {s_alias!r} kept risky (short acronym)")
             risky = dedupe_strings_ci_preserve_order(risky)
             r_low = {r.lower() for r in risky}
             safe = dedupe_strings_ci_preserve_order([s for s in safe if s.lower() not in r_low])

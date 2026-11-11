@@ -120,3 +120,11 @@ def test_check_suffix_necessity_uses_bare_count_param() -> None:
         assert len(calls) == len(_SUFFIX_CANDIDATES)
 
     asyncio.run(_go())
+
+
+def test_is_acronym_suffix_form() -> None:
+    from dataset_agent.adapters.query_heuristics import is_acronym_suffix_form
+
+    assert all(is_acronym_suffix_form(a) for a in ["WR dataset", "Wr dataset", "QWR program", "ONET data", "Wrp dataset"])
+    assert not any(is_acronym_suffix_form(a) for a in
+                   ["Life data", "Census data", "Ui Wage Records survey", "WR", "NHANES dataset", "O*NET data"])
