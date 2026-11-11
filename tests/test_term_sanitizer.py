@@ -147,6 +147,7 @@ def test_question_mark_only_terms_are_dropped() -> None:
 def test_empty_backtick_pair_is_dropped() -> None:
     assert sanitize_term("All `` survey") is None
     assert sanitize_term("All ` ` survey") is None
+    assert sanitize_term("All ` survey") is None
     assert sanitize_terms(["All `` survey", "MIDRC Data Commons"]) == ["MIDRC Data Commons"]
 
 

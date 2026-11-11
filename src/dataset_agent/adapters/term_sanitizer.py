@@ -78,6 +78,9 @@ def sanitize_term(term: object) -> str | None:
         # backticks would leave a plausible-looking but wrong phrase.
         if re.search(r"`\s*`", s):
             return None
+        # A lone backtick between spaces ("All ` survey") is a corrupted echo, not markup.
+        if re.search(r"\s`\s", s):
+            return None
         s = re.sub(r"(?<=[A-Za-z0-9])`(?=[A-Za-z0-9])", "'", s)
         s = re.sub(r"\s+", " ", s.replace("`", "")).strip()
     before = s
