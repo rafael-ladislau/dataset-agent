@@ -45,23 +45,32 @@ def _raw_seed(*aliases):
     return candidate_to_seed(QueryCandidate("X", safe=list(aliases)))
 
 
+def test_plain_alias_raw_clause_uses_server_quoting():
+    q = _raw_seed("Health Retirement Study")["dimensions_query"]
+    assert q == '(\\"Health Retirement Study\\")'
+
+
 @pytest.mark.parametrize(
     "alias",
-    ["Health & Retirement Study", "Panel Study of Income Dynamics (PSID)", "ECLS-K:2011"],
+    [
+        "Medical Imaging & Data Resource Center",
+        "Panel Study of Income Dynamics (PSID)",
+        "ECLS-K:2011",
+    ],
 )
-def test_raw_clause_uses_server_quoting_without_dsl_escapes(alias):
-    q = _raw_seed(alias)["dimensions_query"]
-    assert q == '(\\"' + alias + '\\")'
-    assert alias.lower() in q.lower()
+def test_alias_with_dsl_special_chars_goes_structured_not_raw(alias):
+    # A raw clause cannot carry "\\&" escapes (server rejects stray backslashes and does
+    # not escape raw clauses), so the server must build the clause from the terms.
+    seed = _raw_seed(alias)
+    assert seed["dimensions_query"] is None
+    assert seed["standalone_names"] == [alias]
 
 
-def test_raw_clause_special_chars_pass_server_validation_when_available():
-    pytest.importorskip("use_cases.process_datasets.query_builder")
-    from use_cases.process_datasets.query_builder import normalize_raw_clause, validate_raw_clause
-
-    aliases = ["Health & Retirement Study", "Panel Study of Income Dynamics (PSID)", "ECLS-K:2011"]
-    q = _raw_seed(*aliases)["dimensions_query"]
-    validate_raw_clause(normalize_raw_clause(q), aliases)
+def test_special_char_in_flag_or_exclude_term_goes_structured():
+    c = QueryCandidate("X", safe=["NHIS"], flag_terms=["R&D"])
+    assert candidate_to_seed(c)["dimensions_query"] is None
+    c = QueryCandidate("X", safe=["NHIS"], exclude_terms=["a|b"])
+    assert candidate_to_seed(c)["dimensions_query"] is None
 
 
 def test_coverage_does_not_strip_backslashes():

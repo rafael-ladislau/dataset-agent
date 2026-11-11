@@ -51,6 +51,18 @@ def candidate_clause(c: QueryCandidate) -> str:
     )
 
 
+# Characters Dimensions' lexer treats as operators inside a quoted phrase. A raw
+# ``dimensions_query`` cannot carry backslash escapes (the server rejects a stray
+# backslash and never escapes raw clauses), so terms containing any of them go
+# through the structured seed fields, which the server escapes when it builds the clause.
+_DSL_SPECIAL_TERM_CHARS = frozenset('&|!(){}[]^~*?:/+\\')
+
+
+def _has_dsl_special_terms(c: QueryCandidate) -> bool:
+    terms = (*c.all_aliases(), *c.safe, *c.risky, *c.flag_terms, *c.exclude_terms)
+    return any(ch in _DSL_SPECIAL_TERM_CHARS for t in terms for ch in t)
+
+
 def seed_clause(c: QueryCandidate) -> str:
     """Raw ``dimensions_query`` clause using the extraction server's quoting convention.
 
@@ -91,7 +103,9 @@ def candidate_to_seed(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the ``/pipelines/start`` body (without ``probe`` fields)."""
-    use_raw = bool(c.raw_clause) or (bool(c.safe) and not c.risky)
+    use_raw = bool(c.raw_clause) or (
+        bool(c.safe) and not c.risky and not _has_dsl_special_terms(c)
+    )
     seed: dict[str, Any] = {
         "seed_type": "dataset",
         "engine": "dimensions",
