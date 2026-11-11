@@ -567,3 +567,32 @@ def test_prompt_asks_for_proper_name_flags():
     propose_refinements(Spy({}), dataset_name="X", genuine=[], false_positives=[], aliases=[],
                         flag_terms=[], exclude_terms=[])
     assert "proper name" in seen["p"] and "lower-case context word" in seen["p"]
+
+
+def test_refinement_reply_without_reasoning_still_yields_proposals():
+    """The refiner never reads 'reasoning', so a strict adapter must not discard a reply lacking it."""
+    from llm_fakes import STYLES, FakeLLMServer, make_agent
+
+    from dataset_agent.adapters.fulltext_refiner import propose_refinements
+    from dataset_agent.adapters.tools import EMIT_REFINEMENT_CANDIDATES
+
+    reply = {
+        "false_positive_groups": [{"label": "UI = user interface", "cause_term": "UI",
+                                   "exclude_terms": ["user interface"]}],
+        "exclude_terms": ["interface design"],
+        "flag_terms": ["Census Bureau"],
+        "new_aliases": ["Alpha Survey"],
+    }
+    schema = EMIT_REFINEMENT_CANDIDATES["input_schema"]
+    assert "reasoning" not in schema["required"]
+    for style in STYLES:
+        server = FakeLLMServer(style)
+        server.push(server.structured("emit_refinement_candidates", reply))
+        agent = make_agent(style, server)
+        out = propose_refinements(agent, dataset_name="X", genuine=[], false_positives=[],
+                                  aliases=[], flag_terms=[], exclude_terms=[])
+        assert len(server.requests) == 1
+        assert out["flag_terms"] == ["Census Bureau"]
+        assert out["new_aliases"] == ["Alpha Survey"]
+        assert "interface design" in out["exclude_terms"] and "user interface" in out["exclude_terms"]
+        assert out["groups"][0]["papers"] == 0

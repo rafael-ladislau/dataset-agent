@@ -612,7 +612,7 @@ EMIT_REFINEMENT_CANDIDATES: dict = {
                         "papers": {"type": "integer", "description": "Number of false positives in the group"},
                         "exclude_terms": {"type": "array", "items": {"type": "string"}},
                     },
-                    "required": ["label", "cause_term", "papers", "exclude_terms"],
+                    "required": ["label", "cause_term"],
                     "additionalProperties": False,
                 },
             },
@@ -633,7 +633,7 @@ EMIT_REFINEMENT_CANDIDATES: dict = {
             },
             "reasoning": {"type": "string", "description": "Brief rationale (max 40 words)."},
         },
-        "required": ["exclude_terms", "flag_terms", "new_aliases", "reasoning"],
+        "required": ["exclude_terms", "flag_terms", "new_aliases"],
         "additionalProperties": False,
     },
 }
