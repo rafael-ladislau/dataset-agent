@@ -1143,10 +1143,23 @@ class QueryOptimizationUseCase:
                             f"found in {mined[term.casefold()]} abstracts of precise matches; "
                             + detail
                         )
-                    if (
+                    passes = (
                         precision >= s.ai_model_flag_min_anchor_precision
                         and confirmed >= s.ai_model_flag_min_anchor_hits
-                    ):
+                    )
+                    own_hits = await self._clause_count(q(term)) if passes else None
+                    if passes and (own_hits is None or own_hits > s.ai_model_flag_max_hits):
+                        # Shape cannot tell "AI" or "Weather-Forecasting" from a coined
+                        # name; its own count can.
+                        model.decide(
+                            term, "flag", "context",
+                            f"{detail}, but it has "
+                            f"{own_hits if own_hits is not None else 'an unmeasured number of'} "
+                            "hits on its own: too common to gate an ambiguous name",
+                            admitted, **stats, own_hits=own_hits,
+                        )
+                    elif passes:
+                        stats["own_hits"] = own_hits
                         flags.append(term)
                         model.decide(term, "flag", "flag", detail, admitted, **stats)
                     elif precision >= s.ai_model_context_min_anchor_precision:

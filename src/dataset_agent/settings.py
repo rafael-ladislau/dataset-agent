@@ -300,6 +300,9 @@ class Settings(BaseSettings):
     #: to the model, too loose to gate a name); below it the term is rejected. Also the
     #: lowest citing share a coined name may have.
     ai_model_context_min_anchor_precision: float = Field(default=0.1, ge=0.0, le=1.0)
+    #: A flag must be specific in its own right: a term with more Dimensions hits than
+    #: this is a topic or a household name, however well it scores next to the model.
+    ai_model_flag_max_hits: int = Field(default=50_000, ge=1)
     #: Min papers matching both a precise name/title and the context term.
     ai_model_flag_min_anchor_hits: int = Field(default=5, ge=1)
     #: A name is a safe (ungated) alias only if this share of its hits carries context.

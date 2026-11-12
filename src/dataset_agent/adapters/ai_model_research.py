@@ -404,7 +404,8 @@ def is_context_name(term: str) -> bool:
 
     Dimensions ignores case, so capital letters alone prove nothing: "Weather
     Forecasting" and "Earth System" search as the ordinary words they are."""
-    return any(_coined_token(t) or _acronym_token(t) for t in (term or "").split())
+    tokens = [t for t in (term or "").split() if t.strip("()[],.;:") not in _COMMON_ACRONYMS]
+    return any(_coined_token(t) or _acronym_token(t) for t in tokens)
 
 
 def contains_word(phrase: str, word: str) -> bool:
@@ -467,8 +468,11 @@ def mine_context_terms(
         if n < min_docs or len(out) >= limit:
             break
         term = spelling[key].most_common(1)[0][0]
-        shouted = term.isupper() and any(p in ordinary for p in key.split("-") if len(p) > 3)
-        if key in ordinary or shouted:
+        # "MEDIUM-RANGE" and "Deep-Learning" are ordinary words when every part is one.
+        parts = [p for p in key.split("-") if p]
+        compound = len(parts) > 1 and all(p in ordinary for p in parts)
+        shouted = term.isupper() and any(p in ordinary for p in parts if len(p) > 3)
+        if key in ordinary or compound or shouted:
             continue
         if any(contains_word(term, m) or contains_word(m, term) for m in model_names):
             continue

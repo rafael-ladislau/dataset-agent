@@ -232,7 +232,9 @@ def test_aurora_decisions_explain_every_term(tmp_path, patched) -> None:
 
     graphcast = _decision(out, "GraphCast", "flag")
     assert graphcast.decision == "flag"
-    assert graphcast.stats == {"admitted": 50, "confirmed": 40, "anchor_precision": 0.8}
+    assert graphcast.stats == {
+        "admitted": 50, "confirmed": 40, "anchor_precision": 0.8, "own_hits": 355,
+    }
     assert _decision(out, "Pangu-Weather", "flag").reason.startswith("found in 30 abstracts")
     assert _decision(out, "ECMWF", "flag").decision == "context"
     assert _decision(out, "Microsoft Research", "flag").reason == (
@@ -614,6 +616,28 @@ def test_mined_terms_skip_ordinary_words_from_upper_case_titles() -> None:
     ]
     mined = mine_context_terms(texts, model_names=["Aurora"], min_docs=2, limit=10)
     assert mined == [("GraphCast", 3), ("ECMWF", 2)]
+    titled = [
+        "Deep-Learning Weather Models: GraphCast. We use deep learning for weather.",
+        "A Deep-Learning Benchmark with GraphCast; learning is deep.",
+    ]
+    assert mine_context_terms(titled, model_names=["Aurora"], min_docs=2, limit=10) == [
+        ("GraphCast", 2)
+    ]
+
+
+def test_a_common_term_cannot_be_a_flag_however_precise_it_looks(tmp_path, patched) -> None:
+    """"Weather-Forecasting" is name-shaped and scores well next to the model, but its
+    own hit count shows it is a topic: it stays context, never a gate."""
+    docs = _aurora_corpus() + ["Space Weather-Forecasting of the aurora oval."] * 5 + [
+        "Weather-Forecasting skill of ensembles."] * 400
+    docs = [d.replace("compared with GraphCast", "for Weather-Forecasting, compared with GraphCast") for d in docs]
+    llm = dict(AURORA_LLM, context_terms=["Weather-Forecasting", "GraphCast"])
+    out, _dsl, _agent = _run(tmp_path, docs, llm, _aurora_request(), ai_model_flag_max_hits=400)
+
+    topic = _decision(out, "Weather-Forecasting", "flag")
+    assert topic.decision == "context" and "too common to gate" in topic.reason
+    assert topic.stats["own_hits"] == 435 and topic.stats["anchor_precision"] >= 0.5
+    assert "Weather-Forecasting" not in out.flag_terms and "GraphCast" in out.flag_terms
 
 
 @pytest.mark.parametrize(
@@ -622,6 +646,7 @@ def test_mined_terms_skip_ordinary_words_from_upper_case_titles() -> None:
         ("GraphCast", True), ("Pangu-Weather", True), ("ERA5", True), ("ECMWF", True),
         ("Google DeepMind", True), ("Weather Forecasting", False), ("Deep Learning", False),
         ("Earth System", False), ("Nature", False), ("WEATHER", False), ("Microsoft Research", False),
+        ("AI", False), ("AI Model", False), ("NWP", False), ("LLM", False),
     ],
 )
 def test_flags_need_a_coined_name_or_acronym(term: str, ok: bool) -> None:
