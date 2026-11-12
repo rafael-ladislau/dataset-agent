@@ -47,6 +47,7 @@ _GENERIC = frozenset(
     """.split()
 )
 _WORD = re.compile(r"[\W_]+")
+_PAREN_TAIL = re.compile(r"\s*\([^()]*\)\s*$")
 
 
 def _fold(word: str) -> str:
@@ -163,7 +164,10 @@ def screen_candidates(
     taken = {t.casefold() for t in [*known_aliases, *flag_terms, dataset_name]}
     kept: list[str] = []
     rejected: list[str] = []
-    for name in sanitize_terms([c for c in candidates if isinstance(c, str)], "grounded name"):
+    # "Plate Boundary Observatory (PBO)": papers write the name without the gloss, and the
+    # exact phrase with it finds a fraction of them.
+    bare = [_PAREN_TAIL.sub("", c).strip() for c in candidates if isinstance(c, str)]
+    for name in sanitize_terms([b for b in bare if b], "grounded name"):
         key = name.casefold()
         if key in taken:
             continue

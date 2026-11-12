@@ -325,3 +325,11 @@ def test_organization_alias_kept_when_nothing_better_is_found(tmp_path, monkeypa
         suggested=[], llm_names=[], web="",
     )
     assert "Earthscope" in out.aliases.safe + out.aliases.risky
+
+
+def test_screen_strips_parenthetical_gloss() -> None:
+    kept, _rejected = screen_candidates(
+        ["Plate Boundary Observatory (PBO)", "COCONet (Caribbean COCONet)", "Network of the Americas (NOTA)"],
+        dataset_name=TITLE, known_aliases=["Network of the Americas"], flag_terms=FLAGS, limit=8,
+    )
+    assert kept == ["Plate Boundary Observatory", "COCONet"]
