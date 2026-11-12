@@ -175,9 +175,26 @@ def classify_alias_mention(
     alias: str,
     snippet: str,
     title: str = "",
+    entity_context: str = "",
 ) -> bool:
-    """LLM: whether the alias mention in *snippet* refers to the dataset (True) or an FP (False)."""
-    prompt = f"""Dataset product: {dataset_name!r}.
+    """LLM: whether the alias mention in *snippet* refers to the dataset (True) or an FP (False).
+
+    With *entity_context* the target is an AI model: the text describes it (developer,
+    domain) and the question is whether the mention is that model or another meaning of
+    the same word."""
+    if entity_context:
+        prompt = f"""AI model: {dataset_name!r}. {entity_context}
+Name matched: {alias!r}.
+Publication title: {title!r}
+Abstract snippet: {snippet!r}
+
+Does this mention refer to this AI model (or a version of it), or is it a false positive:
+another meaning of the same word, another product, or another field?
+
+Use emit_alias_mention_classification exactly once; set is_genuine_dataset_reference to
+true only when the mention is this AI model."""
+    else:
+        prompt = f"""Dataset product: {dataset_name!r}.
 Alias matched: {alias!r}.
 Publication title: {title!r}
 Abstract snippet: {snippet!r}

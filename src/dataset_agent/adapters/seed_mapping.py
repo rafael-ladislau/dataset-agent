@@ -157,6 +157,61 @@ def candidate_to_seed(
     return seed
 
 
+def ai_model_seed_clause(
+    names: list[str], flag_terms: list[str], exclude_terms: list[str]
+) -> str:
+    """The ``for`` clause the extraction pipeline builds for an AI-model seed.
+
+    There every name is OR'ed and the flag group applies to all of them:
+    ``((names) AND (flags)) NOT (excludes)``. A flag cannot gate one name only."""
+    body = _or_group(_clean(names))
+    flags = _or_group(_clean(flag_terms))
+    if body and flags:
+        body = f"({body} AND {flags})"
+    ex = _or_group(_clean(exclude_terms))
+    return f"{body} NOT {ex}" if body and ex else body
+
+
+def candidate_to_ai_model_seed(
+    c: QueryCandidate,
+    *,
+    model_name: str,
+    model_family: str,
+    hugging_face_id: str | None,
+    years: tuple[int, int],
+) -> dict[str, Any]:
+    """Build the ``POST /ai-models/start`` body for *c*.
+
+    The pipeline searches ``model_name`` plus ``model_aliases`` and, when flags are
+    given, requires one of them for every name. So:
+
+    * with gated (risky) names and flags, all names are sent and the flags gate them;
+    * otherwise only safe names are sent, and ``model_name`` becomes a safe name when
+      the requested one is not (bare "Aurora" must never be searched on its own).
+
+    Raises ``ValueError`` when no name can be searched safely."""
+    gated = bool(c.risky and c.flag_terms)
+    names = dedupe_strings_ci_preserve_order(list(c.safe) + (list(c.risky) if gated else []))
+    if not names:
+        raise ValueError("no searchable model name")
+    keys = {n.casefold() for n in names}
+    primary = model_name if model_name.casefold() in keys else names[0]
+    terms = [*names, *(c.flag_terms if gated else []), *c.exclude_terms]
+    quoted = [t for t in terms if '"' in t]
+    if quoted:
+        raise ValueError(f"terms must not contain a double quote: {quoted}")
+    return {
+        "model_name": primary,
+        "model_family": model_family or model_name,
+        "description": c.description or None,
+        "hugging_face_id": hugging_face_id,
+        "model_aliases": [n for n in names if n.casefold() != primary.casefold()],
+        "flag_terms": list(c.flag_terms) if gated else [],
+        "exclude_terms": list(c.exclude_terms),
+        "years_range": {"start_year": years[0], "end_year": years[1]},
+    }
+
+
 def _gated(current: QueryCandidate) -> bool:
     return bool(current.risky and current.flag_terms)
 

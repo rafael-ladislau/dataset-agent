@@ -277,6 +277,36 @@ class Settings(BaseSettings):
     refine_min_alias_papers: int = Field(default=3, ge=1)
     refine_drop_fp_share: float = Field(default=0.8, ge=0.0, le=1.0)
     refine_demote_fp_share: float = Field(default=0.5, ge=0.0, le=1.0)
+    # --- AI-model queries (OptimizeRequest.entity_type == "ai_model") ---
+    #: Extra Dimensions calls an AI-model run may spend on measuring candidate terms.
+    ai_model_extra_dimensions_calls: int = Field(default=140, ge=0)
+    ai_model_max_names: int = Field(default=14, ge=1, le=40)
+    ai_model_max_context_terms: int = Field(default=12, ge=0, le=30)
+    ai_model_max_exclude_terms: int = Field(default=8, ge=0, le=30)
+    #: Context terms mined from the abstracts of papers that certainly refer to the
+    #: model (their paper titles or safe names), on top of the researched ones.
+    ai_model_max_mined_context_terms: int = Field(default=15, ge=0, le=30)
+    ai_model_context_mining_sample: int = Field(default=200, ge=0, le=1000)
+    #: A paper title not containing the model name is an anchor only if this share of
+    #: the papers quoting it also name the model.
+    ai_model_title_min_name_share: float = Field(default=0.25, ge=0.0, le=1.0)
+    #: A context term gates an ambiguous name only if at least this share of the papers
+    #: it admits ("<name>" AND "<term>") already match a precise name or paper title.
+    ai_model_flag_min_anchor_precision: float = Field(default=0.5, ge=0.0, le=1.0)
+    #: Below the flag bar but above this one, a term still counts as context when
+    #: deciding whether a qualified name is safe; below it the term is rejected.
+    ai_model_context_min_anchor_precision: float = Field(default=0.1, ge=0.0, le=1.0)
+    #: Min papers matching both a precise name/title and the context term.
+    ai_model_flag_min_anchor_hits: int = Field(default=5, ge=1)
+    #: A name is a safe (ungated) alias only if this share of its hits carries context.
+    ai_model_safe_min_context_share: float = Field(default=0.5, ge=0.0, le=1.0)
+    #: A plain word ("Aurora") with more hits than this is never a safe alias.
+    ai_model_plain_word_max_safe_hits: int = Field(default=20_000, ge=0)
+    #: An exclude is kept only if it removes at most this share of the precise matches.
+    ai_model_exclude_max_anchor_loss: float = Field(default=0.03, ge=0.0, le=1.0)
+    #: Also search the titles of the model's own papers (finds papers that cite the
+    #: model without naming it in the text). Titles are always used as anchors.
+    ai_model_paper_titles_as_aliases: bool = False
     refine_max_new_aliases: int = Field(default=3, ge=0, le=10)
     #: Min false-positive papers an exclude must occur in (title or full-text snippet).
     refine_min_exclude_papers: int = Field(default=2, ge=1)

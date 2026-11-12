@@ -148,6 +148,36 @@ class OptimizeRequest(BaseModel):
             "`exclude_terms` in follow-up validation runs."
         ),
     )
+    entity_type: Literal["dataset", "ai_model"] = Field(
+        default="dataset",
+        description=(
+            "What `dataset_name` names. With `ai_model` it is an AI model (family) name and "
+            "the model research path runs: Hugging Face / arXiv evidence, qualified names, "
+            "context flags measured in Dimensions. `dataset_names`, `flag_terms` and "
+            "`exclude_terms` are then extra candidates, measured like every other term."
+        ),
+    )
+    hugging_face_id: Optional[str] = Field(
+        default=None, description="AI models only: Hugging Face model id, e.g. `microsoft/aurora`."
+    )
+    model_family: Optional[str] = Field(
+        default=None, description="AI models only: family name; defaults to `dataset_name`."
+    )
+    years_start: Optional[int] = Field(
+        default=None, description="AI models only: first publication year for the seed."
+    )
+    years_end: Optional[int] = Field(
+        default=None, description="AI models only: last publication year for the seed."
+    )
+
+    model_config = {"protected_namespaces": ()}
+
+    @field_validator("hugging_face_id", "model_family", mode="before")
+    @classmethod
+    def _strip_opt_text(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.strip() or None
+        return v
 
     @field_validator("dataset_name", mode="before")
     @classmethod
@@ -190,6 +220,17 @@ class VariantTestedEntry(BaseModel):
     top_titles: list[str] = Field(default_factory=list)
 
 
+class TermDecision(BaseModel):
+    """Why one candidate term was kept or rejected (AI-model runs)."""
+
+    term: str
+    kind: Literal["alias", "paper_title", "flag", "exclude"]
+    decision: Literal["safe", "gated", "flag", "context", "exclude", "anchor", "rejected"]
+    count: Optional[int] = Field(default=None, ge=0, description="Dimensions full-data hits")
+    reason: str = ""
+    stats: dict[str, Any] = Field(default_factory=dict)
+
+
 class QueryOptimizationRecord(BaseModel):
     """Output of the Query Optimization Agent (see docs/spec-gap-analysis.md §2.1)."""
 
@@ -226,6 +267,23 @@ class QueryOptimizationRecord(BaseModel):
     proposal: Optional[QueryProposal] = Field(
         default=None, description="Full-text-backed query proposal awaiting human approval"
     )
+    entity_type: Literal["dataset", "ai_model"] = "dataset"
+    term_decisions: list[TermDecision] = Field(
+        default_factory=list,
+        description="AI models: every candidate term with its counts and the decision taken",
+    )
+    ai_model_seed: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "AI models: `POST /ai-models/start` body for the extraction pipeline. Its flag "
+            "terms apply to every alias there, so `ai_model_seed_count` can be lower than "
+            "`expected_count`."
+        ),
+    )
+    ai_model_seed_clause: Optional[str] = Field(
+        default=None, description="AI models: the `for` clause the extraction pipeline builds from the seed"
+    )
+    ai_model_seed_count: Optional[int] = Field(default=None, ge=0)
     notes: str = ""
 
 

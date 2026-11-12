@@ -928,9 +928,12 @@ def evaluate_for_clause_sync(
     settings: Settings,
     agent: AgentPort | None = None,
     dsl_runner: "Callable[[str], Any] | None" = None,
+    entity_context: str = "",
 ) -> dict:
     """
     Sync candidate-DSL evaluator.
+
+    *entity_context* (AI-model runs) is passed to the mention classifier.
 
     When *dsl_runner* is given, every Dimensions call goes through it (the
     optimizer passes a bridge to the throttled client that also counts calls
@@ -1108,6 +1111,7 @@ def evaluate_for_clause_sync(
                 alias=matched_alias,
                 snippet=snippet,
                 title=title,
+                **({"entity_context": entity_context} if entity_context else {}),
             )
         except Exception as exc:
             logger.warning("classify_alias_mention failed: %s", exc)

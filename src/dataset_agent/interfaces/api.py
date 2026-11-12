@@ -527,7 +527,11 @@ def validate_terms(
         "`exclude_terms` no corpo do `POST /validate` para validar a query filtrada. "
         "A API não persiste estes termos automaticamente em `DatasetRecord`.\n\n"
         "Para execução em background (evitar timeout HTTP), use `POST /optimize/tasks` e "
-        "`GET /optimize/tasks/{task_id}/result`."
+        "`GET /optimize/tasks/{task_id}/result`.\n\n"
+        "AI models: send `entity_type: \"ai_model\"` with the model name in `dataset_name` "
+        "(optionally `hugging_face_id`, `model_family`). The response then carries "
+        "`term_decisions` (counts and the reason each term was kept or rejected) and "
+        "`ai_model_seed`, a `POST /ai-models/start` body for the extraction pipeline."
     ),
     responses={
         422: {"description": "Corpo inválido (validação Pydantic)."},

@@ -11,15 +11,27 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Literal
 
+from dataset_agent.adapters.ai_model_research import (
+    MODEL_TERMS_TOOL,
+    HubEvidence,
+    assemble_candidates,
+    classify_model_name,
+    contains_word,
+    fetch_hub_evidence,
+    mine_context_terms,
+    model_terms_prompt,
+)
 from dataset_agent.adapters.dimensions_dsl import (
     AsyncThrottledDimensionsDsl,
     DimensionsDslError,
     build_for_clause_count_dsl,
+    build_search_publications_paged_dsl,
     fetch_top_n,
     inner_quoted_term,
     is_dsl_syntax_error,
     parse_total_count,
     publication_title,
+    publications_from_result,
     run_alias_count,
     short_dsl_error,
 )
@@ -65,12 +77,19 @@ BROAD_FUNDER_FLAGS = frozenset(
 )
 from dataset_agent.adapters.seed_mapping import (
     QueryCandidate,
+    ai_model_seed_clause,
+    candidate_to_ai_model_seed,
     candidate_clause,
     candidate_to_seed,
     complement_candidate,
     complement_clause,
 )
-from dataset_agent.adapters.query_builder import build_for_clause, default_variant_build_order, run_variant
+from dataset_agent.adapters.query_builder import (
+    _or_group,
+    build_for_clause,
+    default_variant_build_order,
+    run_variant,
+)
 from dataset_agent.adapters.query_heuristics import (
     _SUFFIX_CANDIDATES,
     apply_short_acronym_heuristic,
@@ -93,6 +112,7 @@ from dataset_agent.domain.models import (
     QueryOptimizationAliases,
     QueryOptimizationRecord,
     ResearchRequest,
+    TermDecision,
     VariantTestedEntry,
 )
 from dataset_agent.domain.proposals import TermDiff
@@ -158,6 +178,44 @@ def _fp_rate_and_noise_terms(
     return pct, dedupe_strings_ci_preserve_order(noise_terms)
 
 
+@dataclasses.dataclass
+class _ModelRun:
+    """State of one AI-model run shared between term measurement and query selection."""
+
+    name: str
+    family: str
+    hub: HubEvidence
+    description: str = ""
+    developer: str = ""
+    #: Every counted name of the model, longest first (so a qualified name is matched
+    #: before the bare word it contains).
+    names: list[str] = dataclasses.field(default_factory=list)
+    #: Names that may be flag-gated: the model's own name(s) and caller-given aliases.
+    own_keys: set[str] = dataclasses.field(default_factory=set)
+    #: OR group of paper titles and safe names: papers that certainly refer to the model.
+    reference_clause: str = ""
+    reference_count: int = 0
+    decisions: list[TermDecision] = dataclasses.field(default_factory=list)
+    #: for clause -> (safe, risky, flags, excludes) it was built from.
+    states: dict[str, tuple[list[str], list[str], list[str], list[str]]] = dataclasses.field(
+        default_factory=dict
+    )
+
+    @property
+    def context(self) -> str:
+        dev = f" Developer: {self.developer}." if self.developer else ""
+        return f"{(self.description or '').strip()[:400]}{dev}".strip()
+
+    def decide(self, term: str, kind: str, decision: str, reason: str,
+               count: int | None = None, **stats) -> None:
+        self.decisions.append(TermDecision(
+            term=term, kind=kind, decision=decision, count=count, reason=reason, stats=stats,
+        ))
+
+    def remember(self, clause: str, safe, risky, flags, excludes) -> None:
+        self.states[clause] = (list(safe), list(risky), list(flags), list(excludes))
+
+
 class QueryOptimizationUseCase:
     """Runs Phase 1–4: alias counts + risk → variant probes → light FP proxy → selection."""
 
@@ -178,6 +236,12 @@ class QueryOptimizationUseCase:
         self._settings = settings
         self._extraction = extraction_client
         self._dims_calls = 0
+        self._cap_extra = 0
+
+    def _call_cap(self) -> int:
+        """Dimensions call cap of the current run (0 = unlimited)."""
+        cap = int(self._settings.optimize_max_dimensions_calls)
+        return cap + self._cap_extra if cap > 0 else cap
 
     def _fulltext_enabled(self) -> bool:
         return bool(self._settings.fulltext_refinement_enabled)
@@ -221,13 +285,13 @@ class QueryOptimizationUseCase:
         return ev
 
     def _budget_left(self) -> bool:
-        cap = int(self._settings.optimize_max_dimensions_calls)
+        cap = self._call_cap()
         if cap <= 0:
             return True
         return self._dims_calls < cap
 
     def _scope_budget_left(self) -> bool:
-        cap = int(self._settings.optimize_max_dimensions_calls)
+        cap = self._call_cap()
         if cap <= 0:
             return True
         return self._dims_calls + 2 <= cap
@@ -252,7 +316,7 @@ class QueryOptimizationUseCase:
 
         Raises once the call budget is down to ``refine_impact_budget_reserve``, which is
         kept for the next gate evaluation."""
-        cap = int(self._settings.optimize_max_dimensions_calls)
+        cap = self._call_cap()
         reserve = int(self._settings.refine_impact_budget_reserve)
         if cap > 0 and self._dims_calls >= cap - reserve:
             raise DimensionsDslError("Dimensions budget reserve reached")
@@ -483,7 +547,7 @@ class QueryOptimizationUseCase:
     async def _refine_count(self, term: str) -> int:
         """Refiner-only count: like ``_exclude_impact`` it raises (instead of returning 0)
         once the budget is down to ``refine_impact_budget_reserve``."""
-        cap = int(self._settings.optimize_max_dimensions_calls)
+        cap = self._call_cap()
         reserve = int(self._settings.refine_impact_budget_reserve)
         if cap > 0 and self._dims_calls >= cap - reserve:
             raise DimensionsDslError("Dimensions budget reserve reached")
@@ -653,6 +717,549 @@ class QueryOptimizationUseCase:
             notes.append(f"recall check: promoted '{term}': {reason}")
         return current, diffs, notes, (min(precisions) if precisions else None)
 
+    # ------------------------------------------------------------------ AI models
+
+    async def _clause_count(self, clause: str) -> int | None:
+        """Hits of a boolean clause; ``None`` when the call budget is spent or
+        Dimensions cannot parse the clause. Other errors propagate."""
+        if not clause or not self._budget_left():
+            return None
+        try:
+            return parse_total_count(
+                await self._counted_execute(build_for_clause_count_dsl(clause))
+            )
+        except DimensionsDslError as exc:
+            if not is_dsl_syntax_error(exc):
+                raise
+            return None
+
+    async def _model_exclude_check(self, model: _ModelRun, term: str) -> tuple[bool, str, dict]:
+        """An exclude is kept only when it removes (almost) none of the papers that
+        certainly refer to the model."""
+        if not model.reference_clause or model.reference_count <= 0:
+            return False, "no precise name or paper title to validate it against", {}
+        hit = await self._clause_count(f"{model.reference_clause} AND {_or_group([term])}")
+        if hit is None:
+            return False, "not measured (Dimensions call budget or unparseable term)", {}
+        loss = hit / model.reference_count
+        stats = {"precise_matches_removed": hit, "precise_matches": model.reference_count}
+        if loss > self._settings.ai_model_exclude_max_anchor_loss:
+            return (
+                False,
+                f"would remove {hit} of {model.reference_count} precise matches ({loss:.0%})",
+                stats,
+            )
+        return True, f"removes {hit} of {model.reference_count} precise matches ({loss:.1%})", stats
+
+    async def _mine_model_context(
+        self, model: _ModelRun, model_names: list[str]
+    ) -> list[tuple[str, int]]:
+        """Context-term candidates from the abstracts of the precise matches (one call)."""
+        s = self._settings
+        n = int(s.ai_model_context_mining_sample)
+        if not model.reference_clause or n <= 0 or s.ai_model_max_mined_context_terms <= 0:
+            return []
+        if not self._budget_left():
+            return []
+        try:
+            result = await self._counted_execute(
+                build_search_publications_paged_dsl(
+                    model.reference_clause, limit=n, fields="title+abstract"
+                )
+            )
+        except DimensionsDslError as exc:
+            logger.warning("model research: context mining failed: %s", exc)
+            return []
+        texts = [
+            f"{publication_title(p)} {p.get('abstract') or ''}"
+            for p in publications_from_result(result)
+        ]
+        return mine_context_terms(
+            texts,
+            model_names=model_names,
+            min_docs=max(3, len(texts) // 50),
+            limit=s.ai_model_max_mined_context_terms,
+        )
+
+    async def _refine_model_terms(
+        self,
+        model: _ModelRun,
+        ev: dict,
+        safe: list[str],
+        risky: list[str],
+        flags: list[str],
+        excludes: list[str],
+        notes_parts: list[str],
+        iteration: int,
+    ) -> tuple[list[str], list[str], list[str]] | None:
+        """One refinement step from the abstract check's false positives.
+
+        A safe name behind two or more false positives stops being safe: it becomes
+        flag-gated when it is the model's own name and flags exist, and is dropped
+        otherwise. Exclude phrases the LLM derives from the false positives are kept only
+        if they pass ``_model_exclude_check``. Returns ``None`` when nothing changes."""
+        fp_hits = [h for h in (ev.get("fp_hits") or []) if isinstance(h, dict)]
+        if not fp_hits:
+            return None
+        per_alias: dict[str, int] = {}
+        for h in fp_hits:
+            key = str(h.get("matched_alias") or "").casefold()
+            per_alias[key] = per_alias.get(key, 0) + 1
+        new_safe: list[str] = []
+        new_risky = list(risky)
+        changed = False
+        for alias in safe:
+            n_fp = per_alias.get(alias.casefold(), 0)
+            if n_fp < 2:
+                new_safe.append(alias)
+                continue
+            changed = True
+            if flags and alias.casefold() in model.own_keys:
+                new_risky.append(alias)
+                notes_parts.append(
+                    f"gate_iter{iteration}: {alias!r} flag-gated ({n_fp} false positives in abstracts)"
+                )
+            else:
+                notes_parts.append(
+                    f"gate_iter{iteration}: {alias!r} dropped ({n_fp} false positives in abstracts)"
+                )
+        try:
+            suggested = await asyncio.to_thread(
+                derive_exclude_terms_from_fps,
+                self._agent,
+                dataset_name=model.name,
+                fp_hits=fp_hits,
+            )
+        except Exception as exc:  # the LLM step is best effort
+            logger.warning("model refine: exclude derivation failed: %s", exc)
+            suggested = []
+        new_excl = list(excludes)
+        taken = {t.casefold() for t in [*excludes, *flags, *model.names]}
+        tried = {d.term.casefold() for d in model.decisions if d.kind == "exclude"}
+        for term in suggested[: self._settings.ai_model_max_exclude_terms]:
+            key = term.casefold()
+            if key in taken or key in tried or is_short_acronym(term):
+                continue
+            tried.add(key)
+            ok, reason, stats = await self._model_exclude_check(model, term)
+            model.decide(
+                term, "exclude", "exclude" if ok else "rejected",
+                f"from abstract false positives; {reason}", **stats,
+            )
+            if ok:
+                new_excl.append(term)
+                changed = True
+        if not changed:
+            return None
+        return new_safe, dedupe_strings_ci_preserve_order(new_risky), new_excl
+
+    async def _execute_ai_model(
+        self, request: OptimizeRequest, notes_parts: list[str], run_id: str, t0: float
+    ) -> QueryOptimizationRecord:
+        """Query optimization for an AI model.
+
+        Candidate terms come from ``adapters.ai_model_research``; every one is measured in
+        Dimensions before it is used:
+
+        * a paper title is an anchor when it is linked on the model card or mostly
+          co-occurs with the model name;
+        * a name is safe, flag-gated or rejected by its shape and by the share of its hits
+          that quote an anchor title (``classify_model_name``);
+        * an exclude must leave the precise matches (titles and safe names) intact;
+        * a context term becomes a flag only when most papers it admits for the gated
+          name are precise matches already.
+
+        Phases 2-4 are shared with datasets (``_select_and_finish``)."""
+        s = self._settings
+        name = request.dataset_name
+        family = request.model_family or name
+        self._dims_calls = 0
+        self._cap_extra = int(s.ai_model_extra_dimensions_calls)
+        phase1 = "phase1_alias_counting"
+
+        hub = await asyncio.to_thread(fetch_hub_evidence, request.hugging_face_id)
+        model = _ModelRun(name=name, family=family, hub=hub)
+        for err in hub.errors:
+            notes_parts.append(f"hub: {err}")
+        if hub.found:
+            notes_parts.append(
+                f"hub: {hub.hugging_face_id} owner={hub.developer or hub.author!r} "
+                f"papers={hub.paper_titles or 'none linked'}"
+            )
+        try:
+            web = await asyncio.to_thread(
+                web_search, f'"{name}" {hub.developer or hub.author} AI model paper'.replace("  ", " ")
+            )
+        except Exception as exc:  # web context is best effort
+            logger.warning("model research: web search failed: %s", exc)
+            web = ""
+        try:
+            raw = await asyncio.to_thread(
+                self._agent.get_structured,
+                model_terms_prompt(name, family, hub, list(request.dataset_names), web),
+                MODEL_TERMS_TOOL,
+            )
+        except Exception as exc:
+            logger.warning("model research: LLM call failed: %s", exc)
+            notes_parts.append(f"model research: LLM call failed ({short_dsl_error(str(exc))})")
+            raw = {}
+        llm = dict(raw) if isinstance(raw, dict) else {}
+        if not llm:
+            notes_parts.append("model research: no LLM terms; using Hub and name heuristics only")
+
+        def _strs(v: object) -> list[str]:
+            return [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
+
+        # Caller-given flag and exclude terms are candidates too: measured like the rest.
+        llm["context_terms"] = list(request.flag_terms) + _strs(llm.get("context_terms"))
+        llm["other_meanings"] = list(request.exclude_terms) + _strs(llm.get("other_meanings"))
+        cands = assemble_candidates(
+            model_name=name,
+            family=family,
+            given_aliases=list(request.dataset_names),
+            hub=hub,
+            llm=llm,
+            max_names=s.ai_model_max_names,
+            max_context=s.ai_model_max_context_terms,
+            max_excludes=s.ai_model_max_exclude_terms,
+        )
+        model.description = cands.description
+        model.developer = cands.developer
+        for kind, term, reason in cands.rejected:
+            model.decide(term, kind, "rejected", reason)
+
+        def q(*terms: str) -> str:
+            return _or_group(list(terms))
+
+        def fail(error: str) -> QueryOptimizationRecord:
+            return QueryOptimizationRecord(
+                success=False,
+                failed_phase=phase1,
+                errors=[error],
+                entity_type="ai_model",
+                term_decisions=model.decisions,
+                notes=" ".join(notes_parts),
+            )
+
+        base_keys = {name.casefold(), family.casefold()}
+        given_keys = {a.casefold() for a in request.dataset_names}
+        try:
+            # 1. Paper titles: anchors for everything measured below.
+            titles: list[str] = []
+            for title in cands.paper_titles:
+                c = await self._clause_count(q(title))
+                if not c:
+                    model.decide(title, "paper_title", "rejected",
+                                 "0 Dimensions hits" if c == 0 else "not measured", c)
+                    continue
+                if contains_word(title, name) or contains_word(title, family):
+                    reason = "title names the model"
+                else:
+                    both = await self._clause_count(f"{q(title)} AND {q(name, family)}")
+                    share = (both or 0) / c
+                    if (
+                        both is None
+                        or share < s.ai_model_title_min_name_share
+                        or c > s.ai_model_plain_word_max_safe_hits
+                    ):
+                        model.decide(
+                            title, "paper_title", "rejected",
+                            f"not confirmed as this model's paper: {share:.0%} of its {c} hits "
+                            f"name {name!r}", c, name_share=round(share, 3),
+                        )
+                        continue
+                    reason = f"{share:.0%} of the papers quoting it name {name!r}"
+                titles.append(title)
+                model.decide(title, "paper_title", "anchor", reason, c)
+            title_group = q(*titles) if titles else ""
+
+            # 2. Names: count, then classify by shape and by title confirmation.
+            safe: list[str] = []
+            gate: list[tuple[str, int, str]] = []
+            counts: dict[str, int] = {}
+            for nm, _kind in cands.names:
+                c = await self._clause_count(q(nm))
+                if c is None:
+                    model.decide(nm, "alias", "rejected", "not measured (budget or unparseable)")
+                    continue
+                if c == 0:
+                    model.decide(nm, "alias", "rejected", "0 Dimensions hits", 0)
+                    continue
+                counts[nm] = c
+                confirmation: float | None = None
+                if title_group:
+                    both = await self._clause_count(f"{q(nm)} AND {title_group}")
+                    confirmation = (both / c) if both is not None else None
+                verdict, reason = classify_model_name(
+                    nm,
+                    count=c,
+                    confirmation=confirmation,
+                    developer=model.developer,
+                    safe_share=s.ai_model_safe_min_context_share,
+                    context_share=s.ai_model_context_min_anchor_precision,
+                    plain_word_max_hits=s.ai_model_plain_word_max_safe_hits,
+                )
+                stats = {} if confirmation is None else {"title_confirmation": round(confirmation, 3)}
+                if verdict == "safe":
+                    safe.append(nm)
+                    model.decide(nm, "alias", "safe", reason, c, **stats)
+                    continue
+                own = nm.casefold() in base_keys or nm.casefold() in given_keys
+                if own:
+                    gate.append((nm, c, reason))
+                    model.own_keys.add(nm.casefold())
+                    continue
+                cover = next((g for g, _c, _r in gate if contains_word(nm, g)), None)
+                if cover:
+                    model.decide(nm, "alias", "rejected",
+                                 f"{reason}; already covered by flag-gated {cover!r}", c, **stats)
+                else:
+                    model.decide(nm, "alias", "rejected",
+                                 f"{reason}; not confirmed as a name of this model", c, **stats)
+            if s.ai_model_paper_titles_as_aliases:
+                safe.extend(titles)
+
+            # 3. Reference set: papers that certainly refer to the model.
+            reference = dedupe_strings_ci_preserve_order(titles + safe)
+            model.reference_clause = q(*reference) if reference else ""
+            model.reference_count = (
+                await self._clause_count(model.reference_clause) or 0 if reference else 0
+            )
+
+            # 4. Excludes (other meanings of the name).
+            excludes: list[str] = []
+            for term in cands.other_meanings:
+                ok, reason, stats = await self._model_exclude_check(model, term)
+                model.decide(term, "exclude", "exclude" if ok else "rejected", reason, **stats)
+                if ok:
+                    excludes.append(term)
+            not_x = f" NOT {q(*excludes)}" if excludes else ""
+
+            # 5. Context flags, only when a name needs gating.
+            flags: list[str] = []
+            mined: dict[str, int] = {}
+            gated = [g for g, _c, _r in gate]
+            if not gated:
+                for term in cands.context_terms:
+                    model.decide(term, "flag", "rejected", "not needed: no name requires gating")
+            else:
+                g_group = q(*gated)
+                context_terms = list(cands.context_terms)
+                taken = {t.casefold() for t in context_terms} | {
+                    d.term.casefold() for d in model.decisions if d.kind == "flag"
+                }
+                for term, n_docs in await self._mine_model_context(model, gated + safe):
+                    if term.casefold() not in taken:
+                        taken.add(term.casefold())
+                        context_terms.append(term)
+                        mined[term.casefold()] = n_docs
+                for term in context_terms:
+                    admitted = await self._clause_count(f"({g_group} AND {q(term)}){not_x}")
+                    if not admitted:
+                        model.decide(
+                            term, "flag", "rejected",
+                            f"never occurs with {gated}" if admitted == 0 else "not measured",
+                            admitted,
+                        )
+                        continue
+                    if not model.reference_clause:
+                        own = await self._clause_count(q(term))
+                        if own is None or own > s.refine_flag_max_hits:
+                            model.decide(term, "flag", "rejected",
+                                         f"too broad ({own} hits) and no precise name to test it "
+                                         "against", admitted)
+                        elif len(flags) >= 5:
+                            model.decide(term, "flag", "rejected", "over the flag limit", admitted)
+                        else:
+                            flags.append(term)
+                            model.decide(term, "flag", "flag",
+                                         "unverified: no precise name or paper title to measure "
+                                         "its precision", admitted, admitted=admitted)
+                        continue
+                    confirmed = await self._clause_count(
+                        f"({model.reference_clause} AND {g_group} AND {q(term)}){not_x}"
+                    )
+                    precision = (confirmed or 0) / admitted
+                    stats = {"admitted": admitted, "confirmed": confirmed or 0,
+                             "anchor_precision": round(precision, 3)}
+                    detail = (
+                        f"admits {admitted} papers with {gated}; {confirmed or 0} "
+                        f"({precision:.0%}) are precise matches"
+                    )
+                    if term.casefold() in mined:
+                        detail = (
+                            f"found in {mined[term.casefold()]} abstracts of precise matches; "
+                            + detail
+                        )
+                    if (
+                        precision >= s.ai_model_flag_min_anchor_precision
+                        and (confirmed or 0) >= s.ai_model_flag_min_anchor_hits
+                    ):
+                        flags.append(term)
+                        model.decide(term, "flag", "flag", detail, admitted, **stats)
+                    elif precision >= s.ai_model_context_min_anchor_precision:
+                        model.decide(term, "flag", "context",
+                                     f"{detail}: too loose to gate an ambiguous name",
+                                     admitted, **stats)
+                    else:
+                        model.decide(term, "flag", "rejected",
+                                     f"{detail}: mostly other meanings", admitted, **stats)
+
+            # 6. Keep only excludes that remove something from the query as built.
+            positive = build_for_clause(
+                safe=safe, variant="V3", risky=gated if flags else [], flag_terms=flags
+            )
+            kept_excludes: list[str] = []
+            for term in excludes:
+                removed = await self._clause_count(f"({positive}) AND {q(term)}") if positive else 0
+                decision = next(
+                    d for d in model.decisions if d.kind == "exclude" and d.term == term
+                )
+                decision.count = removed
+                if removed:
+                    kept_excludes.append(term)
+                    decision.reason = f"removes {removed} papers from the query; {decision.reason}"
+                else:
+                    decision.decision = "rejected"
+                    decision.reason = (
+                        "removes nothing from the query as built"
+                        if removed == 0 else "effect not measured"
+                    ) + f"; {decision.reason}"
+            excludes = kept_excludes
+
+            risky: list[str] = []
+            for g, c, reason in gate:
+                if flags:
+                    risky.append(g)
+                    model.decide(g, "alias", "gated",
+                                 f"{reason}; searched only together with a context flag", c)
+                else:
+                    model.decide(g, "alias", "rejected",
+                                 f"{reason}; no context flag qualified, so it is not searched", c)
+        except DimensionsDslError as e:
+            return fail(str(e))
+
+        safe = dedupe_strings_ci_preserve_order(safe)
+        if not safe and not risky:
+            return fail(
+                f"No name of {name!r} can be searched precisely: every candidate is ambiguous "
+                "or has no Dimensions hits. Add a qualified alias (dataset_names) or a "
+                "Hugging Face id with a linked paper."
+            )
+        model.names = sorted(
+            dedupe_strings_ci_preserve_order(safe + risky), key=lambda n: (-len(n), n)
+        )
+        alias_entries = [
+            AliasCountEntry(alias=a, count=counts.get(a, 0), risk="safe") for a in safe
+            if a in counts
+        ] + [AliasCountEntry(alias=a, count=counts.get(a, 0), risk="risky") for a in risky]
+        logger.info(
+            "optimize_phase run_id=%s phase=phase1_ai_model dims=%s safe=%s risky=%s flags=%s "
+            "excludes=%s",
+            run_id, self._dims_calls, safe, risky, flags, excludes,
+        )
+
+        out = await self._select_and_finish(
+            request, rec=None, safe=safe, risky=risky, flag_terms=flags,
+            exclude_terms=excludes, alias_entries=alias_entries, notes_parts=notes_parts,
+            c_full=counts.get(name, 0), desc_for_signal3=model.description[:2000],
+            run_id=run_id, t0=t0, model=model,
+        )
+        out.entity_type = "ai_model"
+        out.term_decisions = model.decisions
+        if not out.success or not out.for_clause:
+            return out
+        return await self._finish_ai_model(request, model, out)
+
+    async def _finish_ai_model(
+        self, request: OptimizeRequest, model: _ModelRun, out: QueryOptimizationRecord
+    ) -> QueryOptimizationRecord:
+        """Align the record with the selected clause and build the extraction seed."""
+        s = self._settings
+        state = model.states.get(out.for_clause or "")
+        if state is None:  # every evaluated clause is registered; keep the record's terms
+            state = (list(out.aliases.safe), list(out.aliases.risky),
+                     list(out.flag_terms), list(out.exclusion_terms))
+        safe, risky, flags, excludes = state
+        out.aliases = QueryOptimizationAliases(safe=safe, risky=risky)
+        out.flag_terms, out.exclusion_terms = list(flags), list(excludes)
+
+        # Decisions describe the selected query, not a later refinement that lost.
+        safe_k = {a.casefold() for a in safe}
+        risky_k = {a.casefold() for a in risky}
+        excl_k = {a.casefold() for a in excludes}
+        for d in model.decisions:
+            key = d.term.casefold()
+            if d.kind == "alias" and d.decision in ("safe", "gated"):
+                if key in safe_k:
+                    d.decision = "safe"
+                elif key in risky_k:
+                    if d.decision == "safe":
+                        d.reason += "; flag-gated after false positives in abstracts"
+                    d.decision = "gated"
+                else:
+                    d.decision = "rejected"
+                    d.reason += "; not in the selected query"
+            elif d.kind == "exclude" and d.decision == "exclude" and key not in excl_k:
+                d.decision = "rejected"
+                d.reason += "; not in the selected query"
+
+        years_end = request.years_end or max(s.default_years_end, time.gmtime().tm_year)
+        known = [y for y in [model.hub.created_year, *model.hub.paper_years] if y]
+        years_start = request.years_start or (min(known) if known else s.default_years_start)
+        years_start = min(years_start, years_end)
+        out.dsl_query = (
+            f'search publications in full_data for "{out.for_clause}" '
+            f"where year in [{years_start}:{years_end}] "
+            "return publications[id+title+doi+year+times_cited] sort by times_cited"
+        )
+
+        notes = [out.notes] if out.notes else []
+        candidate = QueryCandidate(
+            main_dataset_name=model.name, safe=safe, risky=risky, flag_terms=flags,
+            exclude_terms=excludes, description=model.description,
+        )
+        if risky and flags and safe:
+            # The extraction pipeline applies flags to every name. If that loses more than
+            # the gated name adds, send the safe names only.
+            gated_count = await self._clause_count(
+                ai_model_seed_clause(safe + risky, flags, excludes)
+            )
+            safe_count = await self._clause_count(ai_model_seed_clause(safe, [], excludes))
+            if gated_count is not None and safe_count is not None and safe_count > gated_count:
+                candidate = dataclasses.replace(candidate, risky=[], flag_terms=[])
+                notes.append(
+                    f"seed: safe names alone find {safe_count} papers, more than the "
+                    f"flag-gated seed ({gated_count}); the seed uses the safe names only"
+                )
+        try:
+            seed = candidate_to_ai_model_seed(
+                candidate, model_name=model.name, model_family=model.family,
+                hugging_face_id=request.hugging_face_id, years=(years_start, years_end),
+            )
+        except ValueError as exc:
+            notes.append(f"seed not built: {exc}")
+            out.notes = " ".join(notes)
+            return out
+        seed_names = [seed["model_name"], *seed["model_aliases"]]
+        out.ai_model_seed = seed
+        out.ai_model_seed_clause = ai_model_seed_clause(
+            seed_names, seed["flag_terms"], seed["exclude_terms"]
+        )
+        out.ai_model_seed_count = await self._clause_count(out.ai_model_seed_clause)
+        if seed["model_name"].casefold() != model.name.casefold():
+            notes.append(
+                f"seed: model_name is {seed['model_name']!r} because {model.name!r} is not "
+                "searched on its own"
+            )
+        if seed["flag_terms"] and safe:
+            notes.append(
+                "seed: flag terms apply to every name in the extraction pipeline; "
+                f"it finds {out.ai_model_seed_count} papers (all years)"
+            )
+        out.notes = " ".join(notes)
+        return out
+
     async def _signal3_fp_rate_pct(
         self,
         request: OptimizeRequest,
@@ -726,6 +1333,10 @@ class QueryOptimizationUseCase:
             run_id,
             request.dataset_name,
         )
+
+        self._cap_extra = 0
+        if request.entity_type == "ai_model":
+            return await self._execute_ai_model(request, notes_parts, run_id, t0)
 
         desc_for_signal3 = ""
         rec: DatasetRecord | None = None
@@ -928,11 +1539,40 @@ class QueryOptimizationUseCase:
                 notes=" ".join(notes_parts),
             )
 
+        return await self._select_and_finish(
+            request, rec=rec, safe=safe, risky=risky, flag_terms=flag_terms,
+            exclude_terms=exclude_terms, alias_entries=alias_entries, notes_parts=notes_parts,
+            c_full=c_full, desc_for_signal3=desc_for_signal3, run_id=run_id, t0=t0,
+        )
+
+    async def _select_and_finish(
+        self,
+        request: OptimizeRequest,
+        *,
+        rec: DatasetRecord | None,
+        safe: list[str],
+        risky: list[str],
+        flag_terms: list[str],
+        exclude_terms: list[str],
+        alias_entries: list[AliasCountEntry],
+        notes_parts: list[str],
+        c_full: int,
+        desc_for_signal3: str,
+        run_id: str,
+        t0: float,
+        model: _ModelRun | None = None,
+    ) -> QueryOptimizationRecord:
+        """Phases 2-4: probe variants, evaluate the gate, refine, select.
+
+        With *model* (AI-model runs) the terms were measured already: no heuristic
+        excludes are added, full-text probes are skipped, and refinement keeps to
+        the model rules (see ``_refine_model_terms``)."""
         ex_extra: list[str] = []
-        if detect_rhetorical_name(request.dataset_name):
+        if model is None and detect_rhetorical_name(request.dataset_name):
             ex_extra.extend(rhetorical_exclusions(request.dataset_name))
             notes_parts.append("Applied rhetorical NOT heuristics.")
-        ex_extra.extend(platform_exclude_suggestions(request.dataset_url))
+        if model is None:
+            ex_extra.extend(platform_exclude_suggestions(request.dataset_url))
         exclusion_terms = dedupe_strings_ci_preserve_order(exclude_terms + ex_extra)
 
         phase2 = "phase2_variant_building"
@@ -1024,6 +1664,9 @@ class QueryOptimizationUseCase:
             alias_pool.extend(request.dataset_names)
         if rec is not None:
             alias_pool.extend(rec.dataset_names)
+        if model is not None:
+            # Longest first: a hit on "Microsoft Aurora" is not attributed to "Aurora".
+            alias_pool = list(model.names)
         aliases = dedupe_strings_ci_preserve_order([a for a in alias_pool if a])
 
         exc_work = dedupe_strings_ci_preserve_order(list(exclusion_terms))
@@ -1046,7 +1689,27 @@ class QueryOptimizationUseCase:
         max_iters = max(1, self._settings.optimize_max_iterations)
         threshold = float(self._settings.optimize_fp_threshold_pct)
 
-        ft_enabled = self._fulltext_enabled()
+        ft_enabled = self._fulltext_enabled() and model is None
+        if model is not None:
+            if self._fulltext_enabled():
+                notes_parts.append(
+                    "full-text refinement skipped: probes are not supported for AI-model seeds"
+                )
+            # One clause per term state, so the selected clause maps back to its terms.
+            for v_label, v_clause in seq:
+                model.remember(
+                    v_clause,
+                    safe,
+                    risky if v_label != "V1" else [],
+                    flag_terms if v_label != "V1" else [],
+                    exclusion_terms if v_label == "V4" else [],
+                )
+            current_for_clause = build_for_clause(
+                safe=safe, variant="V4", risky=risky, flag_terms=flag_terms,
+                exclusion_terms=exc_work,
+            )
+            current_variant_label = "V4"
+            model.remember(current_for_clause, safe, risky, flag_terms, exc_work)
         ft_iterations: list[IterationMetrics] = []
         ft_candidate = QueryCandidate(
             main_dataset_name=request.dataset_name,
@@ -1079,6 +1742,7 @@ class QueryOptimizationUseCase:
                 settings=self._settings,
                 agent=self._agent,
                 dsl_runner=self._make_eval_runner(asyncio.get_running_loop()),
+                **({"entity_context": model.context} if model is not None else {}),
             )
 
             if ev.get("error"):
@@ -1204,6 +1868,26 @@ class QueryOptimizationUseCase:
             if fp_rate <= threshold:
                 notes_parts.append(f"gate_iter{iteration}: FP rate within threshold.")
                 break
+
+            if model is not None:
+                refined = await self._refine_model_terms(
+                    model, ev, current_safe, current_risky, current_flags, exc_work,
+                    notes_parts, iteration,
+                )
+                if refined is None:
+                    notes_parts.append(f"gate_iter{iteration}: nothing to refine; stopping.")
+                    break
+                current_safe, current_risky, exc_work = refined
+                new_fc = build_for_clause(
+                    safe=current_safe, variant="V4", risky=current_risky,
+                    flag_terms=current_flags, exclusion_terms=exc_work,
+                )
+                if not new_fc.strip() or new_fc == current_for_clause:
+                    notes_parts.append(f"gate_iter{iteration}: for_clause unchanged; stopping.")
+                    break
+                current_for_clause = new_fc
+                model.remember(new_fc, current_safe, current_risky, current_flags, exc_work)
+                continue
 
             # Refine: derive excludes from FP hits
             fp_hits = ev.get("fp_hits", [])

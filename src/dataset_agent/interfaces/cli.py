@@ -67,6 +67,55 @@ def optimize_cmd(
         raise typer.Exit(code=2)
 
 
+@app.command("optimize-model")
+def optimize_model_cmd(
+    model_name: str = typer.Argument(..., help="AI model (family) name, e.g. Aurora"),
+    hf_id: Optional[str] = typer.Option(
+        None, "--hf-id", help="Hugging Face model id, e.g. microsoft/aurora"
+    ),
+    family: Optional[str] = typer.Option(None, "--family", help="Model family (default: the name)"),
+    alias: list[str] = typer.Option(
+        [], "--alias", help="Known alias or version string (repeatable); measured like the rest"
+    ),
+    flag: list[str] = typer.Option(
+        [], "--flag", help="Candidate context term (repeatable); kept only if it proves precise"
+    ),
+    exclude: list[str] = typer.Option(
+        [], "--exclude", help="Candidate exclude phrase (repeatable); kept only if it is safe"
+    ),
+    start_year: Optional[int] = typer.Option(None, "--start-year"),
+    end_year: Optional[int] = typer.Option(None, "--end-year"),
+) -> None:
+    """Build a Dimensions query (and a POST /ai-models/start seed) for an AI model."""
+    import asyncio
+
+    from dataset_agent.bootstrap import build_optimize_use_case
+
+    settings = Settings()
+    uc = build_optimize_use_case(settings)
+    req = OptimizeRequest(
+        dataset_name=model_name.strip(),
+        entity_type="ai_model",
+        hugging_face_id=hf_id,
+        model_family=family,
+        dataset_names=list(alias),
+        flag_terms=list(flag),
+        exclude_terms=list(exclude),
+        years_start=start_year,
+        years_end=end_year,
+    )
+
+    try:
+        record = asyncio.run(uc.execute(req))
+    except Exception as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1) from e
+
+    typer.echo(record.model_dump_json(indent=2))
+    if not record.success:
+        raise typer.Exit(code=2)
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
