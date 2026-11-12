@@ -48,6 +48,7 @@ from dataset_agent.adapters.name_grounding import (
     content_tokens,
     defined_names,
     grounding_prompt,
+    is_organization_alias,
     needs_grounding,
     screen_candidates,
 )
@@ -369,8 +370,15 @@ class QueryOptimizationUseCase:
         and of its organizations (new flag terms); see ``adapters.name_history``."""
         s = self._settings
         name = request.dataset_name
+        # The collection's own names lead; an organization-only alias would search the
+        # organization's history instead.
         leading = sorted(
-            [(e.alias, e.count) for e in alias_entries if e.count > 0], key=lambda x: -x[1]
+            [
+                (e.alias, e.count)
+                for e in alias_entries
+                if e.count > 0 and not is_organization_alias(e.alias, flag_terms, name)
+            ],
+            key=lambda x: -x[1],
         )[:3] or [(name, 0)]
         # The plain search finds the history; with an organization added it stays on this
         # collection when the name is shared ("Network of the Americas" is also the name of
@@ -827,11 +835,22 @@ class QueryOptimizationUseCase:
                 else:
                     safe.append(a)
 
+            # Aliases that only name a listed organization neither show the dataset is cited
+            # nor keep grounding from looking for its real names.
+            org_aliases = (
+                [e.alias for e in alias_entries if is_organization_alias(e.alias, flag_terms, request.dataset_name)]
+                if rec is not None
+                else []
+            )
+            org_keys = {a.casefold() for a in org_aliases}
+            added_names: list[str] = []
             if (
                 rec is not None
                 and self._settings.optimize_grounding_enabled
                 and needs_grounding(
-                    c_full, [e.count for e in alias_entries], self._settings.optimize_grounding_min_hits
+                    c_full,
+                    [e.count for e in alias_entries if e.alias.casefold() not in org_keys],
+                    self._settings.optimize_grounding_min_hits,
                 )
             ):
                 for g_alias, g_count in await self._ground_names(
@@ -840,6 +859,7 @@ class QueryOptimizationUseCase:
                     g_risk = _alias_risk_label(g_count, c_full, has_fn)
                     alias_entries.append(AliasCountEntry(alias=g_alias, count=g_count, risk=g_risk))
                     (risky if g_risk == "risky" else safe).append(g_alias)
+                    added_names.append(g_alias)
 
             if rec is not None and self._settings.optimize_name_history_enabled:
                 h_names, h_flags = await self._name_history(
@@ -849,7 +869,18 @@ class QueryOptimizationUseCase:
                     h_risk = _alias_risk_label(h_count, c_full, has_fn)
                     alias_entries.append(AliasCountEntry(alias=h_alias, count=h_count, risk=h_risk))
                     (risky if h_risk == "risky" else safe).append(h_alias)
+                    added_names.append(h_alias)
                 flag_terms.extend(h_flags)
+
+            # Once real names were found, an organization-only alias just admits the
+            # organization's other papers.
+            if org_aliases and added_names:
+                safe = [a for a in safe if a.casefold() not in org_keys]
+                risky = [a for a in risky if a.casefold() not in org_keys]
+                alias_entries = [e for e in alias_entries if e.alias.casefold() not in org_keys]
+                notes_parts.append(
+                    f"dropped organization alias(es) {org_aliases} in favor of {added_names}"
+                )
 
             # "WR dataset" still matches other meanings of "WR", whether research listed it
             # or the suffix check promoted it: flag-gated. Without flag terms a risky alias

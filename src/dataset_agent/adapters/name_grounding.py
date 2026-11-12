@@ -96,6 +96,18 @@ def defined_names(text: str) -> list[tuple[str, str]]:
     return out
 
 
+def is_organization_alias(alias: str, flag_terms: list[str], dataset_name: str) -> bool:
+    """*alias* only names a listed organization ("Earthscope dataset" next to the flag
+    "EarthScope Consortium") and says less than the title: it finds the organization's
+    papers, not the dataset's. An alias equal to the whole title ("UK Biobank" with the
+    flag "UK Biobank Limited") is the dataset's own name and never counts."""
+    tokens = content_tokens(alias)
+    title = content_tokens(dataset_name)
+    if not tokens or not tokens < title:
+        return False
+    return any(tokens <= content_tokens(f) for f in flag_terms)
+
+
 def needs_grounding(c_full: int, alias_counts: list[int], min_hits: int) -> bool:
     """The title has no hits and all aliases together find fewer than *min_hits*."""
     return c_full <= 0 and sum(max(0, c) for c in alias_counts) < min_hits

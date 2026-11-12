@@ -294,3 +294,34 @@ def test_lone_funder_flag_is_kept(tmp_path, monkeypatch) -> None:
         llm_names=[], record=rec,
     )
     assert "dropped broad funder flag" not in out.notes
+
+
+def test_is_organization_alias() -> None:
+    from dataset_agent.adapters.name_grounding import is_organization_alias
+
+    flags = ["EarthScope Consortium", "UNAVCO"]
+    assert is_organization_alias("Earthscope", flags, TITLE)
+    assert is_organization_alias("Earthscope dataset", flags, TITLE)
+    assert not is_organization_alias("GNSS Earthquakes", flags, TITLE)
+    assert not is_organization_alias("UK Biobank", ["UK Biobank Limited"], "UK Biobank")
+
+
+def test_organization_alias_does_not_block_grounding_and_is_dropped(tmp_path, monkeypatch) -> None:
+    counts = {"Earthscope": 5000, "Earthscope dataset": 120, "Network of the Americas": 1011}
+    out, agent = _run(
+        tmp_path, monkeypatch, counts, aliases=[TITLE, "Earthscope", "Earthscope dataset"],
+        suggested=[], llm_names=["Network of the Americas"],
+    )
+    assert len(_grounding_calls(agent)) == 1
+    pool = out.aliases.safe + out.aliases.risky
+    assert "Network of the Americas" in pool
+    assert "Earthscope" not in pool and "Earthscope dataset" not in pool
+    assert "dropped organization alias(es) ['Earthscope', 'Earthscope dataset']" in out.notes
+
+
+def test_organization_alias_kept_when_nothing_better_is_found(tmp_path, monkeypatch) -> None:
+    out, _agent = _run(
+        tmp_path, monkeypatch, {"Earthscope": 5000}, aliases=[TITLE, "Earthscope"],
+        suggested=[], llm_names=[], web="",
+    )
+    assert "Earthscope" in out.aliases.safe + out.aliases.risky
