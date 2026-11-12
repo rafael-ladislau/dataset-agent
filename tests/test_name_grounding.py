@@ -192,3 +192,37 @@ def test_grounding_survives_malformed_llm_reply(tmp_path, monkeypatch, llm_reply
         aliases=[TITLE], suggested=["Plate Boundary Observatory"], llm_names=llm_reply,
     )
     assert "Plate Boundary Observatory" in out.aliases.safe + out.aliases.risky
+
+
+def test_generic_alias_is_dropped_and_does_not_block_grounding(tmp_path, monkeypatch) -> None:
+    # "dataset" alone has millions of hits; it must neither reach the query nor hide
+    # that the real aliases find nothing.
+    counts = {"dataset": 2_000_000, "GNSS Earthquakes": 23, "Plate Boundary Observatory": 1045}
+    out, agent = _run(
+        tmp_path, monkeypatch, counts,
+        aliases=[TITLE, "GNSS Earthquakes", "dataset"], suggested=["Plate Boundary Observatory"],
+        llm_names=[],
+    )
+    pool = out.aliases.safe + out.aliases.risky
+    assert "dataset" not in pool
+    assert all(e.alias != "dataset" for e in out.alias_counts)
+    assert "dropped generic alias(es) ['dataset']" in out.notes
+    assert len(_grounding_calls(agent)) == 1
+    assert "Plate Boundary Observatory" in pool
+
+
+@pytest.mark.parametrize(
+    ("alias", "value", "expected"),
+    [
+        (TITLE, "dataset", f"{TITLE} dataset"),
+        ("WR", "WR dataset", "WR dataset"),
+        ("WR", "wr  dataset", "wr dataset"),
+        (TITLE, "GNSS dataset", ""),
+        ("WR", "WR", ""),
+        ("WR", "WRDS", ""),
+    ],
+)
+def test_llm_suffix_form_must_extend_the_alias(alias, value, expected) -> None:
+    from dataset_agent.application.research import _suffixed_form_of
+
+    assert _suffixed_form_of(alias, value) == expected

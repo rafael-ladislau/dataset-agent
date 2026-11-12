@@ -44,6 +44,7 @@ from dataset_agent.adapters.fulltext_refiner import refine_candidate
 from dataset_agent.adapters.literature import evaluate_for_clause_sync
 from dataset_agent.adapters.name_grounding import (
     GROUNDING_TOOL,
+    content_tokens,
     grounding_prompt,
     needs_grounding,
     screen_candidates,
@@ -594,6 +595,12 @@ class QueryOptimizationUseCase:
             )
 
         aliases = sanitize_terms(aliases, "alias")
+        # A lone generic word ("dataset", "data") matches every paper; it is never a name.
+        generic = [a for a in aliases if not content_tokens(a)]
+        if generic:
+            aliases = [a for a in aliases if content_tokens(a)]
+            notes_parts.append(f"dropped generic alias(es) {generic}")
+            logger.warning("optimize: dropped generic alias(es) %s", generic)
         flag_terms = sanitize_terms(flag_terms, "flag term")
         exclude_terms = sanitize_terms(exclude_terms, "exclude term")
 

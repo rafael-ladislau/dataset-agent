@@ -137,6 +137,26 @@ def _filter_alias_entries(aliases: list[str], organizations: list[str]) -> list[
     return filter_aliases_by_substrings(processed)
 
 
+#: A suffix the LLM fallback may return on its own ("dataset" for "WR"): the form is
+#: then the alias plus that suffix.
+_SUFFIX_WORDS = frozenset({"dataset", "data", "survey", "study", "database", "program"})
+
+
+def _suffixed_form_of(alias: str, value: str) -> str:
+    """The suffixed alias the LLM meant, or ``""`` when *value* is not one.
+
+    The form must extend the alias (``"WR dataset"`` for ``"WR"``); a bare suffix is
+    attached to the alias, and anything else (a lone generic word such as ``"dataset"``
+    replacing the whole name, a different name) is rejected."""
+    v = " ".join(value.split())
+    a = " ".join(alias.split())
+    if v.casefold() in _SUFFIX_WORDS:
+        return f"{a} {v}"
+    if v.casefold().startswith(a.casefold() + " ") and len(v) > len(a) + 1:
+        return v
+    return ""
+
+
 class DatasetResearchUseCase:
     def __init__(
         self,
@@ -518,6 +538,11 @@ class DatasetResearchUseCase:
                     raw = self._agent.get_structured(prompt, EMIT_SUFFIX_FORM)
                     value = raw.get("suffixed_form") if isinstance(raw, dict) else None
                     cleaned = sanitize_terms([value], "suffixed alias") if isinstance(value, str) else []
+                    if cleaned:
+                        cleaned = [_suffixed_form_of(alias, cleaned[0])]
+                        if not cleaned[0]:
+                            logger.info("Suffix form rejected (LLM): %r -> %r", alias, value)
+                            continue
                     if cleaned:
                         suffix_forms[alias] = cleaned[0]
                         logger.info("Suffix promoted (LLM): %r -> %r", alias, cleaned[0])
