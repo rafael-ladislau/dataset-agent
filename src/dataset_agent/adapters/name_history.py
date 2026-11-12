@@ -114,6 +114,8 @@ organizations, so papers written under any of its names are found:
   merged into or absorbed ("merged_into"/"merged_from").
 - organizations: former or successor names of a LISTED organization; set "of" to the
   listed name it renames (for example an organization that merged into a consortium).
-Rules: only renames and merges the web results or well-established history support;
-never a sibling product, a sub-network, a parent agency or a funder; names as authors
-write them; empty lists if there is no history."""
+Rules: only renames and merges the web results or well-established history support.
+Networks or archives that were combined into this collection count ("merged_from"), as
+does a larger collection it now belongs to ("merged_into"). Never a sibling product that
+is still separate, a parent agency or a funder; names as authors write them in papers;
+empty lists if there is no history."""

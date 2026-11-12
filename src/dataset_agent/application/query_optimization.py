@@ -372,17 +372,16 @@ class QueryOptimizationUseCase:
         leading = sorted(
             [(e.alias, e.count) for e in alias_entries if e.count > 0], key=lambda x: -x[1]
         )[:3] or [(name, 0)]
-        # An organization keeps the search on this collection's history ("Network of the
-        # Americas" alone also finds unrelated networks of that name).
-        context = f' "{flag_terms[0]}"' if flag_terms else ""
+        # The plain search finds the history; with an organization added it stays on this
+        # collection when the name is shared ("Network of the Americas" is also the name of
+        # unrelated networks). Junk from the plain search is filtered by the anchors below.
+        queries = [f'"{lead}" formerly OR renamed OR merged OR successor' for lead, _n in leading[:2]]
+        if flag_terms:
+            queries.append(f'"{leading[0][0]}" "{flag_terms[0]}" history formerly merged')
         web_parts: list[str] = []
-        for lead, _n in leading[:2]:
+        for query in queries:
             try:
-                web_parts.append(
-                    await asyncio.to_thread(
-                        web_search, f'"{lead}"{context} formerly OR renamed OR merged OR successor'
-                    )
-                )
+                web_parts.append(await asyncio.to_thread(web_search, query))
             except Exception as exc:  # web context is best effort
                 logger.warning("name history: web search failed: %s", exc)
         web = "\n".join(web_parts)
@@ -436,13 +435,16 @@ class QueryOptimizationUseCase:
             else:
                 found.append((cand, n))
 
-        # An organization's other name is a context term only when it renames a listed one.
+        # An organization's other name is a context term only when it renames a listed one
+        # or is what a listed one merged into. A partner absorbed by the same merger
+        # ("merged_from": IRIS next to UNAVCO in EarthScope) may work in another field.
         listed = {f.casefold() for f in flag_terms}
         new_flags: list[str] = []
         for x in _items("organizations"):
             org, of = x["name"].strip(), str(x.get("of") or "").strip()
             if (
-                of.casefold() in listed
+                x.get("relation") in ("former", "successor", "merged_into")
+                and of.casefold() in listed
                 and org.casefold() not in listed
                 and org.casefold() not in BROAD_FUNDER_FLAGS
                 and any(ch.isupper() for ch in org)

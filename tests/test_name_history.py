@@ -65,6 +65,8 @@ def test_llm_history_adds_names_and_renamed_organizations(tmp_path, monkeypatch)
             {"name": "EarthScope Consortium", "of": "UNAVCO", "relation": "successor"},
             {"name": "National Science Foundation", "of": "UNAVCO", "relation": "former"},
             {"name": "IRIS Consortium", "of": "Seismology Group", "relation": "merged_into"},
+            {"name": "Incorporated Research Institutions for Seismology", "of": "UNAVCO",
+             "relation": "merged_from"},
         ],
     }
     counts = {"Network of the Americas": 1011, "Plate Boundary Observatory": 2115,
