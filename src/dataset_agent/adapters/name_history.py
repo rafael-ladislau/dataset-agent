@@ -68,13 +68,22 @@ _HISTORY_PHRASES = re.compile(
 _LINK_TAIL = re.compile(r"(?:\s+(?:of|the|and|for|on|in|de))+$")
 
 
-def history_phrases(text: str) -> list[str]:
-    """Names introduced by "formerly", "renamed to", "successor to" and similar phrases."""
+def history_phrases(text: str, anchors: list[str] | None = None) -> list[str]:
+    """Names introduced by "formerly", "renamed to", "successor to" and similar phrases.
+
+    With *anchors*, only web results (blocks starting ``"- "``) that mention one of them
+    count: a search for "Network of the Americas" also returns a broadcaster's history,
+    whose "merged with United Paramount Theatres" says nothing about this collection."""
+    keys = [a.casefold() for a in (anchors or []) if a and a.strip()]
+    blocks = re.split(r"\n(?=- )", text or "")
     out: list[str] = []
-    for m in _HISTORY_PHRASES.finditer(text or ""):
-        name = _LINK_TAIL.sub("", m.group(1)).strip()
-        if len(name.split()) >= 2 and name.casefold() not in {n.casefold() for n in out}:
-            out.append(name)
+    for block in blocks:
+        if keys and not any(k in block.casefold() for k in keys):
+            continue
+        for m in _HISTORY_PHRASES.finditer(block):
+            name = _LINK_TAIL.sub("", m.group(1)).strip()
+            if len(name.split()) >= 2 and name.casefold() not in {n.casefold() for n in out}:
+                out.append(name)
     return out
 
 

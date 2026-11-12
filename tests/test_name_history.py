@@ -30,6 +30,15 @@ def test_history_phrases() -> None:
     assert history_phrases(text) == ["Plate Boundary Observatory", "Network of the Americas"]
 
 
+def test_history_phrases_ignore_results_about_something_else() -> None:
+    web = (
+        "- Network of the Americas | EarthScope\n  NOTA, formerly the Plate Boundary "
+        "Observatory.\n- American Broadcasting Company - Wikipedia\n  ABC, formerly the NBC "
+        "Blue Network, merged with United Paramount Theatres."
+    )
+    assert history_phrases(web, ["Network of the Americas"]) == ["Plate Boundary Observatory"]
+
+
 def test_former_name_from_web_phrase_when_llm_is_silent(tmp_path, monkeypatch) -> None:
     rec = _record([TITLE, "Network of the Americas"], [])
     counts = {"Network of the Americas": 1011, "Plate Boundary Observatory": 2115}

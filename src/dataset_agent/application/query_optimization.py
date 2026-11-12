@@ -372,12 +372,15 @@ class QueryOptimizationUseCase:
         leading = sorted(
             [(e.alias, e.count) for e in alias_entries if e.count > 0], key=lambda x: -x[1]
         )[:3] or [(name, 0)]
+        # An organization keeps the search on this collection's history ("Network of the
+        # Americas" alone also finds unrelated networks of that name).
+        context = f' "{flag_terms[0]}"' if flag_terms else ""
         web_parts: list[str] = []
         for lead, _n in leading[:2]:
             try:
                 web_parts.append(
                     await asyncio.to_thread(
-                        web_search, f'"{lead}" formerly OR renamed OR merged OR successor'
+                        web_search, f'"{lead}"{context} formerly OR renamed OR merged OR successor'
                     )
                 )
             except Exception as exc:  # web context is best effort
@@ -402,7 +405,8 @@ class QueryOptimizationUseCase:
 
         relation = {x["name"].strip().casefold(): x for x in _items("dataset_names")}
         llm_names = [x["name"].strip() for x in _items("dataset_names")]
-        phrased = history_phrases(web)
+        # Web phrases count only in results that mention a leading name or an organization.
+        phrased = history_phrases(web, [a for a, _n in leading] + list(flag_terms))
         unvouched = {n.casefold() for n in phrased} - set(relation)
         kept, rejected = screen_candidates(
             llm_names + phrased,
