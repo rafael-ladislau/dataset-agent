@@ -216,16 +216,19 @@ def test_aurora_decisions_explain_every_term(tmp_path, patched) -> None:
 
     aurora = _decision(out, "Aurora", "alias")
     assert aurora.decision == "gated" and aurora.count == 515
-    assert "plain word" in aurora.reason and "context flag" in aurora.reason
+    assert "single word with 515 hits" in aurora.reason and "context flag" in aurora.reason
     assert _decision(out, "Microsoft Aurora").decision == "safe"
     assert _decision(out, "Aurora model").decision == "rejected"
     assert "covered by flag-gated 'Aurora'" in _decision(out, "Aurora model").reason
     assert _decision(out, "Aurora AI").reason == "0 Dimensions hits"
     assert "lower case" in _decision(out, "aurora weather model").reason
 
-    assert _decision(out, "Aurora: A Foundation Model of the Atmosphere").decision == "anchor"
+    # Only a title cited on the model card is an anchor; one the LLM recalls is not.
+    recalled = _decision(out, "Aurora: A Foundation Model of the Atmosphere")
+    assert recalled.decision == "rejected" and "not cited on the model card" in recalled.reason
     cited = _decision(out, "A Foundation Model for the Earth System")
     assert cited.decision == "anchor" and "name 'Aurora'" in cited.reason
+    assert _decision(out, "Microsoft", "flag").reason == "is part of one of the model's names"
 
     graphcast = _decision(out, "GraphCast", "flag")
     assert graphcast.decision == "flag"
@@ -313,7 +316,7 @@ def test_caller_flags_and_excludes_are_measured_not_trusted(tmp_path, patched) -
     assert out.success, out.errors
     assert out.flag_terms == [] and "Aurora" not in out.aliases.safe + out.aliases.risky
     assert _decision(out, "atmosphere", "flag").reason == "not a proper name (lower-case word)"
-    assert _decision(out, "Microsoft", "flag").decision in ("context", "rejected")
+    assert _decision(out, "Microsoft", "flag").decision == "rejected"
     assert _decision(out, "Microsoft Aurora", "exclude").reason == "equals a model name"
     assert "would remove" in _decision(out, "GraphCast", "exclude").reason
     assert out.exclusion_terms == []
@@ -329,11 +332,14 @@ def test_abstract_false_positives_demote_a_safe_name(tmp_path, patched) -> None:
         ],
     }
     patched.eval = _fake_eval([fp])
-    out, _dsl, agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request())
-    # First structured call is the term research; later ones derive excludes.
-    agent.get_structured.return_value = {"exclude_terms": ["3D design", "GraphCast"]}
+    # One reply serves both structured calls: term research, then exclude derivation.
+    llm = dict(AURORA_LLM, exclude_terms=["3D design", "ERA5 from ECMWF"])
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), llm, _aurora_request())
 
     assert out.success
+    assert "would remove 30 of 40" in _decision(out, "ERA5 from ECMWF", "exclude").reason
+    assert _decision(out, "3D design", "exclude").decision == "exclude"
+    assert "3D design" in out.exclusion_terms
     assert out.selected_variant == "V4~gate1"
     assert out.aliases.safe == ["Aurora foundation model"]
     assert "Microsoft Aurora" not in out.aliases.risky
@@ -356,6 +362,69 @@ def test_selected_clause_and_terms_stay_consistent_when_refinement_loses(tmp_pat
     assert out.aliases.safe == ["Microsoft Aurora", "Aurora foundation model"]
     assert _decision(out, "Microsoft Aurora", "alias").decision == "safe"
     assert '\\"Microsoft Aurora\\"' in out.for_clause
+
+
+def test_own_name_with_mostly_genuine_mentions_survives_false_positives(tmp_path, patched) -> None:
+    fp = {
+        "fp_rate_pct": 20.0,
+        "fp_hits": [{"matched_alias": "Microsoft Aurora", "snippet": "x"}] * 2,
+        "genuine_by_alias": {"Microsoft Aurora": 8},
+    }
+    patched.eval = _fake_eval([fp, fp])
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request())
+
+    assert "Microsoft Aurora" in out.aliases.safe
+    assert "dropped" not in out.notes
+
+
+def test_seed_is_withheld_when_the_abstract_check_fails(tmp_path, patched) -> None:
+    patched.eval = _fake_eval([{"fp_rate_pct": 90.0}, {"fp_rate_pct": 90.0}])
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request())
+
+    assert out.success and out.fp_rate_pct == 90.0
+    assert out.ai_model_seed is None and out.ai_model_seed_clause is None
+    assert out.confidence.value == "low"
+    assert "seed withheld: the abstract check measured 90% false positives" in out.notes
+
+
+def test_recalled_namesake_title_cannot_anchor_another_meaning(tmp_path, patched) -> None:
+    """No model card: the LLM offers a kinase paper as "the Aurora paper". Nothing is
+    certain, so no flag can be verified and the bare word is not searched."""
+    patched.hub = HubEvidence()
+    docs = ["Aurora kinase inhibitors in cancer therapy with Alisertib."] * 40 + [POLAR] * 100
+    llm = {
+        "names": [], "paper_titles": ["Aurora kinase inhibitors in cancer therapy"],
+        "context_terms": ["Alisertib"], "other_meanings": [],
+    }
+    out, _dsl, _agent = _run(
+        tmp_path, docs, llm, OptimizeRequest(dataset_name="Aurora", entity_type="ai_model")
+    )
+
+    assert out.success is False
+    assert out.for_clause is None and out.ai_model_seed is None
+    assert _decision(out, "Alisertib", "flag").reason.startswith("cannot be verified")
+    assert _decision(out, "Aurora", "alias").decision == "rejected"
+
+
+def test_flag_inside_a_gated_name_is_rejected(tmp_path, patched) -> None:
+    patched.hub = HubEvidence()
+    docs = ["Stable Diffusion images"] * 40 + ["stable diffusion barrier in copper; Diffusion"] * 60
+    out, _dsl, _agent = _run(
+        tmp_path, docs, {},
+        OptimizeRequest(dataset_name="Stable Diffusion", entity_type="ai_model", flag_terms=["Diffusion"]),
+    )
+    assert _decision(out, "Diffusion", "flag").reason == "is part of one of the model's names"
+    assert out.flag_terms == []
+
+
+def test_camel_case_common_word_over_the_cap_is_not_safe(tmp_path, patched) -> None:
+    patched.hub = HubEvidence()
+    docs = ["GloVe embeddings"] * 20 + ["surgical glove perforation"] * 500
+    out, _dsl, _agent = _run(
+        tmp_path, docs, {}, OptimizeRequest(dataset_name="GloVe", entity_type="ai_model")
+    )
+    assert out.success is False and out.ai_model_seed is None
+    assert "single word with 520 hits" in _decision(out, "GloVe", "alias").reason
 
 
 # --------------------------------------------------------------------------- other models
@@ -464,7 +533,16 @@ def test_classify_model_name_rules() -> None:
     # Coined names need little confirmation; qualified phrases need a majority.
     assert _classify("GraphCast", 2_322, None) == "safe"
     assert _classify("GraphCast", 2_322, 0.3) == "safe"
-    assert _classify("ClimaX", 21_510, 0.01) == "unconfirmed"
+    assert _classify("GraphCast", 2_322, 0.2) == "gate"
+    # Case does not make a word coined: Dimensions matches "GloVe" as "glove".
+    assert _classify("ClimaX", 21_510, 0.01) == "gate"
+    assert _classify("GloVe", 150_000, None) == "gate"
+    assert _classify("LLaMA", 200_000, 0.9) == "gate"
+    # Titles exist but the share was not measured: never in the name's favor.
+    assert classify_model_name(
+        "GraphCast", count=2_322, confirmation=None, has_titles=True, developer="",
+        safe_share=0.5, context_share=0.1, plain_word_max_hits=20_000,
+    )[0] == "gate"
     assert _classify("Microsoft Aurora", 96, 0.65) == "safe"
     assert _classify("Microsoft Aurora", 96, 0.3) == "safe"  # developer-qualified: half the bar
     assert _classify("Aurora (Microsoft)", 28, 0.21) == "unconfirmed"
@@ -493,7 +571,7 @@ def test_assemble_candidates_screens_by_shape() -> None:
         "Aurora", "Aurora-0.25", "Microsoft Aurora", "Aurora foundation model", "Aurora model", "aurora",
     ][:5]
     assert c.paper_titles == ["Aurora: A Foundation Model of the Atmosphere"]
-    assert c.context_terms == ["ECMWF", "Microsoft"]
+    assert c.context_terms == ["ECMWF"]
     assert c.other_meanings == ["aurora borealis"]
     reasons = {term: reason for _kind, term, reason in c.rejected}
     assert reasons["aurora-0.25-finetuned.ckpt"] == "checkpoint file name"
@@ -501,6 +579,7 @@ def test_assemble_candidates_screens_by_shape() -> None:
     assert reasons["deep learning"] == "not a proper name (lower-case word)"
     assert reasons["state UI"] == "not a proper name (lower-case word)"
     assert reasons["Aurora 0.25"] == "contains the model's own name"
+    assert reasons["Microsoft"] == "is part of one of the model's names"
     assert reasons["AK"] == "too short to exclude safely"
     assert reasons["Aurora"] == "equals a model name"
     assert reasons["Aurora paper"].startswith("fewer than 4 words")
@@ -582,6 +661,13 @@ def test_fetch_hub_evidence_never_raises() -> None:
     ev = fetch_hub_evidence("microsoft/aurora", httpx.Client(transport=httpx.MockTransport(handler)))
     assert ev.found is False and ev.errors
     assert fetch_hub_evidence(None).found is False
+    assert fetch_hub_evidence("a/..").errors
+
+    def listing(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"id": "x"}])
+
+    odd = fetch_hub_evidence("a/b", httpx.Client(transport=httpx.MockTransport(listing)))
+    assert odd.found is False and "Hub lookup failed" in odd.errors[0]
     assert "not a Hugging Face model id" in fetch_hub_evidence("https://huggingface.co/x").errors[0]
 
 

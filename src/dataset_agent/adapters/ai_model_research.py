@@ -127,6 +127,8 @@ class ModelCandidates:
     developer: str = ""
     names: list[tuple[str, str]] = field(default_factory=list)  # (name, kind)
     paper_titles: list[str] = field(default_factory=list)
+    #: Case-folded titles that come from the model card or its arXiv links.
+    hub_title_keys: set[str] = field(default_factory=set)
     context_terms: list[str] = field(default_factory=list)
     other_meanings: list[str] = field(default_factory=list)
     #: Candidates dropped before any Dimensions call.
@@ -173,11 +175,16 @@ def fetch_hub_evidence(hugging_face_id: str | None, client: httpx.Client | None 
     if not _HF_ID.match(hf_id):
         ev.errors.append(f"not a Hugging Face model id: {hf_id!r}")
         return ev
+    if ".." in hf_id:
+        ev.errors.append(f"not a Hugging Face model id: {hf_id!r}")
+        return ev
     own = client is None
     client = client or httpx.Client(timeout=_HTTP_TIMEOUT, follow_redirects=True)
     try:
         try:
             info = _get_json(client, f"{HF_API}/api/models/{hf_id}")
+            if not isinstance(info, dict):
+                raise ValueError("unexpected Hub response")
         except Exception as exc:
             ev.errors.append(f"Hub lookup failed: {exc}")
             return ev
@@ -320,6 +327,7 @@ def classify_model_name(
     *,
     count: int,
     confirmation: float | None,
+    has_titles: bool = False,
     developer: str,
     safe_share: float,
     context_share: float,
@@ -329,15 +337,20 @@ def classify_model_name(
     ``unconfirmed``.
 
     *confirmation* is the share of the name's hits that also quote one of the model's
-    paper titles (``None`` when no title is known). ``gate`` means the name may only be
+    paper titles (``None`` when no title is known, or when *has_titles* is set and the
+    share could not be measured, which never counts in the name's favor). ``gate`` means the name may only be
     searched together with a context flag; ``unconfirmed`` means nothing shows the phrase
     refers to this model."""
     pct = f"{confirmation:.0%}" if confirmation is not None else "n/a"
     if is_short_acronym(name):
         return "gate", "short acronym: never searched on its own"
+    single_word = " " not in name.strip() and name.strip().isalpha()
+    if single_word and count > plain_word_max_hits:
+        # Dimensions ignores case: "LLaMA" finds every llama and "GloVe" every glove.
+        return "gate", f"single word with {count} hits: other meanings dominate"
+    if has_titles and confirmation is None:
+        return "gate" if single_word else "unconfirmed", "citing share not measured"
     if " " not in name.strip() and is_plain_word(name):
-        if count > plain_word_max_hits:
-            return "gate", f"plain word with {count} hits: other meanings dominate"
         if confirmation is None:
             return "gate", "plain word and no paper title to confirm it"
         if confirmation >= safe_share:
@@ -346,9 +359,12 @@ def classify_model_name(
     if is_distinctive(name):
         if confirmation is None:
             return "safe", "coined name"
-        if confirmation >= context_share:
+        if confirmation >= max(context_share, safe_share / 2):
             return "safe", f"coined name; {pct} of its hits cite the model's papers"
-        return "unconfirmed", f"only {pct} of its hits cite the model's papers"
+        return (
+            "gate" if single_word else "unconfirmed",
+            f"only {pct} of its hits cite the model's papers",
+        )
     by_developer = bool(developer) and contains_word(name, developer)
     if confirmation is not None:
         # "<developer> <name>" is how authors disambiguate a common name themselves, so
@@ -457,6 +473,9 @@ def assemble_candidates(
     lower-case "name"). Whether a surviving term is safe, gated or useless is decided
     later from its Dimensions counts."""
     llm = llm if isinstance(llm, dict) else {}
+    # A runaway list from the LLM must not turn into thousands of decisions.
+    llm = {k: (v[:40] if isinstance(v, list) else v) for k, v in llm.items()}
+    given_aliases = list(given_aliases)[:40]
     out = ModelCandidates()
     out.description = str(llm.get("description") or "").strip()
     developer = hub.developer or str(llm.get("developer") or "").strip()
@@ -505,6 +524,7 @@ def assemble_candidates(
             out.names.append((name, kind))
 
     titles = list(hub.paper_titles)
+    out.hub_title_keys = {t.casefold() for t in sanitize_terms(hub.paper_titles, "paper title")}
     raw_titles = llm.get("paper_titles")
     titles += [t for t in (raw_titles if isinstance(raw_titles, list) else []) if isinstance(t, str)]
     for title in sanitize_terms(dedupe_strings_ci_preserve_order(titles), "paper title"):
@@ -529,9 +549,13 @@ def assemble_candidates(
             out.rejected.append(("flag", term, "not a proper name (lower-case word)"))
         elif not content_tokens(term):
             out.rejected.append(("flag", term, "generic words only"))
-        elif any(contains_word(term, n) for n, _k in out.names if " " not in n):
+        elif any(contains_word(term, n) for n, _k in out.names):
             # "Aurora 0.25" as a flag for "Aurora" would make the gate satisfy itself.
             out.rejected.append(("flag", term, "contains the model's own name"))
+        elif any(contains_word(n, term) for n, _k in out.names):
+            # "Microsoft" next to "Microsoft Aurora", "Diffusion" next to "Stable
+            # Diffusion": the name's own papers would vouch for the flag.
+            out.rejected.append(("flag", term, "is part of one of the model's names"))
         elif len(out.context_terms) >= max_context:
             out.rejected.append(("flag", term, "over the candidate limit"))
         else:

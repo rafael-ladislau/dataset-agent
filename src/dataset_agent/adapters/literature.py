@@ -1089,6 +1089,7 @@ def evaluate_for_clause_sync(
     fp_count = 0
     genuine_count = 0
     fp_hits: list[dict[str, str]] = []
+    genuine_by_alias: dict[str, int] = {}
     max_classify = max(1, settings.optimize_abstract_classify_max_calls or 20)
 
     for pub in matched[:max_classify]:
@@ -1119,6 +1120,7 @@ def evaluate_for_clause_sync(
 
         if genuine:
             genuine_count += 1
+            genuine_by_alias[matched_alias] = genuine_by_alias.get(matched_alias, 0) + 1
         else:
             fp_count += 1
             fp_hits.append(
@@ -1150,6 +1152,7 @@ def evaluate_for_clause_sync(
         "query": q,
         "publications_total": total,
         "fp_hits": fp_hits,
+        "genuine_by_alias": genuine_by_alias,
     }
 
 

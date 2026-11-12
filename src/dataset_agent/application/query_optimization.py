@@ -794,7 +794,8 @@ class QueryOptimizationUseCase:
     ) -> tuple[list[str], list[str], list[str]] | None:
         """One refinement step from the abstract check's false positives.
 
-        A safe name behind two or more false positives stops being safe: it becomes
+        A safe name with two or more false positives, and no more genuine mentions than
+        false ones, stops being safe: it becomes
         flag-gated when it is the model's own name and flags exist, and is dropped
         otherwise. Exclude phrases the LLM derives from the false positives are kept only
         if they pass ``_model_exclude_check``. Returns ``None`` when nothing changes."""
@@ -805,12 +806,18 @@ class QueryOptimizationUseCase:
         for h in fp_hits:
             key = str(h.get("matched_alias") or "").casefold()
             per_alias[key] = per_alias.get(key, 0) + 1
+        genuine = {
+            str(k).casefold(): int(v)
+            for k, v in (ev.get("genuine_by_alias") or {}).items()
+            if isinstance(v, int)
+        }
         new_safe: list[str] = []
         new_risky = list(risky)
         changed = False
         for alias in safe:
             n_fp = per_alias.get(alias.casefold(), 0)
-            if n_fp < 2:
+            # At least two false positives and at least as many as genuine mentions.
+            if n_fp < 2 or n_fp < genuine.get(alias.casefold(), 0):
                 new_safe.append(alias)
                 continue
             changed = True
@@ -952,23 +959,38 @@ class QueryOptimizationUseCase:
                     model.decide(title, "paper_title", "rejected",
                                  "0 Dimensions hits" if c == 0 else "not measured", c)
                     continue
-                if contains_word(title, name) or contains_word(title, family):
-                    reason = "title names the model"
+                from_hub = title.casefold() in cands.hub_title_keys
+                names_model = contains_word(title, name) or contains_word(title, family)
+                if not from_hub:
+                    # A title the LLM recalls proves nothing: "Aurora kinase inhibitors
+                    # in cancer therapy" also names "Aurora". Only titles cited on the
+                    # model card (or linked from it) anchor the measurements.
+                    model.decide(
+                        title, "paper_title", "rejected",
+                        "not cited on the model card: an unverified title cannot be an anchor",
+                        c,
+                    )
+                    continue
+                if names_model:
+                    reason = "cited on the model card; the title names the model"
                 else:
                     both = await self._clause_count(f"{q(title)} AND {q(name, family)}")
-                    share = (both or 0) / c
-                    if (
-                        both is None
-                        or share < s.ai_model_title_min_name_share
-                        or c > s.ai_model_plain_word_max_safe_hits
-                    ):
+                    if both is None:
+                        model.decide(title, "paper_title", "rejected",
+                                     "not measured (Dimensions call budget)", c)
+                        continue
+                    share = both / c
+                    if share < s.ai_model_title_min_name_share:
                         model.decide(
                             title, "paper_title", "rejected",
-                            f"not confirmed as this model's paper: {share:.0%} of its {c} hits "
-                            f"name {name!r}", c, name_share=round(share, 3),
+                            f"cited on the model card, but only {share:.0%} of the {c} papers "
+                            f"quoting it name {name!r}", c, name_share=round(share, 3),
                         )
                         continue
-                    reason = f"{share:.0%} of the papers quoting it name {name!r}"
+                    reason = (
+                        f"cited on the model card; {share:.0%} of the papers quoting it "
+                        f"name {name!r}"
+                    )
                 titles.append(title)
                 model.decide(title, "paper_title", "anchor", reason, c)
             title_group = q(*titles) if titles else ""
@@ -994,20 +1016,22 @@ class QueryOptimizationUseCase:
                     nm,
                     count=c,
                     confirmation=confirmation,
+                    has_titles=bool(title_group),
                     developer=model.developer,
                     safe_share=s.ai_model_safe_min_context_share,
                     context_share=s.ai_model_context_min_anchor_precision,
                     plain_word_max_hits=s.ai_model_plain_word_max_safe_hits,
                 )
                 stats = {} if confirmation is None else {"title_confirmation": round(confirmation, 3)}
+                own = nm.casefold() in base_keys or nm.casefold() in given_keys
+                if own:
+                    model.own_keys.add(nm.casefold())
                 if verdict == "safe":
                     safe.append(nm)
                     model.decide(nm, "alias", "safe", reason, c, **stats)
                     continue
-                own = nm.casefold() in base_keys or nm.casefold() in given_keys
                 if own:
                     gate.append((nm, c, reason))
-                    model.own_keys.add(nm.casefold())
                     continue
                 cover = next((g for g, _c, _r in gate if contains_word(nm, g)), None)
                 if cover:
@@ -1054,36 +1078,33 @@ class QueryOptimizationUseCase:
                         context_terms.append(term)
                         mined[term.casefold()] = n_docs
                 for term in context_terms:
+                    if not model.reference_clause or model.reference_count <= 0:
+                        # Nothing certain to measure against: an unverified flag would
+                        # let the ambiguous name through on trust.
+                        model.decide(term, "flag", "rejected",
+                                     "cannot be verified: no precise name or cited paper title")
+                        continue
                     admitted = await self._clause_count(f"({g_group} AND {q(term)}){not_x}")
                     if not admitted:
                         model.decide(
                             term, "flag", "rejected",
-                            f"never occurs with {gated}" if admitted == 0 else "not measured",
+                            f"never occurs with {gated}" if admitted == 0
+                            else "not measured (Dimensions call budget or unparseable term)",
                             admitted,
                         )
-                        continue
-                    if not model.reference_clause:
-                        own = await self._clause_count(q(term))
-                        if own is None or own > s.refine_flag_max_hits:
-                            model.decide(term, "flag", "rejected",
-                                         f"too broad ({own} hits) and no precise name to test it "
-                                         "against", admitted)
-                        elif len(flags) >= 5:
-                            model.decide(term, "flag", "rejected", "over the flag limit", admitted)
-                        else:
-                            flags.append(term)
-                            model.decide(term, "flag", "flag",
-                                         "unverified: no precise name or paper title to measure "
-                                         "its precision", admitted, admitted=admitted)
                         continue
                     confirmed = await self._clause_count(
                         f"({model.reference_clause} AND {g_group} AND {q(term)}){not_x}"
                     )
-                    precision = (confirmed or 0) / admitted
-                    stats = {"admitted": admitted, "confirmed": confirmed or 0,
+                    if confirmed is None:
+                        model.decide(term, "flag", "rejected",
+                                     "precision not measured (Dimensions call budget)", admitted)
+                        continue
+                    precision = confirmed / admitted
+                    stats = {"admitted": admitted, "confirmed": confirmed,
                              "anchor_precision": round(precision, 3)}
                     detail = (
-                        f"admits {admitted} papers with {gated}; {confirmed or 0} "
+                        f"admits {admitted} papers with {gated}; {confirmed} "
                         f"({precision:.0%}) are precise matches"
                     )
                     if term.casefold() in mined:
@@ -1093,7 +1114,7 @@ class QueryOptimizationUseCase:
                         )
                     if (
                         precision >= s.ai_model_flag_min_anchor_precision
-                        and (confirmed or 0) >= s.ai_model_flag_min_anchor_hits
+                        and confirmed >= s.ai_model_flag_min_anchor_hits
                     ):
                         flags.append(term)
                         model.decide(term, "flag", "flag", detail, admitted, **stats)
@@ -1215,6 +1236,19 @@ class QueryOptimizationUseCase:
         )
 
         notes = [out.notes] if out.notes else []
+        threshold = float(s.optimize_fp_threshold_pct)
+        evaluated = "~gate" in (out.selected_variant or "")
+        if not evaluated or float(out.fp_rate_pct or 0.0) > threshold:
+            # Never hand the pipeline a query the abstract check did not clear.
+            why = (
+                f"the abstract check measured {float(out.fp_rate_pct or 0.0):.0f}% false "
+                f"positives (limit {threshold:.0f}%)"
+                if evaluated else "the abstract check did not run on the selected query"
+            )
+            out.confidence = ConfidenceLevel.LOW
+            notes.append(f"seed withheld: {why}; review term_decisions before using this query")
+            out.notes = " ".join(notes)
+            return out
         candidate = QueryCandidate(
             main_dataset_name=model.name, safe=safe, risky=risky, flag_terms=flags,
             exclude_terms=excludes, description=model.description,
