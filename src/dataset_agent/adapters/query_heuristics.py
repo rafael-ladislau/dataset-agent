@@ -77,6 +77,16 @@ def looks_like_acronym_head(head: str, max_len: int = SHORT_ACRONYM_MAX_LEN) -> 
     return len(head) <= max_len and any(ch.isupper() for ch in head[1:])
 
 
+def is_acronym_shaped_name(name: str) -> bool:
+    """A single acronym-shaped token of up to 10 characters ("BINEX", "COCONet",
+    "TLALOCNet"): such coined tokens are often reused by unrelated products, companies or
+    genes, so a grounded name of this shape is flag-gated."""
+    words = (name or "").split()
+    if len(words) != 1 or len(words[0]) > 10:
+        return False
+    return looks_like_acronym_head(words[0], max_len=10)
+
+
 def is_acronym_suffix_form(alias: str) -> bool:
     """``<short acronym> <generic suffix>`` ("WR dataset", "QWR program", "ONET data"):
     the suffix narrows the acronym but the phrase still matches its other meanings.

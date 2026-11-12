@@ -271,6 +271,9 @@ def refine_candidate(
     notes: list[str] = []
     already: list[str] = []
     impacts: dict[str, int] = {}
+    # Safe aliases that an exclude drawn from false positives overlaps ("Binex Co" next to
+    # "BINEX"): the alias has another meaning, mapped to the exclude that showed it.
+    overlap_demote: dict[str, str] = {}
     if enough:
         notes.extend(category_patterns(evidence, settings.refine_category_min_fp_papers))
     if enough and agent is not None and (evidence.genuine or evidence.false_positives):
@@ -302,10 +305,17 @@ def refine_candidate(
                 continue
             # NOT ("term") runs over all of full_data: an exclude inside or containing a
             # kept alias, or inside a flag, would silently drop the query's own matches.
-            if any(_phrase_in(t, a) or _phrase_in(a, t) for a in aliases) or any(
-                _phrase_in(t, f) for f in candidate.flag_terms
-            ):
+            overlapped = [a for a in aliases if _phrase_in(t, a) or _phrase_in(a, t)]
+            if overlapped or any(_phrase_in(t, f) for f in candidate.flag_terms):
                 reject("exclude", t, "overlaps an alias or flag")
+                if (
+                    settings.refine_demote_on_overlapping_exclude
+                    and any(term_in(t, v) for v in evidence.false_positives)
+                    and not any(term_in(t, v) for v in evidence.genuine)
+                ):
+                    for a in overlapped:
+                        if a.lower() in safe_l and a.lower() != t.lower():
+                            overlap_demote.setdefault(a, t)
                 continue
             hit_fp = [v for v in evidence.false_positives if term_in(t, v)]
             # Over-matching the genuine side is the safe direction here: an exclude
@@ -403,6 +413,19 @@ def refine_candidate(
         st = stats[a]
         is_safe = a.lower() in safe_l
         base = {"stats": st.as_dict()}
+        if a in overlap_demote and is_safe and flags:
+            diffs.append(TermDiff(
+                kind="alias", term=a, action="demote", status="verified",
+                reason=(
+                    f"false positives mention {overlap_demote[a]!r}, another meaning of this "
+                    "alias, and no matching paper does; now requires flag terms"
+                ),
+                evidence=_quotes(
+                    [v for v in evidence.false_positives if term_in(overlap_demote[a], v)],
+                    overlap_demote[a],
+                ), **base))
+            keep_risky.append(a)
+            continue
         if not enough or st.n < settings.refine_min_alias_papers:
             status = "suspect" if a.lower() in abstract_fp else "unverified"
             why = (

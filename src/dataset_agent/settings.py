@@ -188,6 +188,16 @@ class Settings(BaseSettings):
     optimize_name_history_max_candidates: int = Field(default=6, ge=0, le=20)
     #: Drop research flags naming a national funder (NSF, NIH) when other flags remain.
     optimize_drop_broad_funder_flags: bool = True
+    #: Research flags with more Dimensions full-data hits than this ("GAGE": 5.3M, as
+    #: "gage" also means gauge) admit any paper; dropped when other flags remain (0 = off).
+    optimize_flag_max_hits: int = Field(default=500_000, ge=0)
+    #: Drop bare short-acronym research flags (<= 4 characters) when other flags remain.
+    optimize_drop_short_acronym_flags: bool = True
+    #: A grounded or history name is searched without flags only when at least this share
+    #: of its Dimensions hits also contain a flag term; below it the name is flag-gated.
+    optimize_grounded_safe_min_flag_share: float = Field(default=0.5, ge=0.0, le=1.0)
+    #: Log (and note) the top fields of research of each grounded or history name.
+    optimize_name_field_diagnostic: bool = True
     #: Top publication titles scored with LLM Signal 3 on the primary variant (0 = skip).
     optimize_signal3_max_titles: int = Field(default=5, ge=0, le=20)
     #: Titles with mention_score + context_score below this are treated as likely FP (0–20 scale).
@@ -333,6 +343,9 @@ class Settings(BaseSettings):
     # (or an unknown count) is rejected. At most refine_max_flag_checks counts per pass.
     refine_flag_max_hits: int = Field(default=500_000, ge=1)
     refine_max_flag_checks: int = Field(default=5, ge=0, le=20)
+    #: Demote a safe alias to flag-gated when a false-positive exclude proposal overlaps it
+    #: ("Binex Co" next to alias "BINEX"): the alias has another meaning.
+    refine_demote_on_overlapping_exclude: bool = True
     #: Min false positives in one field of research before it is reported as a pattern.
     refine_category_min_fp_papers: int = Field(default=3, ge=1)
 
