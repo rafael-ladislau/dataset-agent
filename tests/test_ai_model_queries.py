@@ -112,7 +112,7 @@ AURORA_LLM = {
         {"name": "aurora weather model", "kind": "qualified"},
     ],
     "paper_titles": ["Aurora: A Foundation Model of the Atmosphere"],
-    "context_terms": ["Microsoft Research", "ECMWF", "GraphCast", "weather forecasting", "Microsoft"],
+    "context_terms": ["Microsoft Research", "SQL", "ECMWF", "GraphCast", "weather forecasting", "Microsoft"],
     "other_meanings": ["aurora borealis", "Aurora kinase", "Aurora (city)"],
 }
 AURORA_HUB = HubEvidence(
@@ -235,8 +235,12 @@ def test_aurora_decisions_explain_every_term(tmp_path, patched) -> None:
     assert graphcast.stats == {"admitted": 50, "confirmed": 40, "anchor_precision": 0.8}
     assert _decision(out, "Pangu-Weather", "flag").reason.startswith("found in 30 abstracts")
     assert _decision(out, "ECMWF", "flag").decision == "context"
-    assert _decision(out, "Microsoft Research", "flag").decision == "rejected"
-    assert "mostly other meanings" in _decision(out, "Microsoft Research", "flag").reason
+    assert _decision(out, "Microsoft Research", "flag").reason == (
+        "ordinary words only: no coined name or acronym"
+    )
+    sql = _decision(out, "SQL", "flag")
+    assert sql.decision == "rejected" and "mostly other meanings" in sql.reason
+    assert sql.stats == {"admitted": 40, "confirmed": 0, "anchor_precision": 0.0}
     assert _decision(out, "weather forecasting", "flag").reason == (
         "not a proper name (lower-case word)"
     )
@@ -328,17 +332,23 @@ def test_abstract_false_positives_demote_a_safe_name(tmp_path, patched) -> None:
         "fp_hits": [
             {"matched_alias": "Microsoft Aurora", "snippet": "Microsoft Aurora 3D design tool"},
             {"matched_alias": "Microsoft Aurora", "snippet": "Microsoft Aurora 3D design tool"},
-            {"matched_alias": "Aurora", "snippet": "aurora borealis"},
+            {"matched_alias": "Aurora", "snippet": "aurora borealis over typhoon tracks"},
         ],
     }
     patched.eval = _fake_eval([fp])
     # One reply serves both structured calls: term research, then exclude derivation.
-    llm = dict(AURORA_LLM, exclude_terms=["3D design", "ERA5 from ECMWF"])
-    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), llm, _aurora_request())
+    llm = dict(AURORA_LLM, exclude_terms=["typhoon tracks", "3D design", "ERA5 from ECMWF"])
+    docs = _aurora_corpus() + ["Microsoft Aurora 3D design tool for architects."]
+    out, _dsl, _agent = _run(tmp_path, docs, llm, _aurora_request())
 
     assert out.success
-    assert "would remove 30 of 40" in _decision(out, "ERA5 from ECMWF", "exclude").reason
-    assert _decision(out, "3D design", "exclude").decision == "exclude"
+    # An exclude must come from a false-positive snippet and stay narrow.
+    assert "not a phrase of any" in _decision(out, "ERA5 from ECMWF", "exclude").reason
+    assert "would remove 10 of 50 results: too broad" in (
+        _decision(out, "typhoon tracks", "exclude").reason
+    )
+    kept = _decision(out, "3D design", "exclude")
+    assert kept.decision == "exclude" and kept.stats["removed"] == 1
     assert "3D design" in out.exclusion_terms
     assert out.selected_variant == "V4~gate1"
     assert out.aliases.safe == ["Aurora foundation model"]
@@ -391,10 +401,10 @@ def test_recalled_namesake_title_cannot_anchor_another_meaning(tmp_path, patched
     """No model card: the LLM offers a kinase paper as "the Aurora paper". Nothing is
     certain, so no flag can be verified and the bare word is not searched."""
     patched.hub = HubEvidence()
-    docs = ["Aurora kinase inhibitors in cancer therapy with Alisertib."] * 40 + [POLAR] * 100
+    docs = ["Aurora kinase inhibitors in cancer therapy with AURKA."] * 40 + [POLAR] * 100
     llm = {
         "names": [], "paper_titles": ["Aurora kinase inhibitors in cancer therapy"],
-        "context_terms": ["Alisertib"], "other_meanings": [],
+        "context_terms": ["AURKA"], "other_meanings": [],
     }
     out, _dsl, _agent = _run(
         tmp_path, docs, llm, OptimizeRequest(dataset_name="Aurora", entity_type="ai_model")
@@ -402,7 +412,7 @@ def test_recalled_namesake_title_cannot_anchor_another_meaning(tmp_path, patched
 
     assert out.success is False
     assert out.for_clause is None and out.ai_model_seed is None
-    assert _decision(out, "Alisertib", "flag").reason.startswith("cannot be verified")
+    assert _decision(out, "AURKA", "flag").reason.startswith("cannot be verified")
     assert _decision(out, "Aurora", "alias").decision == "rejected"
 
 
@@ -593,6 +603,34 @@ def test_mine_context_terms_keeps_coined_names_and_acronyms() -> None:
     ]
     mined = mine_context_terms(texts, model_names=["Aurora"], min_docs=2, limit=10)
     assert mined == [("GraphCast", 3), ("ECMWF", 2), ("ERA5", 2), ("Pangu-Weather", 2)]
+
+
+def test_mined_terms_skip_ordinary_words_from_upper_case_titles() -> None:
+    texts = [
+        "AURORA FOR MEDIUM-RANGE WEATHER FORECASTING. We compare with GraphCast for weather.",
+        "WEATHER FORECASTING AT SCALE with GraphCast; medium-range forecasting at scale.",
+        "WEATHER FORECASTING FOR ALL: GraphCast and ECMWF. Forecasting the weather.",
+        "ECMWF and FORECASTING of WEATHER.",
+    ]
+    mined = mine_context_terms(texts, model_names=["Aurora"], min_docs=2, limit=10)
+    assert mined == [("GraphCast", 3), ("ECMWF", 2)]
+
+
+@pytest.mark.parametrize(
+    ("term", "ok"),
+    [
+        ("GraphCast", True), ("Pangu-Weather", True), ("ERA5", True), ("ECMWF", True),
+        ("Google DeepMind", True), ("Weather Forecasting", False), ("Deep Learning", False),
+        ("Earth System", False), ("Nature", False), ("WEATHER", False), ("Microsoft Research", False),
+    ],
+)
+def test_flags_need_a_coined_name_or_acronym(term: str, ok: bool) -> None:
+    assert amr.is_context_name(term) is ok
+    c = assemble_candidates(
+        model_name="Aurora", family=None, given_aliases=[], hub=HubEvidence(),
+        llm={"context_terms": [term]}, max_names=14, max_context=12, max_excludes=8,
+    )
+    assert (term in c.context_terms) is ok
 
 
 def test_ai_model_seed_mapping() -> None:

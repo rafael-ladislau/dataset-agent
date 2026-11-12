@@ -290,11 +290,15 @@ class Settings(BaseSettings):
     #: A paper title not containing the model name is an anchor only if this share of
     #: the papers quoting it also name the model.
     ai_model_title_min_name_share: float = Field(default=0.25, ge=0.0, le=1.0)
+    #: ...and only if no more papers than this quote it (a card may cite a famous
+    #: paper that many unrelated works quote too).
+    ai_model_title_max_hits: int = Field(default=50_000, ge=1)
     #: A context term gates an ambiguous name only if at least this share of the papers
     #: it admits ("<name>" AND "<term>") already match a precise name or paper title.
     ai_model_flag_min_anchor_precision: float = Field(default=0.5, ge=0.0, le=1.0)
-    #: Below the flag bar but above this one, a term still counts as context when
-    #: deciding whether a qualified name is safe; below it the term is rejected.
+    #: Below the flag bar but above this one, a term is reported as "context" (related
+    #: to the model, too loose to gate a name); below it the term is rejected. Also the
+    #: lowest citing share a coined name may have.
     ai_model_context_min_anchor_precision: float = Field(default=0.1, ge=0.0, le=1.0)
     #: Min papers matching both a precise name/title and the context term.
     ai_model_flag_min_anchor_hits: int = Field(default=5, ge=1)
@@ -304,6 +308,10 @@ class Settings(BaseSettings):
     ai_model_plain_word_max_safe_hits: int = Field(default=20_000, ge=0)
     #: An exclude is kept only if it removes at most this share of the precise matches.
     ai_model_exclude_max_anchor_loss: float = Field(default=0.03, ge=0.0, le=1.0)
+    #: Excludes derived from abstract false positives: at most this many per iteration,
+    #: each removing at most this share of the current result.
+    ai_model_refine_max_excludes: int = Field(default=3, ge=0, le=10)
+    ai_model_refine_exclude_max_share: float = Field(default=0.02, ge=0.0, le=1.0)
     #: Also search the titles of the model's own papers (finds papers that cite the
     #: model without naming it in the text). Titles are always used as anchors.
     ai_model_paper_titles_as_aliases: bool = False

@@ -387,6 +387,26 @@ def is_proper_name(term: str) -> bool:
     return not _generic_word(term)
 
 
+def _acronym_token(token: str) -> bool:
+    core = token.strip("()[],.;:")
+    letters = [ch for ch in core if ch.isalpha()]
+    return (
+        2 <= len(core) <= 6
+        and len(letters) >= 2
+        and all(ch.isupper() for ch in letters)
+        and all(ch.isalnum() for ch in core)
+    )
+
+
+def is_context_name(term: str) -> bool:
+    """A flag must carry a coined name or an acronym ("GraphCast", "Pangu-Weather",
+    "ERA5", "ECMWF", "Google DeepMind").
+
+    Dimensions ignores case, so capital letters alone prove nothing: "Weather
+    Forecasting" and "Earth System" search as the ordinary words they are."""
+    return any(_coined_token(t) or _acronym_token(t) for t in (term or "").split())
+
+
 def contains_word(phrase: str, word: str) -> bool:
     """*word* occurs in *phrase* as a whole word sequence (case-insensitive)."""
     return bool(
@@ -427,6 +447,14 @@ def mine_context_terms(
     ambiguous name. Terms containing a model name are skipped."""
     df: Counter[str] = Counter()
     spelling: dict[str, Counter[str]] = {}
+    # Words seen in ordinary case anywhere in the sample: an upper-case title turns
+    # "FORECASTING" into something acronym-shaped, but it is still that word.
+    ordinary = {
+        w.casefold()
+        for text in texts
+        for w in re.findall(r"[A-Za-z][A-Za-z-]*", text or "")
+        if not w.isupper() and not any(ch.isupper() for ch in w[1:])
+    }
     for text in texts:
         seen: set[str] = set()
         for token in _CTX_TOKEN.findall(text or ""):
@@ -439,6 +467,9 @@ def mine_context_terms(
         if n < min_docs or len(out) >= limit:
             break
         term = spelling[key].most_common(1)[0][0]
+        shouted = term.isupper() and any(p in ordinary for p in key.split("-") if len(p) > 3)
+        if key in ordinary or shouted:
+            continue
         if any(contains_word(term, m) or contains_word(m, term) for m in model_names):
             continue
         out.append((term, n))
@@ -556,6 +587,10 @@ def assemble_candidates(
             # "Microsoft" next to "Microsoft Aurora", "Diffusion" next to "Stable
             # Diffusion": the name's own papers would vouch for the flag.
             out.rejected.append(("flag", term, "is part of one of the model's names"))
+        elif not is_context_name(term):
+            out.rejected.append(
+                ("flag", term, "ordinary words only: no coined name or acronym")
+            )
         elif len(out.context_terms) >= max_context:
             out.rejected.append(("flag", term, "over the candidate limit"))
         else:
