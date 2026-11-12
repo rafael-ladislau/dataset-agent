@@ -297,6 +297,15 @@ class QueryOptimizationUseCase:
             return True
         return self._dims_calls + 2 <= cap
 
+    def _phase1_budget_left(self) -> bool:
+        """Room for one more phase-1 check while keeping ``refine_impact_budget_reserve``
+        calls (plus the next gate's two) for the full-text refiner."""
+        cap = int(self._settings.optimize_max_dimensions_calls)
+        if cap <= 0:
+            return True
+        reserve = int(self._settings.refine_impact_budget_reserve)
+        return self._dims_calls + reserve + 2 < cap
+
     async def _counted_execute(self, dsl: str):
         """Throttled Dimensions call that counts against the call budget."""
         if not self._budget_left():
@@ -360,7 +369,8 @@ class QueryOptimizationUseCase:
         if s.optimize_flag_max_hits:
             broad: list[tuple[str, int]] = []
             for f in kept:
-                if not self._budget_left():
+                if not self._phase1_budget_left():
+                    notes_parts.append("research flag counts stopped: Dimensions budget kept for refinement")
                     break
                 try:
                     c = await self._count(f)
@@ -380,7 +390,7 @@ class QueryOptimizationUseCase:
 
     async def _top_fields(self, name: str) -> list[str]:
         """Top three fields of research of the papers matching *name* (diagnostic)."""
-        if not self._budget_left():
+        if not self._phase1_budget_left():
             return []
         dsl = (
             f'search publications in full_data for "\\"{inner_quoted_term(name)}\\"" '
@@ -427,7 +437,10 @@ class QueryOptimizationUseCase:
         if is_acronym_shaped_name(name):
             notes_parts.append(f"{name!r} flag-gated: acronym-shaped name")
             return "risky"
-        if count <= 0 or not self._budget_left():
+        if count <= 0:
+            return risk
+        if not self._phase1_budget_left():
+            notes_parts.append(f"{name!r}: flag share not measured (Dimensions budget kept for refinement)")
             return risk
         # A flag sharing a word with the name ("UNAVCO" in "UNAVCO GAGE", "EarthScope
         # Consortium" next to "EarthScope GAGE") co-occurs with it by construction and is

@@ -163,7 +163,7 @@ class Settings(BaseSettings):
     #: Publications sample size for false-positive verification (capped at 10_000).
     fp_sample_size: int = 1000
     #: Hard cap on Dimensions calls per optimize run (0 = no extra cap beyond use-case logic).
-    optimize_max_dimensions_calls: int = Field(default=64, ge=0)
+    optimize_max_dimensions_calls: int = Field(default=96, ge=0)
     # "<short acronym> <generic suffix>" aliases ("WR dataset"), listed by research or
     # promoted by the suffix check, still collide with other meanings of the acronym;
     # they are risky (flag-gated) when flag terms exist, unless this is set.
@@ -197,7 +197,7 @@ class Settings(BaseSettings):
     #: of its Dimensions hits also contain a flag term; below it the name is flag-gated.
     optimize_grounded_safe_min_flag_share: float = Field(default=0.5, ge=0.0, le=1.0)
     #: Log (and note) the top fields of research of each grounded or history name.
-    optimize_name_field_diagnostic: bool = True
+    optimize_name_field_diagnostic: bool = False
     #: Top publication titles scored with LLM Signal 3 on the primary variant (0 = skip).
     optimize_signal3_max_titles: int = Field(default=5, ge=0, le=20)
     #: Titles with mention_score + context_score below this are treated as likely FP (0–20 scale).

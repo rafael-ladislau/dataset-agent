@@ -78,14 +78,14 @@ def _run(tmp_path, monkeypatch, dsl, flags, suggested, **overrides):
                          "total_pubs": 10, "coverage_pct": 100.0, "query": "",
                          "for_clause": k.get("for_clause", "")},
     )
-    settings = Settings(
+    base = dict(
         tasks_db=tmp_path / "t.db", output_dir=tmp_path / "out", dimensions_api_key="k",
         optimize_max_dimensions_calls=80, optimize_signal3_max_titles=0,
         optimize_abstract_exclude_max_hits=0, optimize_abstract_classify_max_calls=0,
         optimize_fp_domains_max_aliases=0, optimize_web_disambig_max_aliases=0,
         optimize_suffix_check_max_aliases=0, optimize_name_history_enabled=False,
-        **overrides,
     )
+    settings = Settings(**{**base, **overrides})
     research = MagicMock()
     research.execute.return_value = (_record(flags, suggested), tmp_path / "r.json")
     agent = MagicMock()
@@ -116,6 +116,7 @@ def test_gage_flag_dropped_and_names_classified_by_flag_share(tmp_path, monkeypa
     out = _run(
         tmp_path, monkeypatch, dsl, flags=["EarthScope Consortium", "GAGE", "UNAVCO"],
         suggested=["BINEX", "Network of the Americas", "EarthScope PBO"],
+        optimize_name_field_diagnostic=True,
     )
     assert "GAGE" not in out.flag_terms
     assert "dropped research flag(s): GAGE (bare short acronym)" in out.notes
@@ -247,3 +248,28 @@ def test_all_flags_overlapping_name_keeps_default_risk(tmp_path, monkeypatch):
     assert "'UNAVCO GAGE': every flag shares a word with it; flag share not measured" in out.notes
     assert "UNAVCO GAGE" in out.aliases.risky  # title has no hits: default is risky
     assert not any('\\"UNAVCO GAGE\\" AND (' in c for c in dsl.calls)
+
+
+def test_budget_defaults_leave_room_for_refinement():
+    s = Settings(dimensions_api_key="k")
+    assert s.optimize_max_dimensions_calls == 96
+    assert s.optimize_name_field_diagnostic is False
+
+
+def test_phase1_checks_keep_the_refiner_reserve(tmp_path, monkeypatch):
+    names = [f"Station Network {c}" for c in "ABCDEFGH"]
+    counts = {"GNSS Earthquakes": 3, "EarthScope Consortium": 2000, "UNAVCO": 9000}
+    counts.update({n: 500 for n in names})
+    dsl = _ShareDSL(counts=counts, with_flags={n: 400 for n in names})
+    cap, reserve = 30, 14
+    out = _run(
+        tmp_path, monkeypatch, dsl, flags=["EarthScope Consortium", "UNAVCO"], suggested=names,
+        optimize_max_dimensions_calls=cap, refine_impact_budget_reserve=reserve,
+        optimize_grounding_max_candidates=8,
+    )
+    assert "flag share not measured (Dimensions budget kept for refinement)" in out.notes
+    share_calls = [c for c in dsl.calls if '\\" AND (' in c and "Station Network" in c]
+    assert 0 < len(share_calls) < len(names)
+    # Every share query ran while the refiner's reserve (plus the next gate) was intact.
+    last_share = max(i for i, c in enumerate(dsl.calls) if '\\" AND (' in c and "Station Network" in c)
+    assert last_share + 1 <= cap - reserve - 2
