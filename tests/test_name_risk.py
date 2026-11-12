@@ -218,3 +218,32 @@ def test_overlapping_exclude_in_genuine_paper_does_not_demote():
     # "Network of the Americas" occurs in the genuine quotes: no other meaning shown.
     r = _refine(["Network of the Americas"])
     assert "Network of the Americas" in r.candidate.safe
+
+
+def test_flag_inside_name_is_no_evidence(tmp_path, monkeypatch):
+    # "UNAVCO GAGE" always contains UNAVCO: only the other flags measure its share.
+    dsl = _ShareDSL(
+        counts={"GNSS Earthquakes": 3, "UNAVCO GAGE": 24, "EarthScope GAGE": 40,
+                "EarthScope Consortium": 2000, "UNAVCO": 9000},
+        with_flags={"UNAVCO GAGE": 5, "EarthScope GAGE": 25},
+    )
+    out = _run(
+        tmp_path, monkeypatch, dsl, flags=["EarthScope Consortium", "UNAVCO"],
+        suggested=["UNAVCO GAGE", "EarthScope GAGE"],
+    )
+    assert "'UNAVCO GAGE': 5/24 hits (21%) contain a flag term; risky" in out.notes
+    assert "UNAVCO GAGE" in out.aliases.risky
+    share_q = next(c for c in dsl.calls if '\\"UNAVCO GAGE\\" AND (' in c)
+    assert '\\"UNAVCO\\"' not in share_q.split(" AND (", 1)[1]
+    assert '\\"EarthScope Consortium\\"' in share_q
+
+
+def test_all_flags_overlapping_name_keeps_default_risk(tmp_path, monkeypatch):
+    dsl = _ShareDSL(
+        counts={"GNSS Earthquakes": 3, "UNAVCO GAGE": 24, "UNAVCO": 9000, "UNAVCO Inc": 50},
+        with_flags={"UNAVCO GAGE": 24},
+    )
+    out = _run(tmp_path, monkeypatch, dsl, flags=["UNAVCO", "UNAVCO Inc"], suggested=["UNAVCO GAGE"])
+    assert "'UNAVCO GAGE': every flag shares a word with it; flag share not measured" in out.notes
+    assert "UNAVCO GAGE" in out.aliases.risky  # title has no hits: default is risky
+    assert not any('\\"UNAVCO GAGE\\" AND (' in c for c in dsl.calls)

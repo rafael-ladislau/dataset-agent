@@ -429,7 +429,15 @@ class QueryOptimizationUseCase:
             return "risky"
         if count <= 0 or not self._budget_left():
             return risk
-        group = " OR ".join(f'\\"{inner_quoted_term(f)}\\"' for f in flag_terms)
+        # A flag sharing a word with the name ("UNAVCO" in "UNAVCO GAGE", "EarthScope
+        # Consortium" next to "EarthScope GAGE") co-occurs with it by construction and is
+        # no evidence of what the name's papers are about.
+        name_tokens = content_tokens(name)
+        independent = [f for f in flag_terms if not (content_tokens(f) & name_tokens)]
+        if not independent:
+            notes_parts.append(f"{name!r}: every flag shares a word with it; flag share not measured")
+            return risk
+        group = " OR ".join(f'\\"{inner_quoted_term(f)}\\"' for f in independent)
         clause = f'\\"{inner_quoted_term(name)}\\" AND ({group})'
         try:
             with_flags = parse_total_count(
