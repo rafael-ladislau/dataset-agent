@@ -76,6 +76,7 @@ from dataset_agent.adapters.query_heuristics import (
     apply_short_acronym_heuristic,
     check_suffix_necessity,
     detect_rhetorical_name,
+    is_acronym_shaped_name,
     is_acronym_suffix_form,
     is_short_acronym,
     platform_exclude_suggestions,
@@ -279,6 +280,109 @@ class QueryOptimizationUseCase:
             logger.warning("Dropping alias %r: Dimensions could not parse it", alias)
             notes_parts.append(f"alias '{alias}' dropped: Dimensions could not parse it")
             return None
+
+    async def _screen_research_flags(self, flags: list[str], notes_parts: list[str]) -> list[str]:
+        """Drop research flags that admit almost any paper, while other flags remain: a
+        bare short acronym ("GAGE" is also a gene family and a spelling of gauge) or a
+        term with more than ``optimize_flag_max_hits`` Dimensions hits."""
+        s = self._settings
+        kept = list(flags)
+        dropped: list[str] = []
+        if s.optimize_drop_short_acronym_flags:
+            short = [f for f in kept if is_short_acronym(f)]
+            if short and len(short) < len(kept):
+                kept = [f for f in kept if not is_short_acronym(f)]
+                dropped += [f"{f} (bare short acronym)" for f in short]
+        if s.optimize_flag_max_hits:
+            broad: list[tuple[str, int]] = []
+            for f in kept:
+                if not self._budget_left():
+                    break
+                try:
+                    c = await self._count(f)
+                except DimensionsDslError as exc:
+                    logger.warning("optimize: flag %r not counted: %s", f, exc)
+                    continue
+                if c > s.optimize_flag_max_hits:
+                    broad.append((f, c))
+            if broad and len(broad) < len(kept):
+                keys = {f.casefold() for f, _c in broad}
+                kept = [f for f in kept if f.casefold() not in keys]
+                dropped += [f"{f} ({c} Dimensions hits)" for f, c in broad]
+        if dropped:
+            notes_parts.append("dropped research flag(s): " + "; ".join(dropped))
+            logger.info("optimize: dropped research flag(s) %s", dropped)
+        return kept
+
+    async def _top_fields(self, name: str) -> list[str]:
+        """Top three fields of research of the papers matching *name* (diagnostic)."""
+        if not self._budget_left():
+            return []
+        dsl = (
+            f'search publications in full_data for "\\"{inner_quoted_term(name)}\\"" '
+            "return category_for limit 3"
+        )
+        try:
+            result = await self._counted_execute(dsl)
+        except DimensionsDslError as exc:
+            logger.warning("optimize: fields of %r not read: %s", name, exc)
+            return []
+        data = getattr(result, "json", result)
+        rows = data.get("category_for") if isinstance(data, dict) else None
+        return [
+            f"{x.get('name')} ({x.get('count')})"
+            for x in (rows if isinstance(rows, list) else [])
+            if isinstance(x, dict)
+        ]
+
+    async def _added_name_risk(
+        self,
+        name: str,
+        count: int,
+        c_full: int,
+        has_fn: bool,
+        flag_terms: list[str],
+        notes_parts: list[str],
+    ) -> Literal["safe", "risky"]:
+        """Risk of a grounded or history name, from what its own papers are about.
+
+        An acronym-shaped token ("BINEX", "COCONet") is flag-gated. Otherwise the share
+        of its hits that also contain a flag term decides: at least
+        ``optimize_grounded_safe_min_flag_share`` is searched alone, less is flag-gated.
+        The share never rejects a name: a real collection name shared with unrelated
+        networks ("Network of the Americas", 7%) is still worth searching with flags."""
+        s = self._settings
+        risk = _alias_risk_label(count, c_full, has_fn)
+        if s.optimize_name_field_diagnostic:
+            fields = await self._top_fields(name)
+            if fields:
+                notes_parts.append(f"fields of {name!r}: {', '.join(fields)}")
+                logger.info("optimize: fields of %r: %s", name, fields)
+        if not flag_terms:
+            return risk
+        if is_acronym_shaped_name(name):
+            notes_parts.append(f"{name!r} flag-gated: acronym-shaped name")
+            return "risky"
+        if count <= 0 or not self._budget_left():
+            return risk
+        group = " OR ".join(f'\\"{inner_quoted_term(f)}\\"' for f in flag_terms)
+        clause = f'\\"{inner_quoted_term(name)}\\" AND ({group})'
+        try:
+            with_flags = parse_total_count(
+                await self._counted_execute(build_for_clause_count_dsl(clause))
+            )
+        except DimensionsDslError as exc:
+            logger.warning("optimize: flag share of %r unknown: %s", name, exc)
+            return risk
+        share = with_flags / count
+        label: Literal["safe", "risky"] = (
+            "safe" if share >= s.optimize_grounded_safe_min_flag_share else "risky"
+        )
+        notes_parts.append(
+            f"{name!r}: {with_flags}/{count} hits ({share:.0%}) contain a flag term; {label}"
+        )
+        logger.info("optimize: flag share of %r = %d/%d -> %s", name, with_flags, count, label)
+        return label
 
     async def _ground_names(
         self,
@@ -781,6 +885,8 @@ class QueryOptimizationUseCase:
         phase1 = "phase1_alias_counting"
         t_phase1 = time.perf_counter()
         try:
+            if rec is not None and len(flag_terms) > 1:
+                flag_terms = await self._screen_research_flags(flag_terms, notes_parts)
             st0, rk0 = apply_short_acronym_heuristic(aliases, [])
             c_full = await self._count(request.dataset_name)
             alias_entries: list[AliasCountEntry] = []
@@ -856,7 +962,9 @@ class QueryOptimizationUseCase:
                 for g_alias, g_count in await self._ground_names(
                     request, rec, alias_entries, flag_terms, notes_parts
                 ):
-                    g_risk = _alias_risk_label(g_count, c_full, has_fn)
+                    g_risk = await self._added_name_risk(
+                        g_alias, g_count, c_full, has_fn, flag_terms, notes_parts
+                    )
                     alias_entries.append(AliasCountEntry(alias=g_alias, count=g_count, risk=g_risk))
                     (risky if g_risk == "risky" else safe).append(g_alias)
                     added_names.append(g_alias)
@@ -865,12 +973,14 @@ class QueryOptimizationUseCase:
                 h_names, h_flags = await self._name_history(
                     request, rec, alias_entries, flag_terms, notes_parts
                 )
+                flag_terms.extend(h_flags)
                 for h_alias, h_count in h_names:
-                    h_risk = _alias_risk_label(h_count, c_full, has_fn)
+                    h_risk = await self._added_name_risk(
+                        h_alias, h_count, c_full, has_fn, flag_terms, notes_parts
+                    )
                     alias_entries.append(AliasCountEntry(alias=h_alias, count=h_count, risk=h_risk))
                     (risky if h_risk == "risky" else safe).append(h_alias)
                     added_names.append(h_alias)
-                flag_terms.extend(h_flags)
 
             # Once real names were found, an organization-only alias just admits the
             # organization's other papers.
