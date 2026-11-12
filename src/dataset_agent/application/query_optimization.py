@@ -1153,9 +1153,13 @@ class QueryOptimizationUseCase:
                         # name; its own count can.
                         model.decide(
                             term, "flag", "context",
-                            f"{detail}, but it has "
-                            f"{own_hits if own_hits is not None else 'an unmeasured number of'} "
-                            "hits on its own: too common to gate an ambiguous name",
+                            f"{detail}, but "
+                            + (
+                                f"it has {own_hits} hits on its own: too common to gate an "
+                                "ambiguous name"
+                                if own_hits is not None
+                                else "its own hit count was not measured, so it gates nothing"
+                            ),
                             admitted, **stats, own_hits=own_hits,
                         )
                     elif passes:
