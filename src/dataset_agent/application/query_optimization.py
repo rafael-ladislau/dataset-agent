@@ -51,6 +51,7 @@ from dataset_agent.adapters.name_grounding import (
     needs_grounding,
     screen_candidates,
 )
+from dataset_agent.adapters.name_history import HISTORY_TOOL, history_phrases, history_prompt
 from dataset_agent.adapters.tools import web_search
 
 #: Funding agencies too broad to gate a query when the dataset's own organizations exist.
@@ -355,6 +356,115 @@ class QueryOptimizationUseCase:
             notes_parts.append("grounding: rejected " + "; ".join(rejected))
         logger.info("grounding: added=%s rejected=%s", found, rejected)
         return found
+
+    async def _name_history(
+        self,
+        request: OptimizeRequest,
+        rec: DatasetRecord,
+        alias_entries: list[AliasCountEntry],
+        flag_terms: list[str],
+        notes_parts: list[str],
+    ) -> tuple[list[tuple[str, int]], list[str]]:
+        """Former and successor names of the collection (each with its Dimensions count)
+        and of its organizations (new flag terms); see ``adapters.name_history``."""
+        s = self._settings
+        name = request.dataset_name
+        leading = sorted(
+            [(e.alias, e.count) for e in alias_entries if e.count > 0], key=lambda x: -x[1]
+        )[:3] or [(name, 0)]
+        web_parts: list[str] = []
+        for lead, _n in leading[:2]:
+            try:
+                web_parts.append(
+                    await asyncio.to_thread(
+                        web_search, f'"{lead}" formerly OR renamed OR merged OR successor'
+                    )
+                )
+            except Exception as exc:  # web context is best effort
+                logger.warning("name history: web search failed: %s", exc)
+        web = "\n".join(web_parts)
+        yr = rec.years_range
+        years = f"{yr.start_year}-{yr.end_year}" if yr else "recent years"
+        try:
+            raw = await asyncio.to_thread(
+                self._agent.get_structured,
+                history_prompt(name, leading, flag_terms, years, web),
+                HISTORY_TOOL,
+            )
+        except Exception as exc:
+            logger.warning("name history: LLM call failed: %s", exc)
+            raw = {}
+        raw = raw if isinstance(raw, dict) else {}
+
+        def _items(key: str) -> list[dict]:
+            v = raw.get(key)
+            return [x for x in v if isinstance(x, dict) and isinstance(x.get("name"), str)] if isinstance(v, list) else []
+
+        relation = {x["name"].strip().casefold(): x for x in _items("dataset_names")}
+        llm_names = [x["name"].strip() for x in _items("dataset_names")]
+        phrased = history_phrases(web)
+        unvouched = {n.casefold() for n in phrased} - set(relation)
+        kept, rejected = screen_candidates(
+            llm_names + phrased,
+            dataset_name=name,
+            known_aliases=[e.alias for e in alias_entries],
+            flag_terms=flag_terms,
+            limit=s.optimize_name_history_max_candidates,
+        )
+        found: list[tuple[str, int]] = []
+        for cand in kept:
+            if not self._budget_left():
+                rejected.append(f"{cand} (Dimensions call budget)")
+                continue
+            n = await self._count_alias(cand, notes_parts)
+            if n is None:
+                continue
+            floor = (
+                s.optimize_grounding_min_hits
+                if cand.casefold() in unvouched
+                else s.optimize_grounding_min_alias_hits
+            )
+            ceiling = s.optimize_grounding_unvouched_max_hits
+            if n < floor:
+                rejected.append(f"{cand} ({n} Dimensions hits)")
+            elif cand.casefold() in unvouched and ceiling and n > ceiling:
+                rejected.append(f"{cand} ({n} Dimensions hits: too common for an unvouched name)")
+            else:
+                found.append((cand, n))
+
+        # An organization's other name is a context term only when it renames a listed one.
+        listed = {f.casefold() for f in flag_terms}
+        new_flags: list[str] = []
+        for x in _items("organizations"):
+            org, of = x["name"].strip(), str(x.get("of") or "").strip()
+            if (
+                of.casefold() in listed
+                and org.casefold() not in listed
+                and org.casefold() not in BROAD_FUNDER_FLAGS
+                and any(ch.isupper() for ch in org)
+                and not is_short_acronym(org)
+                and org.casefold() not in {f.casefold() for f in new_flags}
+            ):
+                new_flags.append(org)
+
+        def _why(cand: str) -> str:
+            x = relation.get(cand.casefold())
+            if not x:
+                return "named as a former/successor in web results"
+            year = f", {x['year']}" if isinstance(x.get("year"), int) else ""
+            return f"{x.get('relation', 'related')}{year}"
+
+        if found:
+            notes_parts.append(
+                "name history: added "
+                + ", ".join(f"{a!r} ({_why(a)}; {n} hits)" for a, n in found)
+            )
+        if new_flags:
+            notes_parts.append(f"name history: added organization name(s) {new_flags}")
+        if rejected:
+            notes_parts.append("name history: rejected " + "; ".join(rejected))
+        logger.info("name history: added=%s flags=%s rejected=%s", found, new_flags, rejected)
+        return found, new_flags
 
     async def _refine_count(self, term: str) -> int:
         """Refiner-only count: like ``_exclude_impact`` it raises (instead of returning 0)
@@ -724,6 +834,16 @@ class QueryOptimizationUseCase:
                     g_risk = _alias_risk_label(g_count, c_full, has_fn)
                     alias_entries.append(AliasCountEntry(alias=g_alias, count=g_count, risk=g_risk))
                     (risky if g_risk == "risky" else safe).append(g_alias)
+
+            if rec is not None and self._settings.optimize_name_history_enabled:
+                h_names, h_flags = await self._name_history(
+                    request, rec, alias_entries, flag_terms, notes_parts
+                )
+                for h_alias, h_count in h_names:
+                    h_risk = _alias_risk_label(h_count, c_full, has_fn)
+                    alias_entries.append(AliasCountEntry(alias=h_alias, count=h_count, risk=h_risk))
+                    (risky if h_risk == "risky" else safe).append(h_alias)
+                flag_terms.extend(h_flags)
 
             # "WR dataset" still matches other meanings of "WR", whether research listed it
             # or the suffix check promoted it: flag-gated. Without flag terms a risky alias

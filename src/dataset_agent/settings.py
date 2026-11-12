@@ -181,6 +181,11 @@ class Settings(BaseSettings):
     #: An unvouched (web-defined) grounded name with more hits than this is a common
     #: term, not a collection name (0 = no ceiling).
     optimize_grounding_unvouched_max_hits: int = Field(default=20000, ge=0)
+    #: Look up former/successor names of the collection and its organizations (renames,
+    #: merges) after phase 1 counting; one web search per leading name plus one LLM call.
+    optimize_name_history_enabled: bool = True
+    #: Max history names counted in Dimensions per run.
+    optimize_name_history_max_candidates: int = Field(default=6, ge=0, le=20)
     #: Drop research flags naming a national funder (NSF, NIH) when other flags remain.
     optimize_drop_broad_funder_flags: bool = True
     #: Top publication titles scored with LLM Signal 3 on the primary variant (0 = skip).

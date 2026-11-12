@@ -99,7 +99,7 @@ def _record(aliases: list[str], suggested: list[str]) -> DatasetRecord:
 
 
 def _run(tmp_path, monkeypatch, counts, aliases, suggested, llm_names, record=None,
-         web="web results", **overrides):
+         web="web results", llm=None, **overrides):
     monkeypatch.setattr(qopt_mod, "web_search", lambda q: web)
     monkeypatch.setattr(
         qopt_mod, "evaluate_for_clause_sync",
@@ -127,6 +127,8 @@ def _run(tmp_path, monkeypatch, counts, aliases, suggested, llm_names, record=No
     agent.get_structured.return_value = (
         {"names": llm_names} if isinstance(llm_names, list) else llm_names
     )
+    if llm is not None:
+        agent.get_structured.side_effect = llm
     uc = QueryOptimizationUseCase(
         dsl_port=_KeyedDSL(counts), research=research, agent=agent, settings=settings
     )
