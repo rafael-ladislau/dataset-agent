@@ -7,7 +7,9 @@ Americas" or "GAGE Facility". Alias research then only rearranges the title's wo
 
 When the title itself has no Dimensions hits and its aliases barely match, one structured
 LLM call (no tool loop) names the products, networks or archives the description refers
-to. Candidates are screened here; the caller keeps only those Dimensions finds.
+to. Names the web results or description define with an acronym ("Network of the
+Americas (NOTA)") are candidates too, so an LLM that returns nothing does not end the
+search. Candidates are screened here; the caller keeps only those Dimensions finds.
 """
 
 from __future__ import annotations
@@ -56,6 +58,42 @@ def content_tokens(text: str) -> set[str]:
     """Case-folded, plural-folded words of *text* that are not generic data words."""
     words = (w for w in _WORD.split(text.casefold()) if len(w) > 1 and w not in _GENERIC)
     return {_fold(w) for w in words if _fold(w) not in _GENERIC}
+
+
+_LINK = frozenset({"of", "the", "and", "for", "on", "in", "de", "&"})
+_DEFINED = re.compile(
+    r"((?:[A-Z][\w'-]*|of|the|and|for|on|in|de|&)(?:\s+(?:[A-Z][\w'-]*|of|the|and|for|on|in|de|&)){1,7})"
+    r"\s*\(([A-Z][A-Za-z]{1,9})\)"
+)
+
+
+def defined_names(text: str) -> list[tuple[str, str]]:
+    """``(name, acronym)`` for proper names written with their acronym in *text*.
+
+    ``"Network of the Americas (NOTA)"`` gives ``("Network of the Americas", "NOTA")``.
+    The acronym must spell the initials of the name's words (capitalized words only, or
+    all words), so a phrase that merely precedes a parenthesis ("Data Portal (beta)") is
+    not taken."""
+    out: list[tuple[str, str]] = []
+    for m in _DEFINED.finditer(text or ""):
+        words = m.group(1).split()
+        acronym = m.group(2)
+        key = acronym.upper()
+        # The shortest tail of the phrase whose initials spell the acronym.
+        for start in range(len(words) - 1, -1, -1):
+            tail = words[start:]
+            if tail[0].casefold() in _LINK:
+                continue
+            caps = "".join(w[0] for w in tail if w.casefold() not in _LINK).upper()
+            every = "".join(w[0] for w in tail if w != "&").upper()
+            if key in (caps, every):
+                name = " ".join(tail)
+                if len(tail) >= 2 and name.casefold() not in {n.casefold() for n, _ in out}:
+                    out.append((name, acronym))
+                break
+            if len(caps) > len(key):
+                break
+    return out
 
 
 def needs_grounding(c_full: int, alias_counts: list[int], min_hits: int) -> bool:

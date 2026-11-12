@@ -6,6 +6,7 @@ import asyncio
 import dataclasses
 import functools
 import logging
+import re
 import time
 import uuid
 from typing import TYPE_CHECKING, Literal
@@ -45,11 +46,21 @@ from dataset_agent.adapters.literature import evaluate_for_clause_sync
 from dataset_agent.adapters.name_grounding import (
     GROUNDING_TOOL,
     content_tokens,
+    defined_names,
     grounding_prompt,
     needs_grounding,
     screen_candidates,
 )
 from dataset_agent.adapters.tools import web_search
+
+#: Funding agencies too broad to gate a query when the dataset's own organizations exist.
+BROAD_FUNDER_FLAGS = frozenset(
+    x.casefold()
+    for x in (
+        "NSF", "National Science Foundation", "U.S. National Science Foundation",
+        "NIH", "National Institutes of Health", "U.S. National Institutes of Health",
+    )
+)
 from dataset_agent.adapters.seed_mapping import (
     QueryCandidate,
     candidate_clause,
@@ -296,7 +307,19 @@ class QueryOptimizationUseCase:
             logger.warning("grounding: LLM call failed: %s", exc)
             raw = {}
         llm_names = raw.get("names") if isinstance(raw, dict) else None
-        candidates = suggested + [n for n in (llm_names or []) if isinstance(n, str)]
+        llm_names = [n for n in llm_names if isinstance(n, str)] if isinstance(llm_names, list) else []
+        # Names defined with an acronym in the web results or description need more hits:
+        # no model vouched for them.
+        # A spelled-out acronym of the title's own words ("Global Navigation Satellite
+        # System" for GNSS) is a technology, not the collection's name.
+        title_words = {w.casefold() for w in re.split(r"[\W_]+", name) if w}
+        defined: list[str] = []
+        spelled: list[str] = []
+        for d_name, acronym in defined_names(f"{rec.description or ''}\n{web}"):
+            (spelled if acronym.casefold() in title_words else defined).append(d_name)
+        vouched = {n.casefold() for n in suggested + llm_names}
+        unvouched = {n.casefold() for n in defined} - vouched
+        candidates = suggested + llm_names + defined
         kept, rejected = screen_candidates(
             candidates,
             dataset_name=name,
@@ -312,12 +335,22 @@ class QueryOptimizationUseCase:
             n = await self._count_alias(cand, notes_parts)
             if n is None:
                 continue
-            if n < s.optimize_grounding_min_alias_hits:
+            floor = (
+                s.optimize_grounding_min_hits
+                if cand.casefold() in unvouched
+                else s.optimize_grounding_min_alias_hits
+            )
+            if n < floor:
                 rejected.append(f"{cand} ({n} Dimensions hits)")
+                continue
+            ceiling = s.optimize_grounding_unvouched_max_hits
+            if cand.casefold() in unvouched and ceiling and n > ceiling:
+                rejected.append(f"{cand} ({n} Dimensions hits: too common for an unvouched name)")
                 continue
             found.append((cand, n))
         added = ", ".join(f"{a!r} ({n} hits)" for a, n in found) or "none"
         notes_parts.append(f"grounding: title has no Dimensions hits; added {added}")
+        rejected += [f"{n} (spells out a title acronym)" for n in spelled]
         if rejected:
             notes_parts.append("grounding: rejected " + "; ".join(rejected))
         logger.info("grounding: added=%s rejected=%s", found, rejected)
@@ -602,6 +635,14 @@ class QueryOptimizationUseCase:
             notes_parts.append(f"dropped generic alias(es) {generic}")
             logger.warning("optimize: dropped generic alias(es) %s", generic)
         flag_terms = sanitize_terms(flag_terms, "flag term")
+        if rec is not None and self._settings.optimize_drop_broad_funder_flags:
+            # A national funding agency is thanked in a large share of all papers; next to
+            # the dataset's own organizations it only lets funding acknowledgments through.
+            broad = [f for f in flag_terms if f.casefold() in BROAD_FUNDER_FLAGS]
+            if broad and len(broad) < len(flag_terms):
+                flag_terms = [f for f in flag_terms if f.casefold() not in BROAD_FUNDER_FLAGS]
+                notes_parts.append(f"dropped broad funder flag(s) {broad}")
+                logger.info("optimize: dropped broad funder flag(s) %s", broad)
         exclude_terms = sanitize_terms(exclude_terms, "exclude term")
 
         if not aliases:

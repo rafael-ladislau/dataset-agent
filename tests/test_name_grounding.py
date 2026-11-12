@@ -98,8 +98,9 @@ def _record(aliases: list[str], suggested: list[str]) -> DatasetRecord:
     )
 
 
-def _run(tmp_path, monkeypatch, counts, aliases, suggested, llm_names, **overrides):
-    monkeypatch.setattr(qopt_mod, "web_search", lambda q: "web results")
+def _run(tmp_path, monkeypatch, counts, aliases, suggested, llm_names, record=None,
+         web="web results", **overrides):
+    monkeypatch.setattr(qopt_mod, "web_search", lambda q: web)
     monkeypatch.setattr(
         qopt_mod, "evaluate_for_clause_sync",
         lambda *a, **k: {"fp_rate_pct": 0.0, "fp_hits": [], "publications_total": 10,
@@ -121,7 +122,7 @@ def _run(tmp_path, monkeypatch, counts, aliases, suggested, llm_names, **overrid
         **overrides,
     )
     research = MagicMock()
-    research.execute.return_value = (_record(aliases, suggested), tmp_path / "r.json")
+    research.execute.return_value = (record or _record(aliases, suggested), tmp_path / "r.json")
     agent = MagicMock()
     agent.get_structured.return_value = (
         {"names": llm_names} if isinstance(llm_names, list) else llm_names
@@ -226,3 +227,68 @@ def test_llm_suffix_form_must_extend_the_alias(alias, value, expected) -> None:
     from dataset_agent.application.research import _suffixed_form_of
 
     assert _suffixed_form_of(alias, value) == expected
+
+
+def test_defined_names_need_matching_initials() -> None:
+    from dataset_agent.adapters.name_grounding import defined_names
+
+    text = (
+        "The Network of the Americas (NOTA) spans 20 countries. Plate Boundary Observatory "
+        "(PBO) stations. Data Portal (beta). Global Navigation Satellite System (GNSS)."
+    )
+    assert defined_names(text) == [
+        ("Network of the Americas", "NOTA"),
+        ("Plate Boundary Observatory", "PBO"),
+        ("Global Navigation Satellite System", "GNSS"),
+    ]
+
+
+def test_web_defined_name_grounds_when_llm_returns_nothing(tmp_path, monkeypatch) -> None:
+    # The LLM emits no names, but the web results define the network with its acronym.
+    web = (
+        "- Network of the Americas | EarthScope Consortium\n  The Network of the Americas "
+        "(NOTA) is a sensor network of GNSS stations. Global Navigation Satellite System "
+        "(GNSS) receivers. Tiny Name Archive (TNA)."
+    )
+    counts = {"GNSS Earthquakes": 23, "Network of the Americas": 1011,
+              "Global Navigation Satellite System": 90000, "Tiny Name Archive": 40}
+    out, _agent = _run(
+        tmp_path, monkeypatch, counts, aliases=[TITLE, "GNSS Earthquakes"], suggested=[],
+        llm_names=[], web=web,
+    )
+    pool = out.aliases.safe + out.aliases.risky
+    assert "Network of the Americas" in pool
+    assert "Global Navigation Satellite System" not in pool
+    assert "Tiny Name Archive" not in pool  # unvouched: needs optimize_grounding_min_hits
+    assert "Global Navigation Satellite System (spells out a title acronym)" in out.notes
+    assert "Tiny Name Archive (40 Dimensions hits)" in out.notes
+
+
+def test_unvouched_name_too_common_is_rejected(tmp_path, monkeypatch) -> None:
+    out, _agent = _run(
+        tmp_path, monkeypatch, {"Synthetic Aperture Radar": 50000},
+        aliases=[TITLE, "GNSS Earthquakes"], suggested=[], llm_names=[],
+        web="Synthetic Aperture Radar (SAR) data.",
+    )
+    assert "too common for an unvouched name" in out.notes
+    assert "Synthetic Aperture Radar" not in out.aliases.safe + out.aliases.risky
+
+
+def test_broad_funder_flags_dropped_next_to_specific_ones(tmp_path, monkeypatch) -> None:
+    rec = _record([TITLE, "Plate Boundary Observatory"], [])
+    rec.flag_terms = ["EarthScope Consortium", "NSF", "National Science Foundation"]
+    out, _agent = _run(
+        tmp_path, monkeypatch, {"Plate Boundary Observatory": 1045}, aliases=[], suggested=[],
+        llm_names=[], record=rec,
+    )
+    assert "dropped broad funder flag(s) ['NSF', 'National Science Foundation']" in out.notes
+
+
+def test_lone_funder_flag_is_kept(tmp_path, monkeypatch) -> None:
+    rec = _record([TITLE, "Plate Boundary Observatory"], [])
+    rec.flag_terms = ["NSF"]
+    out, _agent = _run(
+        tmp_path, monkeypatch, {"Plate Boundary Observatory": 1045}, aliases=[], suggested=[],
+        llm_names=[], record=rec,
+    )
+    assert "dropped broad funder flag" not in out.notes

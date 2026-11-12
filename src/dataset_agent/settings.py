@@ -173,10 +173,16 @@ class Settings(BaseSettings):
     #: the proper names the description refers to and keep those Dimensions finds.
     optimize_grounding_enabled: bool = True
     optimize_grounding_min_hits: int = Field(default=100, ge=0)
-    #: A grounded name is kept only with at least this many Dimensions hits.
+    #: A grounded name is kept only with at least this many Dimensions hits (names only
+    #: found defined with an acronym in web results need ``optimize_grounding_min_hits``).
     optimize_grounding_min_alias_hits: int = Field(default=5, ge=1)
     #: Max grounded names counted in Dimensions per run.
     optimize_grounding_max_candidates: int = Field(default=8, ge=0, le=20)
+    #: An unvouched (web-defined) grounded name with more hits than this is a common
+    #: term, not a collection name (0 = no ceiling).
+    optimize_grounding_unvouched_max_hits: int = Field(default=20000, ge=0)
+    #: Drop research flags naming a national funder (NSF, NIH) when other flags remain.
+    optimize_drop_broad_funder_flags: bool = True
     #: Top publication titles scored with LLM Signal 3 on the primary variant (0 = skip).
     optimize_signal3_max_titles: int = Field(default=5, ge=0, le=20)
     #: Titles with mention_score + context_score below this are treated as likely FP (0–20 scale).
