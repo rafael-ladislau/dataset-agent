@@ -159,9 +159,10 @@ and sample size only; the abstract FP rate stays in the notes and in the iterati
 HIGH needs precision at or above `1 - optimize_fp_threshold_pct/100` (0.90), MEDIUM needs at
 least `fulltext_recall_min_precision` (0.80), and both need at least
 `fulltext_recall_min_evidence` (10) evaluated papers in the selected iteration. Confidence is
-LOW on a gate error, on a probe failure, or when no iteration reaches the evidence floor
-(`fulltext_min_evidence`); in the last two cases the proposal equals the initial query and
-its notes say why. After a recall promotion the precision used is the lower of the
+LOW on a gate error, when the first probe fails, or when no iteration reaches the evidence
+floor (`fulltext_min_evidence`); in the last two cases the proposal equals the initial query
+and its notes say why. A probe failure in a later iteration ends the loop: the best earlier
+iteration is proposed with its own confidence, and the recall check is skipped. After a recall promotion the precision used is the lower of the
 iteration's and the complement's.
 
 ## Seed mapping
