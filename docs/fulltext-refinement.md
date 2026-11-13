@@ -91,7 +91,8 @@ user interface"), naming the query term that caused each group and exclude phras
 it, and reads the matching papers for shared context (flags) and alias forms. The
 groups are written to the iteration notes and the proposal, with the LLM's paper count
 next to the number of false-positive papers whose title or snippets really contain the
-group's cause term ("~6 per LLM, 4 verified"). The prompt asks for flag terms that are
+group's cause term ("~6 per LLM; cause term 'NHIS' occurs in 4 false positive(s)": the
+second number is how many false positives contain the cause term, not per-group evidence). The prompt asks for flag terms that are
 proper names (agency, program, product), not lower-case context words. Fields of research that
 hold at least half of the false positives (and at least
 `refine_category_min_fp_papers`) but at most 10% of the matches are reported as a

@@ -539,7 +539,32 @@ def test_group_note_shows_the_verified_count():
                    "exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""})
     r = refine_candidate(QueryCandidate("X", safe=["Alpha Survey"]), ev(pubs), settings=S, agent=llm,
                          dataset_name="X")
-    assert any("(~6 per LLM, 4 verified" in n for n in r.notes)
+    assert any("(~6 per LLM; cause term 'NHIS' occurs in 4 false positive(s))" in n for n in r.notes)
+
+
+def test_refiner_llm_without_a_usable_result_is_noted():
+    def fp(i):
+        p = pub(f"f{i}", 30 - i, False, "")
+        p["validated_datasets"] = []
+        p["term_contexts"] = [{"term": "NHIS", "role": "alias", "part": "body", "text": "NHIS nursing home"}]
+        return p
+
+    pubs = [pub(f"g{i}", 40 - i, True, "we used Alpha Survey data") for i in range(3)] + [fp(i) for i in range(4)]
+
+    class Boom(FakeLLM):
+        def get_structured(self, prompt, result_tool):
+            raise RuntimeError("timeout")
+
+    empty4 = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "false_positive_groups": []}
+    marker = "refiner LLM returned no usable result"
+    for llm in (FakeLLM({}), Boom({})):
+        r = refine_candidate(QueryCandidate("X", safe=["Alpha Survey"]), ev(pubs), settings=S, agent=llm,
+                             dataset_name="X")
+        assert any(marker in n for n in r.notes)
+        assert r.changed is False
+    r = refine_candidate(QueryCandidate("X", safe=["Alpha Survey"]), ev(pubs), settings=S,
+                         agent=FakeLLM(empty4), dataset_name="X")
+    assert not any(marker in n for n in r.notes)
 
 
 def test_alias_evidence_falls_back_to_snippet_when_the_quote_is_empty():

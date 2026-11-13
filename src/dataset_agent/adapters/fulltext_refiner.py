@@ -127,11 +127,15 @@ current aliases.
 Only use words that literally occur in the text above.
 
 Use emit_refinement_candidates exactly once."""
+    empty = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "groups": [], "failed": True}
     try:
         raw = agent.get_structured(prompt, EMIT_REFINEMENT_CANDIDATES)
     except Exception as exc:
         logger.warning("propose_refinements failed: %s", exc)
-        return {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "groups": []}
+        return empty
+    if not isinstance(raw, dict) or not raw:
+        logger.warning("propose_refinements: the LLM returned no usable result")
+        return empty
 
     def clean_list(v, cap: int) -> list[str]:
         if not isinstance(v, list):
@@ -286,6 +290,10 @@ def refine_candidate(
             flag_terms=candidate.flag_terms,
             exclude_terms=candidate.exclude_terms,
         )
+        if prop.get("failed"):
+            notes.append(
+                "refiner LLM returned no usable result: no exclude, flag or alias was proposed"
+            )
         for g in prop.get("groups") or []:
             verified = (
                 sum(1 for v in evidence.false_positives if term_in(g["cause_term"], v))
@@ -293,11 +301,9 @@ def refine_candidate(
             )
             notes.append(
                 f"full-text pattern: false-positive group '{g['label']}' "
-                f"(~{g['papers']} per LLM, {verified} verified; via '{g['cause_term']}')"
+                f"(~{g['papers']} per LLM; cause term '{g['cause_term']}' occurs in {verified} false positive(s))"
                 + (f"; candidate excludes {g['exclude_terms']}" if g["exclude_terms"] else "")
             )
-        for key in ("exclude_terms", "flag_terms", "new_aliases"):
-            prop[key] = dedupe_strings_ci_preserve_order(prop[key])
         candidates_ex: list[tuple[str, list[PubVerdict]]] = []
         for t in prop["exclude_terms"]:
             if _covered(t, candidate.exclude_terms):
