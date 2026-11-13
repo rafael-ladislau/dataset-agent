@@ -333,9 +333,9 @@ class Settings(BaseSettings):
     refine_flag_min_share: float = Field(default=0.2, ge=0.0, le=1.0)
     # A new flag term must be a proper name (agency, program, product): any lower-case
     # word other than a joiner ("state", "administrative data", "state UI") rejects it
-    # outright, and any other flag with more Dimensions full-data hits than this
-    # (or an unknown count) is rejected. At most refine_max_flag_checks counts per pass.
-    refine_flag_max_hits: int = Field(default=500_000, ge=1)
+    # outright, and any other flag with more Dimensions full-data hits than
+    # optimize_flag_max_hits (or an unknown count) is rejected. At most
+    # refine_max_flag_checks counts per pass.
     refine_max_flag_checks: int = Field(default=5, ge=0, le=20)
     #: Demote a safe alias to flag-gated when a false-positive exclude proposal overlaps it
     #: ("Binex Co" next to alias "BINEX"): the alias has another meaning.

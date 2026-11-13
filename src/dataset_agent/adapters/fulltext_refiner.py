@@ -406,8 +406,9 @@ def refine_candidate(
                 except Exception as exc:  # budget exhausted or Dimensions error
                     reject("flag", t, f"hit count unknown: {exc}")
                     continue
-                if c <= 0 or c > settings.refine_flag_max_hits:
-                    reject("flag", t, f"{c} Dimensions hits (max {settings.refine_flag_max_hits})")
+                max_hits = settings.optimize_flag_max_hits  # same cap as research flags; 0 = off
+                if c <= 0 or (max_hits and c > max_hits):
+                    reject("flag", t, f"{c} Dimensions hits (max {max_hits})")
                     continue
                 flag_hits[t] = c
             new_flags.append((t, hit_gen))

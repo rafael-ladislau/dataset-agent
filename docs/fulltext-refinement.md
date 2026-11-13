@@ -121,7 +121,7 @@ LLM proposals (validated against the quotes before acceptance):
   (agency, program or product): a term with any lower-case word other than a joiner such as
   "of" or "the" is rejected ("state", "administrative data", "state UI"; "Bureau of Labor
   Statistics" passes), and a proper name needs a Dimensions
-  full-data count between 1 and `refine_flag_max_hits` (an unknown count rejects it; at
+  full-data count between 1 and `optimize_flag_max_hits` (an unknown count rejects it; at
   most `refine_max_flag_checks` counts per pass);
 * proposals are deduplicated case-insensitively before any Dimensions count (a flag
   proposed as "Census Bureau" and "census bureau" costs one call), and proposals already
@@ -232,7 +232,7 @@ the precision is an extrapolation from a small sample; the reason string states 
 | `refine_min_exclude_papers` | 2 | Min false positives carrying a new exclude |
 | `refine_max_exclude_checks` / `refine_impact_budget_reserve` | 5 / 14 | Impact checks per pass / Dimensions calls kept for the next gate evaluation |
 | `refine_flag_min_share` | 0.2 | Min share of matching papers carrying a new flag |
-| `refine_flag_max_hits` / `refine_max_flag_checks` | 500000 / 5 | Max Dimensions hits for a new flag / flag counts per pass |
+| `optimize_flag_max_hits` / `refine_max_flag_checks` | 500000 / 5 | Max Dimensions hits for a flag (research and refiner; 0 = off) / flag counts per pass |
 | `refine_category_min_fp_papers` | 3 | Min false positives in a field of research before it is reported |
 | `probe_target`, `submit_target` | `dev` | Extraction instance for probes / submit |
 | `extraction_{dev,prod}_url`, `_user`, `_password` | empty (must be set; extraction requires HTTP Basic auth) | Per-target connection. Do not point it at dataset-agent's own port. |
