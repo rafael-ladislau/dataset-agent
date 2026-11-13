@@ -31,15 +31,6 @@ def _fold(text: str) -> str:
     return _stem_text(unicodedata.normalize("NFKC", text or "").replace("_", " "))
 
 
-_ELLIPSES = ("…", "...")
-
-
-def _snippet_tokens(text: str) -> list[str]:
-    """Tokens of a full-text snippet. Extraction cuts snippets on word boundaries, so
-    the tokens next to an ellipsis are whole words and are kept."""
-    return _fold((text or "").strip()).split()
-
-
 @dataclass
 class PubVerdict:
     publication_id: str
@@ -227,13 +218,14 @@ def _phrase_in(term: str, text: str, *, plural_ok: bool = True) -> bool:
 
 
 def _in_segments(term: str, texts: list[str], snippets: list[str], plural_ok: bool = True) -> bool:
-    """Match inside any of *texts* (whole) or *snippets*; a phrase never spans two segments."""
+    """Match inside any of *texts* (whole) or *snippets*; a phrase never spans two segments.
+
+    Extraction cuts snippets on word boundaries, so the tokens next to an ellipsis are
+    whole words."""
     want = _tokens(term)
     if not want:
         return False
-    return any(_in_tokens(want, _tokens(t), plural_ok) for t in texts) or any(
-        _in_tokens(want, _snippet_tokens(s), plural_ok) for s in snippets
-    )
+    return any(_in_tokens(want, _tokens(s), plural_ok) for s in [*texts, *snippets])
 
 
 def _snippets(verdict: PubVerdict, *, with_title: bool) -> list[str]:
