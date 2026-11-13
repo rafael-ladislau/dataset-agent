@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 from dataset_agent.adapters.dimensions_dsl import (
     build_search_publications_paged_dsl,
-    fetch_top_n,
     publication_title,
     _parse_retry_after_seconds,
 )
@@ -24,47 +23,6 @@ def test_build_search_publications_paged_dsl_has_limit_and_skip() -> None:
     )
     assert "limit 500 skip 1000" in q
     assert "return publications[basics+title+times_cited]" in q
-
-
-def test_fetch_top_n_stops_when_empty_page() -> None:
-    class _Port:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        async def execute_dsl(self, dsl: str) -> SimpleNamespace:
-            self.calls += 1
-            if self.calls == 1:
-                pubs = [{"basics": {"title": f"t{i}"}} for i in range(1000)]
-                return SimpleNamespace(publications=pubs, count_total=2000)
-            pubs = [{"basics": {"title": f"u{i}"}} for i in range(500)]
-            return SimpleNamespace(publications=pubs, count_total=2000)
-
-    async def _run() -> None:
-        p = _Port()
-        pubs, ncalls = await fetch_top_n(
-            p,
-            '(\\"x\\")',
-            max_results=1500,
-            page_size=1000,
-        )
-        assert ncalls == 2
-        assert len(pubs) == 1500
-
-    asyncio.run(_run())
-
-
-def test_fetch_top_n_respects_max_results_single_page() -> None:
-    class _Port:
-        async def execute_dsl(self, dsl: str) -> SimpleNamespace:
-            pubs = [{"basics": {"title": f"t{i}"}} for i in range(100)]
-            return SimpleNamespace(publications=pubs, count_total=100)
-
-    async def _run() -> None:
-        pubs, ncalls = await fetch_top_n(_Port(), r"(\"a\")", max_results=40, page_size=1000)
-        assert ncalls == 1
-        assert len(pubs) == 40
-
-    asyncio.run(_run())
 
 
 def test_publication_title_from_basics() -> None:

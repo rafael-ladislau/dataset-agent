@@ -26,7 +26,6 @@ from dataset_agent.adapters.dimensions_dsl import (
     DimensionsDslError,
     build_for_clause_count_dsl,
     build_search_publications_paged_dsl,
-    fetch_top_n,
     inner_quoted_term,
     is_dsl_syntax_error,
     parse_total_count,

@@ -258,22 +258,6 @@ def test_optimize_merges_abstract_derived_exclude_terms(monkeypatch: pytest.Monk
     research = MagicMock()
     agent = MagicMock()
 
-    async def _fake_fetch(*_a, **_k):
-        return (
-            [
-                {
-                    "id": "p1",
-                    "basics": {
-                        "title": "Paper",
-                        "abstract": "We discuss RISK unrelated to the dataset product.",
-                    },
-                }
-            ],
-            0,
-        )
-
-    monkeypatch.setattr(qopt_mod, "fetch_top_n", _fake_fetch)
-
     def _fake_scan(pubs: list, aliases: list, **kw: object) -> list:
         _ = pubs, aliases, kw
         return [

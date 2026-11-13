@@ -278,51 +278,6 @@ def build_search_publications_paged_dsl(
     )
 
 
-async def fetch_top_n(
-    dsl_port: DimensionsDslPort,
-    for_clause: str,
-    *,
-    max_results: int,
-    search_in: str = "full_data",
-    page_size: int = 1000,
-    fields: str = "basics+title+times_cited",
-) -> tuple[list[dict], int]:
-    """
-    Page through Dimensions until *max_results* dicts are collected or pages dry up.
-
-    Returns ``(publications, dsl_query_count)``. Stops at 50_000 cumulative rows
-    (Dimensions pagination policy) to avoid runaway loops.
-    """
-    page_size = min(1000, max(1, int(page_size)))
-    goal = max(0, int(max_results))
-    if goal == 0 or not (for_clause or "").strip():
-        return [], 0
-    out: list[dict] = []
-    skip = 0
-    dsl_calls = 0
-    max_skip = 50_000
-    while len(out) < goal and skip <= max_skip:
-        chunk = min(page_size, goal - len(out))
-        dsl = build_search_publications_paged_dsl(
-            for_clause,
-            search_in=search_in,
-            limit=chunk,
-            skip=skip,
-            fields=fields,
-        )
-        result = await dsl_port.execute_dsl(dsl)
-        dsl_calls += 1
-        pubs = publications_from_result(result)
-        if not pubs:
-            break
-        row = pubs[:chunk]
-        out.extend(row)
-        if len(pubs) < chunk:
-            break
-        skip += len(row)
-    return out[:goal], dsl_calls
-
-
 def publications_from_result(result: object) -> list[dict]:
     """Normalize dimcli ``.query`` payload to a list of publication dicts."""
     if result is None:
@@ -572,47 +527,6 @@ async def run_alias_count(
     q = build_publications_count_dsl(alias, search_in=search_in, limit=1)
     result = await dsl_port.execute_dsl(q)
     return parse_total_count(result)
-
-
-async def fetch_reference_titles(
-    dsl_port: DimensionsDslPort,
-    ids: list[str],
-    *,
-    batch_size: int = 512,
-    max_unique_ids: int = 2000,
-) -> dict[str, str]:
-    """
-    Batch-resolve reference ids to titles via Dimensions.
-
-    Deduplicates *ids*, caps to *max_unique_ids*, batches in groups of
-    *batch_size*, and returns ``{id: title}`` for successfully resolved ids.
-    """
-    deduped = list({str(i).strip() for i in ids if isinstance(i, str) and i.strip()})
-    if not deduped:
-        return {}
-    capped = deduped[:max(1, int(max_unique_ids))]
-    bs = max(1, min(1000, int(batch_size)))
-    out: dict[str, str] = {}
-    for i in range(0, len(capped), bs):
-        chunk = capped[i : i + bs]
-        id_list = ", ".join(f'"{sanitize_alias(i)}"' for i in chunk)
-        dsl = f"search publications where id in [{id_list}] return publications[id+title]"
-        try:
-            result = await dsl_port.execute_dsl(dsl)
-        except Exception as exc:
-            logger.warning("fetch_reference_titles batch failed: %s", exc)
-            continue
-        for pub in publications_from_result(result):
-            if not isinstance(pub, dict):
-                continue
-            pid = str(pub.get("id") or "").strip()
-            if not pid:
-                continue
-            t = publication_title(pub)
-            if t:
-                out[pid] = t
-    logger.info("fetch_reference_titles: resolved %s/%s unique ids", len(out), len(capped))
-    return out
 
 
 class AsyncThrottledDimensionsDsl(DimensionsDslPort):
