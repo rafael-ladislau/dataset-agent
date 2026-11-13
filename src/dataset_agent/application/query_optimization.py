@@ -67,14 +67,6 @@ from dataset_agent.adapters.name_grounding import (
 from dataset_agent.adapters.name_history import HISTORY_TOOL, history_phrases, history_prompt
 from dataset_agent.adapters.tools import web_search
 
-#: Funding agencies too broad to gate a query when the dataset's own organizations exist.
-BROAD_FUNDER_FLAGS = frozenset(
-    x.casefold()
-    for x in (
-        "NSF", "National Science Foundation", "U.S. National Science Foundation",
-        "NIH", "National Institutes of Health", "U.S. National Institutes of Health",
-    )
-)
 from dataset_agent.adapters.seed_mapping import (
     QueryCandidate,
     ai_model_seed_clause,
@@ -1510,14 +1502,6 @@ class QueryOptimizationUseCase:
             notes_parts.append(f"dropped generic alias(es) {generic}")
             logger.warning("optimize: dropped generic alias(es) %s", generic)
         flag_terms = sanitize_terms(flag_terms, "flag term")
-        if rec is not None and self._settings.optimize_drop_broad_funder_flags:
-            # A national funding agency is thanked in a large share of all papers; next to
-            # the dataset's own organizations it only lets funding acknowledgments through.
-            broad = [f for f in flag_terms if f.casefold() in BROAD_FUNDER_FLAGS]
-            if broad and len(broad) < len(flag_terms):
-                flag_terms = [f for f in flag_terms if f.casefold() not in BROAD_FUNDER_FLAGS]
-                notes_parts.append(f"dropped broad funder flag(s) {broad}")
-                logger.info("optimize: dropped broad funder flag(s) %s", broad)
         exclude_terms = sanitize_terms(exclude_terms, "exclude term")
 
         if not aliases:

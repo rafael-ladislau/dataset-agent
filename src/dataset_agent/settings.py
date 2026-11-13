@@ -182,8 +182,6 @@ class Settings(BaseSettings):
     optimize_name_history_enabled: bool = True
     #: Max history names counted in Dimensions per run.
     optimize_name_history_max_candidates: int = Field(default=6, ge=0, le=20)
-    #: Drop research flags naming a national funder (NSF, NIH) when other flags remain.
-    optimize_drop_broad_funder_flags: bool = True
     #: Research flags with more Dimensions full-data hits than this ("GAGE": 5.3M, as
     #: "gage" also means gauge) admit any paper; dropped when other flags remain (0 = off).
     optimize_flag_max_hits: int = Field(default=500_000, ge=0)

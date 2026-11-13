@@ -280,20 +280,13 @@ def test_broad_funder_flags_dropped_next_to_specific_ones(tmp_path, monkeypatch)
     rec = _record([TITLE, "Plate Boundary Observatory"], [])
     rec.flag_terms = ["EarthScope Consortium", "NSF", "National Science Foundation"]
     out, _agent = _run(
-        tmp_path, monkeypatch, {"Plate Boundary Observatory": 1045}, aliases=[], suggested=[],
-        llm_names=[], record=rec,
+        tmp_path, monkeypatch,
+        {"Plate Boundary Observatory": 1045, "NSF": 2_166_018,
+         "National Science Foundation": 2_904_331, "EarthScope Consortium": 20_000},
+        aliases=[], suggested=[], llm_names=[], record=rec,
     )
-    assert "dropped broad funder flag(s) ['NSF', 'National Science Foundation']" in out.notes
-
-
-def test_lone_funder_flag_is_kept(tmp_path, monkeypatch) -> None:
-    rec = _record([TITLE, "Plate Boundary Observatory"], [])
-    rec.flag_terms = ["NSF"]
-    out, _agent = _run(
-        tmp_path, monkeypatch, {"Plate Boundary Observatory": 1045}, aliases=[], suggested=[],
-        llm_names=[], record=rec,
-    )
-    assert "dropped broad funder flag" not in out.notes
+    assert "dropped research flag(s): " in out.notes
+    assert out.flag_terms == ["EarthScope Consortium"]
 
 
 def test_is_organization_alias() -> None:
