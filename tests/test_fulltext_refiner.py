@@ -873,3 +873,16 @@ def test_flag_inside_a_new_risky_alias_accepted_in_the_same_round_is_rejected():
     assert "Precision Medicine Initiative Cohort Program" in r.candidate.risky
     assert "Precision Medicine Initiative" not in r.candidate.flag_terms
     assert "contained in a flag-gated alias" in _rejected_note(r, "flag")
+
+
+def test_new_risky_alias_is_rejected_when_the_contained_flag_was_its_only_gate():
+    pubs = _gen_pubs("NHIS data and the Precision Medicine Initiative Cohort Program")
+    out = {"exclude_terms": [], "flag_terms": ["Precision Medicine Initiative"],
+           "new_aliases": ["Precision Medicine Initiative Cohort Program"], "reasoning": ""}
+    cand = QueryCandidate("X", safe=["NHIS"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=FakeLLM(out), dataset_name="X",
+                         count_fn=lambda t: 5000, reference_count=100)
+    assert r.candidate.flag_terms == []
+    assert r.candidate.risky == []
+    assert not [d for d in r.diffs if d.kind == "alias" and d.action == "add"]
+    assert "risky and there are no flag terms" in _rejected_note(r, "alias")

@@ -543,6 +543,13 @@ def refine_candidate(
                 kept_flags.append((t, hits))
         new_flags = kept_flags
         flags = list(candidate.flag_terms) + [t for t, _ in new_flags]
+        if not flags:
+            # The removed flags were the only gate: a new risky alias cannot stay.
+            for t in new_risky:
+                keep_risky.remove(t)
+                diffs = [d for d in diffs
+                         if not (d.kind == "alias" and d.action == "add" and d.term == t)]
+                reject("alias", t, "risky and there are no flag terms")
 
     for d in diffs:
         if d.kind == "alias" and d.action in ("drop", "demote"):
