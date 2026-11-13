@@ -10,7 +10,6 @@ import pytest
 from llm_fakes import ANTHROPIC, OPENAI, STYLES, FakeLLMServer, make_agent
 
 from dataset_agent.adapters import tools
-from dataset_agent.adapters.agent_openai import reset_tier_cache
 
 LOOKUP_TOOL = {
     "name": "lookup",
@@ -34,13 +33,6 @@ RESULT_TOOL = {
 }
 VALID = {"names": ["ACS", "American Community Survey"]}
 INVALID = {"names": "ACS"}
-
-
-@pytest.fixture(autouse=True)
-def _clean_tier_cache():
-    reset_tier_cache()
-    yield
-    reset_tier_cache()
 
 
 @pytest.fixture

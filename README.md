@@ -93,9 +93,7 @@ Structured steps (aliases, flag terms, false-positive analysis, …) ask the mod
 that matches a schema. The OpenAI-style adapter tries, in order: a `json_schema` response format,
 a forced tool call, and JSON parsed from the reply text. It validates every result against the
 schema and retries once with the validation error before moving to the next strategy. A strategy
-the server rejects (HTTP 4xx) is skipped; later calls to that server and model start below it only
-once a lower strategy has answered, so an error every strategy hits (for example an oversized
-prompt) does not change the starting point. When no reply validates, a `WARNING` is logged and the
+the server rejects (HTTP 4xx) is skipped for that call. When no reply validates, a `WARNING` is logged and the
 last parsed object is repaired against the schema (`"true"`/`"false"` to booleans, numeric
 strings to numbers, a lone string to a one-item list, unknown keys dropped when the schema forbids
 them). The step gets the repaired object if it now validates, otherwise an empty result. The

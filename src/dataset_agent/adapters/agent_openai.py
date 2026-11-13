@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import threading
 import time
 from typing import Any
 
@@ -48,17 +47,6 @@ STRUCTURED_TIERS: tuple[str, ...] = (TIER_JSON_SCHEMA, TIER_TOOL_CALL, TIER_TEXT
 
 #: HTTP statuses treated as "the server does not support this request shape".
 _UNSUPPORTED_STATUSES = frozenset({400, 404, 405, 415, 422, 501})
-
-#: (base_url, model) → first structured tier known to work, shared in-process.
-_TIER_CACHE: dict[tuple[str, str], str] = {}
-_TIER_CACHE_LOCK = threading.Lock()
-
-
-def reset_tier_cache() -> None:
-    """Forget which structured-output tier works for each (base_url, model)."""
-    with _TIER_CACHE_LOCK:
-        _TIER_CACHE.clear()
-
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL | re.IGNORECASE)
 
@@ -335,12 +323,10 @@ class OpenAICompatibleAgent(AgentPort):
     def get_structured(self, prompt: str, result_tool: dict) -> dict:
         """Return a dict that validates against ``result_tool["input_schema"]``.
 
-        Tiers, starting at the one cached for this (base_url, model):
-        ``json_schema`` response format → forced tool call → JSON parsed from
-        text.  Each tier retries once on a parse/validation error.  A tier the
-        server rejects with a 4xx/501 is skipped without retry; the cache is
-        lowered past it only once a lower tier gets a 2xx reply, so a
-        request-level error that every tier hits leaves the cache unchanged.
+        Tiers, always tried in this order: json_schema response format, forced
+        tool call, JSON parsed from text.  Each tier retries once on a
+        parse/validation error.  A tier the server rejects with a 4xx/501 is
+        skipped without retry.
 
         When no reply validates, ``structured_failures`` is incremented, a
         WARNING is logged, and the last parsed non-empty object is repaired with
@@ -350,26 +336,19 @@ class OpenAICompatibleAgent(AgentPort):
         """
         tool_name = result_tool["name"]
         schema = result_tool.get("input_schema")
-        cache_key = (self._base_url, self._model_name)
         self.last_structured_tier = None
-        with _TIER_CACHE_LOCK:
-            cached = _TIER_CACHE.get(cache_key)
-        first = STRUCTURED_TIERS.index(cached) if cached in STRUCTURED_TIERS else 0
 
         logger.info(
-            "LLM structured call (tool=%s, prompt %s chars, start_tier=%s): %s",
+            "LLM structured call (tool=%s, prompt %s chars): %s",
             tool_name,
             len(prompt),
-            STRUCTURED_TIERS[first],
             prompt_head(prompt, 120),
         )
         start = time.time()
         errors: list[str] = []
-        rejected = False
-        answered = False  # a higher tier already answered 2xx (even with bad content)
         near_miss: dict[str, Any] | None = None
         near_miss_tier: str | None = None
-        for tier in STRUCTURED_TIERS[first:]:
+        for tier in STRUCTURED_TIERS:
             attempt_prompt = prompt
             for attempt in (1, 2):
                 try:
@@ -377,20 +356,12 @@ class OpenAICompatibleAgent(AgentPort):
                 except _TierUnsupportedError as exc:
                     logger.info("Structured tier %s rejected by server: %s", tier, exc)
                     errors.append(f"{tier}: rejected ({exc})")
-                    rejected = True
                     break
                 except Exception:
                     logger.exception("get_structured failed (tool=%s tier=%s)", tool_name, tier)
                     return self._structured_fallback(tool_name, schema, near_miss, near_miss_tier)
                 if result is not None and contains_harmony_markup(result):
                     result, error = None, "the reply contained Harmony control markup"
-                if rejected and not answered:
-                    # A lower tier answered 2xx and no higher tier did: the higher ones
-                    # are really unsupported. If a higher tier answered 2xx with bad
-                    # content, it is supported, so the cache stays put.
-                    self._demote_cached_tier(cache_key, tier)
-                rejected = False
-                answered = True
                 if result is not None and not error:
                     error = validate_against_schema(result, schema) or ""
                     if error:
@@ -453,16 +424,6 @@ class OpenAICompatibleAgent(AgentPort):
             error,
         )
         return {}
-
-    @staticmethod
-    def _demote_cached_tier(cache_key: tuple[str, str], working_tier: str) -> None:
-        """Start later calls at *working_tier*, below tiers the server rejected."""
-        index = STRUCTURED_TIERS.index(working_tier)
-        with _TIER_CACHE_LOCK:
-            current = _TIER_CACHE.get(cache_key)
-            current_index = STRUCTURED_TIERS.index(current) if current in STRUCTURED_TIERS else 0
-            if index > current_index:
-                _TIER_CACHE[cache_key] = working_tier
 
     def _run_tier(
         self, tier: str, prompt: str, result_tool: dict

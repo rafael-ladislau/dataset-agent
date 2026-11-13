@@ -11,11 +11,9 @@ from llm_fakes import OPENAI, FakeLLMServer, make_agent
 
 from dataset_agent.adapters import tools
 from dataset_agent.adapters.agent_openai import (
-    _TIER_CACHE,
     TIER_JSON_SCHEMA,
     TIER_TEXT_JSON,
     TIER_TOOL_CALL,
-    reset_tier_cache,
 )
 
 RESULT_TOOL = {
@@ -29,14 +27,6 @@ RESULT_TOOL = {
     },
 }
 VALID = {"names": ["ACS"]}
-CACHE_KEY = ("http://fake-llm/v1", "fake-model")
-
-
-@pytest.fixture(autouse=True)
-def _clean_tier_cache():
-    reset_tier_cache()
-    yield
-    reset_tier_cache()
 
 
 @pytest.fixture
@@ -69,7 +59,6 @@ def test_json_schema_tier_request_shape(server):
         },
     }
     assert body["messages"][0]["role"] == "system"
-    assert CACHE_KEY not in _TIER_CACHE
 
 
 def test_400_on_json_schema_falls_through_to_tool_call(server):
@@ -81,7 +70,6 @@ def test_400_on_json_schema_falls_through_to_tool_call(server):
     assert [_tier_of(b) for b in server.requests] == [TIER_JSON_SCHEMA, TIER_TOOL_CALL]
     assert server.requests[1]["tool_choice"] == "required"
     assert server.requests[1]["tools"][0]["function"]["parameters"] == RESULT_TOOL["input_schema"]
-    assert _TIER_CACHE[CACHE_KEY] == TIER_TOOL_CALL
 
 
 def test_text_tier_parses_fenced_json(server):
@@ -103,7 +91,6 @@ def test_text_tier_parses_fenced_json(server):
     ]
     assert "tools" not in server.requests[3]
     assert "JSON Schema" in server.user_texts(3)[-1]
-    assert _TIER_CACHE[CACHE_KEY] == TIER_TEXT_JSON
 
 
 def test_tier_retries_once_then_falls_to_next_tier(server):
@@ -136,24 +123,6 @@ def test_invalid_tool_arguments_retry_in_tool_tier(server):
 
     assert agent.get_structured("Names?", RESULT_TOOL) == VALID
     assert "not valid JSON" in server.user_texts(2)[-1]
-
-
-def test_cached_tier_is_used_first(server):
-    agent = make_agent(OPENAI, server)
-    server.push(server.error(400), server.tool_call("emit_names", VALID))
-    agent.get_structured("Names?", RESULT_TOOL)
-
-    server.requests.clear()
-    server.push(server.tool_call("emit_names", VALID))
-    assert agent.get_structured("Again?", RESULT_TOOL) == VALID
-    assert [_tier_of(b) for b in server.requests] == [TIER_TOOL_CALL]
-
-    # The cache is per (base_url, model): another model starts from the top tier.
-    other = make_agent(OPENAI, server, model="other-model")
-    server.requests.clear()
-    server.push(server.text(json.dumps(VALID)))
-    assert other.get_structured("Names?", RESULT_TOOL) == VALID
-    assert [_tier_of(b) for b in server.requests] == [TIER_JSON_SCHEMA]
 
 
 def test_server_error_aborts_without_fallthrough(server, caplog):
@@ -227,50 +196,6 @@ OTHER_TOOL = {
 }
 
 
-def test_content_failure_does_not_demote_cached_tier(server):
-    agent = make_agent(OPENAI, server)
-    server.push(
-        server.text('{"names": 3}'),
-        server.text("not json"),
-        server.tool_call("emit_names", VALID),
-    )
-    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
-
-    server.requests.clear()
-    server.push(server.text('{"terms": ["a"]}'))
-    assert agent.get_structured("Terms?", OTHER_TOOL) == {"terms": ["a"]}
-    assert [_tier_of(b) for b in server.requests] == [TIER_JSON_SCHEMA]
-    assert CACHE_KEY not in _TIER_CACHE
-
-
-def test_truncated_reply_does_not_demote_cached_tier(server):
-    agent = make_agent(OPENAI, server)
-    truncated = server.text('{"names": ["AC')
-    payload = truncated.json()
-    payload["choices"][0]["finish_reason"] = "length"
-    server.push(
-        type(truncated)(200, json=payload),
-        type(truncated)(200, json=payload),
-        server.tool_call("emit_names", VALID),
-    )
-
-    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
-    assert CACHE_KEY not in _TIER_CACHE
-
-
-def test_content_failure_then_tool_call_400_does_not_demote_cached_tier(server):
-    agent = make_agent(OPENAI, server)
-    server.push(
-        server.text('{"foo": 1}'),
-        server.text('{"foo": 1}'),
-        server.error(400, "tool_choice must be none|auto|required"),
-        server.error(400, "tool_choice must be none|auto|required"),
-        server.text(json.dumps(VALID)),
-    )
-    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
-    assert CACHE_KEY not in _TIER_CACHE
-
-
 def _with_dict_arguments(reply, args):
     payload = reply.json()
     payload["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] = args
@@ -293,27 +218,12 @@ def test_tool_call_arguments_as_dict_are_accepted(server, monkeypatch):
     assert agent.get_structured("Names?", RESULT_TOOL) == VALID
 
 
-def test_every_tier_rejected_leaves_cache_untouched(server):
+def test_every_tier_rejected_returns_empty(server):
     agent = make_agent(OPENAI, server)
     server.push(*[server.error(400) for _ in range(4)])
 
     assert agent.get_structured("Names?", RESULT_TOOL) == {}
-    assert CACHE_KEY not in _TIER_CACHE
     assert agent.last_structured_tier is None
-
-
-def test_demotion_commits_on_lower_tier_2xx_whatever_the_content(server):
-    agent = make_agent(OPENAI, server)
-    server.push(
-        server.error(400),
-        server.text("no tool call"),
-        server.text("no tool call"),
-        server.text(json.dumps(VALID)),
-    )
-
-    assert agent.get_structured("Names?", RESULT_TOOL) == VALID
-    assert _TIER_CACHE[CACHE_KEY] == TIER_TOOL_CALL
-    assert agent.last_structured_tier == TIER_TEXT_JSON
 
 
 def test_last_structured_tier_tracks_the_returned_object(server):
@@ -379,8 +289,10 @@ def test_content_json_wins_over_reasoning(server):
 
 def test_text_json_tier_ignores_reasoning_content(server):
     agent = make_agent(OPENAI, server)
-    _TIER_CACHE[CACHE_KEY] = TIER_TEXT_JSON
     server.push(
+        server.error(400),
+        server.error(400),
+        server.error(400),
         server.text("", reasoning_content=json.dumps(VALID)),
         server.text("", reasoning_content=json.dumps(VALID)),
     )
