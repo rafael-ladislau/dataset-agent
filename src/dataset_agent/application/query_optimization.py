@@ -291,12 +291,6 @@ class QueryOptimizationUseCase:
             return True
         return self._dims_calls < cap
 
-    def _scope_budget_left(self) -> bool:
-        cap = self._call_cap()
-        if cap <= 0:
-            return True
-        return self._dims_calls + 2 <= cap
-
     def _phase1_budget_left(self) -> bool:
         """Room for one more phase-1 check while keeping ``refine_impact_budget_reserve``
         calls (plus the next gate's two) for the full-text refiner."""
