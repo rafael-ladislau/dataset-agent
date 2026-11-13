@@ -228,7 +228,11 @@ names as **safe aliases**, only with full-text evidence.
    measured beyond the ones already promoted. A flag-gated name is probed as a plain alias
    with the safe names, the flags and the excludes excluded; a flag or main-name candidate on
    a flag-gated query whose terms contain DSL special characters cannot be expressed and is
-   reported as not evaluated, before any count call.
+   reported as not evaluated, before any count call. When a candidate fails only on that
+   lower bound (its point precision met the bar), the complement is probed once more with
+   twice the target (about 40 papers) and judged on that probe alone, while the Dimensions
+   call budget has room; the note reads `recall check: 'X' re-probed on N papers after a
+   lower-bound rejection`. The bound and the margin are unchanged.
 4. **Output**: a `TermDiff` (`alias`, `add`) with reason `recall: complement precision X on N
    papers; +K Dimensions hits` and evidence quotes; the final query, proposal and
    `selected_variant` (`...+recall`) include the alias. The abstract FP rate is not

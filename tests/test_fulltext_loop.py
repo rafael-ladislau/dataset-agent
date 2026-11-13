@@ -695,6 +695,35 @@ def test_confidence_capped_at_medium_when_recall_rejected_only_on_the_lower_boun
             f"make ({PROGRAM})") in out.notes
 
 
+def test_recall_reprobes_after_a_lower_bound_rejection_and_promotes(tmp_path):
+    # 23 of 27 (lower bound 0.67) fails the bound; the re-probe on twice the target
+    # reads 34 of 40 (lower bound ~0.70) and is judged alone, not added to the first.
+    out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs(10)},
+                                           {"publications": comp_pubs(PROGRAM, 27, 23)},
+                                           {"publications": comp_pubs(PROGRAM, 40, 34)}],
+                                dsl=RecallDSL(not_total=500),
+                                request_settings=dict(fulltext_recall_max_candidates=1))
+    assert len(client.seeds) == 3
+    assert [k["target"] for k in client.kwargs[1:]] == [20, 40]
+    assert f"recall check: '{PROGRAM}' re-probed on 40 papers after a lower-bound rejection" in out.notes
+    assert PROGRAM in out.aliases.safe and out.selected_variant.endswith("+recall")
+    assert "too uncertain" not in out.notes
+
+
+def test_recall_reprobes_once_and_rejects_when_the_bound_still_fails(tmp_path):
+    out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs(10)},
+                                           {"publications": comp_pubs(PROGRAM, 27, 23)},
+                                           {"publications": comp_pubs(PROGRAM, 40, 33)}],
+                                dsl=RecallDSL(not_total=500),
+                                request_settings=dict(fulltext_recall_max_candidates=1))
+    assert len(client.seeds) == 3
+    assert f"recall check: '{PROGRAM}' re-probed on 40 papers after a lower-bound rejection" in out.notes
+    assert f"recall check: '{PROGRAM}' rejected: complement precision 0.82 on 40 papers is too uncertain" in out.notes
+    assert PROGRAM not in out.aliases.safe
+    # Still a lower-bound-only rejection, so the confidence cap sees it.
+    assert out.confidence.value == "medium"
+
+
 def test_confidence_stays_high_when_recall_rejects_on_point_precision(tmp_path):
     out, _, _ = run_recall(tmp_path, [{"publications": gate_pubs(10)},
                                       {"publications": comp_pubs(PROGRAM, 10, 5)}])

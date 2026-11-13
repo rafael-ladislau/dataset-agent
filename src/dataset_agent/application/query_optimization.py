@@ -776,6 +776,23 @@ class QueryOptimizationUseCase:
                 notes.append(f"recall check: '{term}' not evaluated: {exc}")
                 continue
             ok, reason, stats = judge_complement(term, evidence, k, s, base_count=base_count)
+            if not ok and stats.get("rejected_on_lower_bound") and self._budget_left():
+                # Only the interval rejected it: probe the same complement once more on a
+                # larger sample and judge on that probe alone (it re-reads the same
+                # top-cited head, so the two probes are never added together).
+                try:
+                    evidence2 = await self._probe_candidate(
+                        complement_candidate(term, current), request, target=2 * target
+                    )
+                except (ExtractionError, ValueError) as exc:
+                    notes.append(f"recall check: '{term}' not re-probed: {exc}")
+                else:
+                    notes.append(
+                        f"recall check: '{term}' re-probed on {evidence2.n_evaluated} papers "
+                        "after a lower-bound rejection"
+                    )
+                    evidence = evidence2
+                    ok, reason, stats = judge_complement(term, evidence, k, s, base_count=base_count)
             stats = {**stats, "source": cand.source,
                      "complement_clause": complement_clause(term, current)}
             if not ok:
