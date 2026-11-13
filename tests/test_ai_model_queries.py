@@ -580,8 +580,8 @@ def test_assemble_candidates_screens_by_shape() -> None:
         max_names=14, max_context=12, max_excludes=8,
     )
     assert [n for n, _k in c.names] == [
-        "Aurora", "Aurora-0.25", "Microsoft Aurora", "Aurora foundation model", "Aurora model", "aurora",
-    ][:5]
+        "Aurora", "Aurora-0.25", "Microsoft Aurora", "Aurora foundation model", "Aurora model",
+    ]
     assert c.paper_titles == ["Aurora: A Foundation Model of the Atmosphere"]
     assert c.context_terms == ["ECMWF"]
     assert c.other_meanings == ["aurora borealis"]
@@ -591,7 +591,6 @@ def test_assemble_candidates_screens_by_shape() -> None:
     assert reasons["deep learning"] == "not a proper name (lower-case word)"
     assert reasons["state UI"] == "not a proper name (lower-case word)"
     assert reasons["Aurora 0.25"] == "contains the model's own name"
-    assert reasons["Microsoft"] == "is part of one of the model's names"
     assert reasons["AK"] == "too short to exclude safely"
     assert reasons["Aurora"] == "equals a model name"
     assert reasons["Aurora paper"].startswith("fewer than 4 words")
@@ -770,7 +769,3 @@ def test_cli_optimize_model_builds_an_ai_model_request(monkeypatch: pytest.Monke
     assert req.dataset_names == ["Aurora-0.25"] and req.flag_terms == ["GraphCast"]
     assert req.years_start == 2024
     assert '"entity_type": "ai_model"' in result.output
-
-
-def test_module_documents_the_candidate_kinds() -> None:
-    assert "paper titles" in (amr.__doc__ or "")

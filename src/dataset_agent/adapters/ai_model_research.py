@@ -283,8 +283,8 @@ Only give what the sources above or well-established knowledge support; never in
 
 
 def _is_checkpoint_shaped(name: str) -> bool:
-    """A file or size-tagged release name ("aurora-0.25-finetuned.ckpt", "TerraMind-1.0-tiny")
-    still goes to the count; this only orders candidates, it never rejects one."""
+    """A weights file name ("aurora-0.25-finetuned.ckpt"): rejected by ``assemble_candidates``
+    before any count, because papers do not cite files."""
     return bool(re.search(r"\.(ckpt|pt|pth|bin|safetensors|onnx)$", name, re.I))
 
 
@@ -573,8 +573,6 @@ def assemble_candidates(
 
     raw_ctx = llm.get("context_terms")
     ctx = [t for t in (raw_ctx if isinstance(raw_ctx, list) else []) if isinstance(t, str)]
-    if out.developer:
-        ctx.append(out.developer)
     name_keys = {n.casefold() for n, _k in out.names}
     for term in sanitize_terms(dedupe_strings_ci_preserve_order(ctx), "context term"):
         key = term.casefold()
