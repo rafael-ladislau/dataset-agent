@@ -197,7 +197,7 @@ def _refine(excludes, **settings):
                           flag_terms=["EarthScope Consortium"])
     out = {"exclude_terms": excludes, "flag_terms": [], "new_aliases": [], "reasoning": ""}
     s = _S.model_copy(update=settings) if settings else _S
-    return refine_candidate(cand, build_evidence({"publications": pubs}, 100), settings=s,
+    return refine_candidate(cand, build_evidence({"publications": pubs}), settings=s,
                             agent=_LLM(out), dataset_name="X", count_fn=lambda t: 5)
 
 

@@ -36,7 +36,7 @@ S = Settings(refine_min_alias_papers=3, refine_drop_fp_share=0.8, refine_demote_
 
 
 def ev(pubs):
-    return build_evidence({"publications": pubs}, 100)
+    return build_evidence({"publications": pubs})
 
 
 def diff(r, kind, term):

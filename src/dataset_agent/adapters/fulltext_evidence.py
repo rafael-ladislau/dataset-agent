@@ -61,18 +61,6 @@ class PubVerdict:
     def used(self) -> bool:
         return self.verdict == "used"
 
-    @property
-    def context_text(self) -> str:
-        return " ".join(str(c.get("text") or "") for c in self.contexts)
-
-    @property
-    def text(self) -> str:
-        return _fold(f"{self.quote} {self.title} {self.context_text}")
-
-    @property
-    def quote_text(self) -> str:
-        return _fold(self.quote)
-
     def evidence_quote_text(self, term: str | None = None) -> str:
         """The validator quote, or when it is empty the snippet for *term* (else the
         first snippet), so exclude/alias evidence is never empty."""
@@ -174,19 +162,15 @@ def _attempted(pub: dict[str, Any]) -> bool:
     return ft.get("status") == "delivered" or (bool(ft) and ft.get("reason") != "not_attempted")
 
 
-def build_evidence(results: dict[str, Any], top_n: int | None = None) -> Evidence:
+def build_evidence(results: dict[str, Any]) -> Evidence:
     """Build :class:`Evidence` from a ``GET /pipelines/{id}/llm-results`` body.
 
-    With *top_n* ``None`` (the top-up probe), the sample is every publication that has a
-    full-text outcome; publications never sent for full text are not part of it. An
-    explicit *top_n* keeps the legacy flat top-N sample.
+    The sample is every publication that has a full-text outcome; publications never
+    sent for full text are not part of it.
     """
     pubs = [p for p in (results.get("publications") or []) if isinstance(p, dict)]
     pubs.sort(key=lambda p: -(p.get("citation_count") or 0))
-    if top_n is None:
-        sample = [p for p in pubs if _attempted(p)]
-    else:
-        sample = pubs[: max(1, int(top_n))]
+    sample = [p for p in pubs if _attempted(p)]
     ev = Evidence(n_sampled=len(sample))
     for p in sample:
         ft = p.get("fulltext") or {}
@@ -313,10 +297,6 @@ class TermStats:
     fp: int = 0
     matched_papers: list[PubVerdict] = field(default_factory=list)
     fp_papers: list[PubVerdict] = field(default_factory=list)
-
-    @property
-    def mentioned_only(self) -> int:
-        return self.matched - self.used
 
     @property
     def n(self) -> int:

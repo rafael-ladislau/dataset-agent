@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LLMProvider = Literal["ollama", "lmstudio", "openrouter", "openllm", "openai_compatible"]
@@ -248,9 +248,6 @@ class Settings(BaseSettings):
     fulltext_batch_size: int = Field(default=30, ge=1, le=500)
     #: Hard stop on analyze batches per probe (batch_size x max_batches candidates).
     fulltext_max_batches: int = Field(default=8, ge=1, le=50)
-    #: Deprecated: old flat top-N. When set (and ``fulltext_batch_size`` is not), it is
-    #: used as the batch size.
-    fulltext_top_n: Optional[int] = Field(default=None, ge=1, le=2000)
     #: Max publications pulled from Dimensions by a probe task (extraction ``probe_pull_cap``).
     #: This is the pool the top-up batches draw from.
     probe_pull_cap: int = Field(default=300, ge=1, le=1000)
@@ -423,11 +420,3 @@ class Settings(BaseSettings):
         if v < 1 or v > 10_000:
             raise ValueError("fp_sample_size must be between 1 and 10000")
         return v
-
-    @model_validator(mode="after")
-    def _legacy_fulltext_top_n(self) -> "Settings":
-        # Back-compat: an explicit old flat top-N becomes the batch size unless the
-        # batch size was set too.
-        if self.fulltext_top_n is not None and "fulltext_batch_size" not in self.model_fields_set:
-            self.fulltext_batch_size = min(int(self.fulltext_top_n), 500)
-        return self

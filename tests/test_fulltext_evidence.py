@@ -34,31 +34,30 @@ RESULTS = {"publications": [
 
 
 def test_metrics_exclude_undelivered_and_unanalyzed():
-    ev = build_evidence(RESULTS, top_n=7)
+    ev = build_evidence(RESULTS)
     m = ev.metrics(0, "q", 12.0)
-    # sampled = top 7 (a..g); delivered = a,b,c,d,f,g (6); evaluated = a,b,c,d (f unanalyzed, g no verdict)
-    assert (m.n_publications, m.n_fulltext_delivered, m.n_evaluated) == (7, 6, 4)
-    # a used, b and c mentioned (not used), d not mentioned: matches = a,b,c.
-    assert m.fulltext_precision == 0.75
-    assert m.mention_rate == 0.75
-    assert m.used_rate == 0.25
-    assert m.usage_rate == 1 / 3
-    assert m.oa_coverage == 6 / 7
+    # sampled = a..h; delivered = a,b,c,d,f,g,h (7); evaluated = a,b,c,d,h (f unanalyzed, g no verdict)
+    assert (m.n_publications, m.n_fulltext_delivered, m.n_evaluated) == (8, 7, 5)
+    # a used, b and c mentioned (not used), d not mentioned, h used: matches = a,b,c,h.
+    assert m.fulltext_precision == 0.8
+    assert m.mention_rate == 0.8
+    assert m.used_rate == 0.4
+    assert m.usage_rate == 0.5
+    assert m.oa_coverage == 7 / 8
     assert m.abstract_fp_rate_pct == 12.0
 
 
 def test_is_mentioned_false_counts_as_fp_and_not_mentioned():
     r = {"publications": [_pub("a", 1, vd=_vd(False, mentioned=False, quote="x"))]}
-    ev = build_evidence(r, 5)
+    ev = build_evidence(r)
     assert ev.verdicts[0].verdict == "not_mentioned" and not ev.verdicts[0].genuine
 
 
 def test_term_attribution():
-    ev = build_evidence(RESULTS, top_n=7)
+    ev = build_evidence(RESULTS)
     st = attribute_terms(ev, ["NHIS", "microdata"])
     # Mentioned-but-not-used papers (b, c) are matches, not false positives.
     assert (st["NHIS"].matched, st["NHIS"].used, st["NHIS"].fp) == (3, 1, 0)
-    assert st["NHIS"].mentioned_only == 2
     assert (st["microdata"].matched, st["microdata"].used, st["microdata"].fp) == (1, 1, 0)
 
 
@@ -79,7 +78,7 @@ def test_validation_failed_is_no_verdict_not_not_mentioned():
     failed["validation_failed"] = True
     ok = _pub("y", 90, vd=_vd(True, quote="used it"))
     ok["validation_failed"] = False
-    ev = build_evidence({"publications": [failed, ok]}, 10)
+    ev = build_evidence({"publications": [failed, ok]})
     assert ev.n_delivered == 2
     assert [v.publication_id for v in ev.verdicts] == ["y"]
 
@@ -125,7 +124,6 @@ def test_partial_snippet_credits_only_aliases_with_the_same_acronym_head():
 def test_underscore_is_a_word_separator():
     v = _v(contexts=[_ctx("loaded the WR_dataset files")])
     assert term_in("WR dataset", v)
-    assert "wr dataset" in v.text
 
 
 def test_title_snippets_do_not_count_for_evidence_but_do_for_attribution():

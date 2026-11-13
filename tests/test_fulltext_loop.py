@@ -99,7 +99,7 @@ def test_probe_metrics_recorded_when_enabled(tmp_path):
     client = FakeClient([results])
     uc = QueryOptimizationUseCase(
         dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(),
-        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, fulltext_top_n=4),
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True),
         extraction_client=client)
     out = asyncio.run(uc.execute(REQ))
     assert out.success
@@ -129,7 +129,7 @@ def test_loop_refines_with_evidence_and_selects_best_iteration(tmp_path):
     llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
     uc = QueryOptimizationUseCase(
         dsl_port=CountDSL(), research=MagicMock(), agent=llm,
-        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, fulltext_top_n=20,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True,
                                optimize_max_iterations=3, refine_min_alias_papers=3),
         extraction_client=client)
     out = asyncio.run(uc.execute(REQ))
@@ -150,7 +150,7 @@ def test_proposal_created_and_persisted(tmp_path):
     good = [pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(4)]
     llm = MagicMock()
     llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
-    s = make_settings(tmp_path, fulltext_refinement_enabled=True, fulltext_top_n=20)
+    s = make_settings(tmp_path, fulltext_refinement_enabled=True)
     repo = JsonProposalRepository(s.output_dir)
     uc = QueryOptimizationUseCase(dsl_port=CountDSL(), research=MagicMock(), agent=llm, settings=s,
                                   extraction_client=FakeClient([{"publications": bad}, {"publications": good}]),
@@ -252,7 +252,7 @@ def test_small_fulltext_sample_does_not_win_selection(tmp_path):
     llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
     uc = QueryOptimizationUseCase(
         dsl_port=CountDSL(), research=MagicMock(), agent=llm,
-        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, fulltext_top_n=20,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True,
                                optimize_max_iterations=3, refine_min_alias_papers=3,
                                fulltext_min_evidence=3),
         extraction_client=FakeClient([{"publications": bad}, {"publications": one}]))
@@ -280,7 +280,7 @@ def _ft_uc(tmp_path, results_seq, **kw):
     llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
     return QueryOptimizationUseCase(
         dsl_port=CountDSL(), research=MagicMock(), agent=llm,
-        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, fulltext_top_n=20,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True,
                                optimize_max_iterations=1, **kw),
         extraction_client=FakeClient(results_seq))
 
@@ -333,12 +333,6 @@ def test_topup_settings_reach_the_client_and_shortfall_is_noted(tmp_path, _zero_
     assert (m.fulltext_target, m.fulltext_batches, m.fulltext_stop_reason) == (30, 2, "pool_exhausted")
     assert "full-text shortfall: 3/30 papers with full text (pool_exhausted" in str(out.notes)
     assert any("shortfall" in n for n in out.proposal.notes)
-
-
-def test_legacy_fulltext_top_n_sets_batch_size(tmp_path):
-    assert make_settings(tmp_path, fulltext_top_n=12).fulltext_batch_size == 12
-    assert make_settings(tmp_path, fulltext_top_n=12, fulltext_batch_size=7).fulltext_batch_size == 7
-    assert make_settings(tmp_path).fulltext_batch_size == 30
 
 
 def test_exclude_impact_is_counted_in_dimensions_and_patterns_reach_the_proposal(tmp_path):

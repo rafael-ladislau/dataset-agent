@@ -219,7 +219,6 @@ the precision is an extrapolation from a small sample; the reason string states 
 | `fulltext_target_delivered` | 30 | Papers with delivered full text a probe aims for |
 | `fulltext_batch_size` | 30 | Publications per analyze batch (next untried, by citations) |
 | `fulltext_max_batches` | 8 | Hard stop on batches per probe |
-| `fulltext_top_n` | unset | Deprecated; when set (and `fulltext_batch_size` is not) it is the batch size |
 | `probe_pull_cap` | 300 | Papers pulled by the probe search (the pool batches draw from) |
 | `probe_poll_timeout_seconds` / `probe_poll_interval_seconds` / `probe_poll_max_interval_seconds` | 3600 / 3 / 20 | Polling; the timeout applies to the search and to each batch |
 | `fulltext_recall_enabled` | `true` | Recall check after the precision loop (needs the loop) |
