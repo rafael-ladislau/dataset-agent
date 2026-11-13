@@ -243,6 +243,11 @@ class QueryOptimizationUseCase:
         cap = int(self._settings.optimize_max_dimensions_calls)
         return cap + self._cap_extra if cap > 0 else cap
 
+    def _room(self, keep: int = 0) -> bool:
+        """Room for one more Dimensions call while keeping *keep* calls free (cap 0 = unlimited)."""
+        cap = self._call_cap()
+        return cap <= 0 or self._dims_calls + 1 + keep <= cap
+
     def _fulltext_enabled(self) -> bool:
         return bool(self._settings.fulltext_refinement_enabled)
 
@@ -285,19 +290,12 @@ class QueryOptimizationUseCase:
         return ev
 
     def _budget_left(self) -> bool:
-        cap = self._call_cap()
-        if cap <= 0:
-            return True
-        return self._dims_calls < cap
+        return self._room()
 
     def _phase1_budget_left(self) -> bool:
         """Room for one more phase-1 check while keeping ``refine_impact_budget_reserve``
         calls (plus the next gate's two) for the full-text refiner."""
-        cap = int(self._settings.optimize_max_dimensions_calls)
-        if cap <= 0:
-            return True
-        reserve = int(self._settings.refine_impact_budget_reserve)
-        return self._dims_calls + reserve + 2 < cap
+        return self._room(keep=int(self._settings.refine_impact_budget_reserve) + 2)
 
     async def _counted_execute(self, dsl: str):
         """Throttled Dimensions call that counts against the call budget."""
@@ -319,9 +317,7 @@ class QueryOptimizationUseCase:
 
         Raises once the call budget is down to ``refine_impact_budget_reserve``, which is
         kept for the next gate evaluation."""
-        cap = self._call_cap()
-        reserve = int(self._settings.refine_impact_budget_reserve)
-        if cap > 0 and self._dims_calls >= cap - reserve:
+        if not self._room(keep=int(self._settings.refine_impact_budget_reserve)):
             raise DimensionsDslError("Dimensions budget reserve reached")
         self._dims_calls += 1
         clause = f'({for_clause}) AND \\"{inner_quoted_term(term)}\\"'
@@ -631,9 +627,7 @@ class QueryOptimizationUseCase:
     async def _refine_count(self, term: str) -> int:
         """Refiner-only count: like ``_exclude_impact`` it raises (instead of returning 0)
         once the budget is down to ``refine_impact_budget_reserve``."""
-        cap = self._call_cap()
-        reserve = int(self._settings.refine_impact_budget_reserve)
-        if cap > 0 and self._dims_calls >= cap - reserve:
+        if not self._room(keep=int(self._settings.refine_impact_budget_reserve)):
             raise DimensionsDslError("Dimensions budget reserve reached")
         self._dims_calls += 1
         return await run_alias_count(self._dsl, term, search_in="full_data")
