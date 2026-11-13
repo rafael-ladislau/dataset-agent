@@ -517,6 +517,7 @@ class QueryOptimizationUseCase:
         rec: DatasetRecord,
         alias_entries: list[AliasCountEntry],
         flag_terms: list[str],
+        org_keys: set[str],
         notes_parts: list[str],
     ) -> list[tuple[str, int]]:
         """Former and successor names of the collection, each with its Dimensions count;
@@ -529,7 +530,7 @@ class QueryOptimizationUseCase:
             [
                 (e.alias, e.count)
                 for e in alias_entries
-                if e.count > 0 and not is_organization_alias(e.alias, flag_terms, name)
+                if e.count > 0 and e.alias.casefold() not in org_keys
             ],
             key=lambda x: -x[1],
         )[:3] or [(name, 0)]
@@ -1571,10 +1572,11 @@ class QueryOptimizationUseCase:
                     safe.append(a)
 
             # Aliases that only name a listed organization neither show the dataset is cited
-            # nor keep grounding from looking for its real names.
+            # nor keep grounding from looking for its real names. The rule applies to a
+            # title with no hits: a dataset named after its program has the same shape.
             org_aliases = (
                 [e.alias for e in alias_entries if is_organization_alias(e.alias, flag_terms, request.dataset_name)]
-                if rec is not None
+                if rec is not None and c_full <= 0
                 else []
             )
             org_keys = {a.casefold() for a in org_aliases}
@@ -1600,7 +1602,7 @@ class QueryOptimizationUseCase:
 
             if rec is not None and self._settings.optimize_name_history_enabled:
                 for h_alias, h_count in await self._name_history(
-                    request, rec, alias_entries, flag_terms, notes_parts
+                    request, rec, alias_entries, flag_terms, org_keys, notes_parts
                 ):
                     h_risk = await self._added_name_risk(
                         h_alias, h_count, c_full, has_fn, flag_terms, notes_parts

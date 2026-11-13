@@ -59,3 +59,51 @@ def test_name_history_can_be_disabled(tmp_path, monkeypatch) -> None:
         llm_names=[], record=rec, web=NOTA_WEB, optimize_name_history_enabled=False,
     )
     assert _history_calls(agent) == []
+
+
+def test_history_name_does_not_drop_program_named_alias_of_live_title(tmp_path, monkeypatch) -> None:
+    # "All of Us" is a strict part of the title and sits inside the flag "All of Us
+    # Research Program", but the title has hits: it is the dataset's name, not an
+    # organization alias, and a former name found by history must not delete it.
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from dataset_agent.application import query_optimization as qopt_mod
+    from dataset_agent.application.query_optimization import QueryOptimizationUseCase
+    from dataset_agent.domain.models import OptimizeRequest
+    from dataset_agent.settings import Settings
+    from tests.test_name_grounding import _KeyedDSL
+
+    title = "All of Us NIH"
+    rec = _record([title, "All of Us"], [])
+    rec.main_dataset_name = title
+    rec.flag_terms = ["All of Us Research Program"]
+    history = {"dataset_names": [{"name": "Precision Medicine Initiative Cohort Program",
+                                  "relation": "former", "year": 2016}], "organizations": []}
+    counts = {"Precision Medicine Initiative Cohort Program": 300, "All of Us Research Program": 9000,
+              "All of Us NIH": 86, "All of Us": 5000}
+    monkeypatch.setattr(qopt_mod, "web_search", lambda q: "no phrases here")
+    monkeypatch.setattr(
+        qopt_mod, "evaluate_for_clause_sync",
+        lambda *a, **k: {"fp_rate_pct": 0.0, "fp_hits": [], "publications_total": 10,
+                         "genuine_count": 10, "fp_count": 0, "matched_count": 10,
+                         "total_pubs": 10, "coverage_pct": 100.0, "query": "",
+                         "for_clause": k.get("for_clause", "")},
+    )
+    settings = Settings(
+        tasks_db=tmp_path / "t.db", output_dir=tmp_path / "out", dimensions_api_key="k",
+        optimize_max_dimensions_calls=60, optimize_signal3_max_titles=0,
+        optimize_abstract_exclude_max_hits=0, optimize_abstract_classify_max_calls=0,
+        optimize_fp_domains_max_aliases=0, optimize_web_disambig_max_aliases=0,
+        optimize_suffix_check_max_aliases=0,
+    )
+    research = MagicMock()
+    research.execute.return_value = (rec, tmp_path / "r.json")
+    agent = MagicMock()
+    agent.get_structured.side_effect = _llm(history)
+    uc = QueryOptimizationUseCase(dsl_port=_KeyedDSL(counts), research=research, agent=agent, settings=settings)
+    out = asyncio.run(uc.execute(OptimizeRequest(dataset_name=title)))
+    pool = out.aliases.safe + out.aliases.risky
+    assert "Precision Medicine Initiative Cohort Program" in pool
+    assert "All of Us" in pool
+    assert "dropped organization alias" not in out.notes

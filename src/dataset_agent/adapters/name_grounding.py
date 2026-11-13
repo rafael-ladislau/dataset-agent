@@ -101,7 +101,9 @@ def is_organization_alias(alias: str, flag_terms: list[str], dataset_name: str) 
     """*alias* only names a listed organization ("Earthscope dataset" next to the flag
     "EarthScope Consortium") and says less than the title: it finds the organization's
     papers, not the dataset's. An alias equal to the whole title ("UK Biobank" with the
-    flag "UK Biobank Limited") is the dataset's own name and never counts."""
+    flag "UK Biobank Limited") is the dataset's own name and never counts. The caller applies
+    this only when the title has no hits: a dataset named after its program ("All of Us"
+    next to "All of Us Research Program") has the same shape."""
     tokens = content_tokens(alias)
     title = content_tokens(dataset_name)
     if not tokens or not tokens < title:
