@@ -221,7 +221,7 @@ class Settings(BaseSettings):
     #: FP rate % threshold that triggers refinement in the optimization loop.
     optimize_fp_threshold_pct: float = Field(default=10.0, ge=0.0, le=100.0)
     #: Max optimization loop iterations (build DSL → gate → refine).
-    optimize_max_iterations: int = Field(default=3, ge=1, le=10)
+    optimize_max_iterations: int = Field(default=2, ge=1, le=10)
 
     #: Enable reference-id resolution in the literature gate evaluator.
     gate_ref_resolution_enabled: bool = True

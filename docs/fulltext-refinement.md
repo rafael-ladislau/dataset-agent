@@ -10,7 +10,7 @@ Enabled with `DATASET_AGENT_FULLTEXT_REFINEMENT_ENABLED=true` (default `false`).
 disabled, no probes run and no proposal is built, but Phase 3 still differs from earlier
 releases: the starting variant, the false-positive denominator and the Dimensions call
 budget changed with this feature. Bounded by `optimize_max_iterations`
-(default 3).
+(default 2).
 
 For each iteration the current candidate is mapped to an extraction seed and **probed**:
 
