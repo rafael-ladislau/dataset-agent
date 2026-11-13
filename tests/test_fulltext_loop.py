@@ -317,9 +317,37 @@ def test_confidence_follows_low_fulltext_precision(tmp_path, _zero_abstract_fp):
 
 
 def test_confidence_high_when_fulltext_precision_meets_threshold(tmp_path, _zero_abstract_fp):
-    good = [pub(f"g{i}", 50 - i, True, "My Long Dataset Alpha data") for i in range(3)]
+    good = [pub(f"g{i}", 50 - i, True, "My Long Dataset Alpha data") for i in range(10)]
     out = asyncio.run(_ft_uc(tmp_path, [{"publications": good}]).execute(REQ))
     assert out.confidence.value == "high"
+
+
+def _probe_of(n, n_genuine):
+    return [pub(f"p{i}", 50 - i, i < n_genuine, "My Long Dataset Alpha data") for i in range(n)]
+
+
+def test_confidence_ignores_the_abstract_rate_in_fulltext_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        qopt_mod, "evaluate_for_clause_sync",
+        lambda *a, **k: {"fp_rate_pct": 33.3, "genuine_count": 8, "fp_count": 4, "matched_count": 12,
+                         "total_pubs": 100, "coverage_pct": 100.0, "for_clause": k.get("for_clause", ""),
+                         "publications_total": 100, "fp_hits": []},
+    )
+    out = asyncio.run(_ft_uc(tmp_path, [{"publications": _probe_of(10, 10)}]).execute(REQ))
+    assert out.confidence.value == "high"
+
+
+def test_confidence_bands_follow_fulltext_precision(tmp_path, _zero_abstract_fp):
+    low = asyncio.run(_ft_uc(tmp_path, [{"publications": _probe_of(10, 7)}]).execute(REQ))
+    assert low.confidence.value == "low"
+    mid = asyncio.run(_ft_uc(tmp_path, [{"publications": _probe_of(10, 8)}]).execute(REQ))
+    assert mid.confidence.value == "medium"
+
+
+def test_confidence_low_below_ten_evaluated_papers(tmp_path, _zero_abstract_fp):
+    out = asyncio.run(_ft_uc(tmp_path, [{"publications": _probe_of(3, 3)}]).execute(REQ))
+    assert out.fulltext_iterations[0].n_evaluated == 3
+    assert out.confidence.value == "low"
 
 
 def test_confidence_low_below_min_evidence(tmp_path, _zero_abstract_fp):
@@ -489,8 +517,8 @@ def comp_pubs(term, n, genuine, tag="c"):
     return [pub(f"{tag}{i}", 40 - i, i < genuine, f"studied with the {term} data") for i in range(n)]
 
 
-def gate_pubs():
-    return [pub(f"g{i}", 30 - i, True, f"{RC_NAME} data") for i in range(4)]
+def gate_pubs(n=4):
+    return [pub(f"g{i}", 30 - i, True, f"{RC_NAME} data") for i in range(n)]
 
 
 def recall_uc(tmp_path, results, dsl=None, request_settings=None, **kw):
@@ -640,11 +668,11 @@ def test_recall_caps_confidence(tmp_path, monkeypatch):
                          "total_pubs": 100, "coverage_pct": 100.0, "for_clause": k.get("for_clause", ""),
                          "publications_total": 100, "fp_hits": []},
     )
-    low, _, _ = run_recall(tmp_path, [{"publications": gate_pubs()},
+    low, _, _ = run_recall(tmp_path, [{"publications": gate_pubs(10)},
                                       {"publications": comp_pubs(PROGRAM, 10, 8)}],
                            request_settings=dict(fulltext_recall_max_candidates=1))
     assert PROGRAM in low.aliases.safe and low.confidence.value == "medium"
-    high, _, _ = run_recall(tmp_path, [{"publications": gate_pubs()},
+    high, _, _ = run_recall(tmp_path, [{"publications": gate_pubs(10)},
                                        {"publications": comp_pubs(PROGRAM, 20, 20)}],
                             request_settings=dict(fulltext_recall_max_candidates=1))
     assert PROGRAM in high.aliases.safe and high.confidence.value == "high"

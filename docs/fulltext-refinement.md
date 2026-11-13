@@ -150,11 +150,15 @@ best full-text precision among those with at least `fulltext_min_evidence` evalu
 papers (ties go to the earlier iteration); each iteration notes its `n_evaluated`. A
 refinement produced on the last iteration is not probed and is therefore not proposed.
 
-With full text enabled, the reported confidence never exceeds what the selected
-iteration's full-text precision supports: HIGH needs precision at or above
-`1 - optimize_fp_threshold_pct/100`, MEDIUM needs at least 0.5, anything lower is LOW. When
-no iteration reaches `fulltext_min_evidence` (including a probe that failed on the first
-iteration), the proposal equals the initial query, its notes say why, and confidence is LOW.
+With full text enabled, confidence comes from the selected iteration's full-text precision
+and sample size only; the abstract FP rate stays in the notes and in the iteration metrics.
+HIGH needs precision at or above `1 - optimize_fp_threshold_pct/100` (0.90), MEDIUM needs at
+least `fulltext_recall_min_precision` (0.80), and both need at least
+`fulltext_recall_min_evidence` (10) evaluated papers in the selected iteration. Confidence is
+LOW on a gate error, on a probe failure, or when no iteration reaches the evidence floor
+(`fulltext_min_evidence`); in the last two cases the proposal equals the initial query and
+its notes say why. After a recall promotion the precision used is the lower of the
+iteration's and the complement's.
 
 ## Seed mapping
 
@@ -217,8 +221,8 @@ names as **safe aliases**, only with full-text evidence.
 4. **Output**: a `TermDiff` (`alias`, `add`) with reason `recall: complement precision X on N
    papers; +K Dimensions hits` and evidence quotes; the final query, proposal and
    `selected_variant` (`...+recall`) include the alias. The abstract FP rate is not
-   re-evaluated for the widened query. Confidence is capped by the complement precision
-   (a complement accepted at 0.8 cannot yield HIGH).
+   re-evaluated for the widened query. Confidence uses the lower of the
+   iteration's and the complement's precision (a complement accepted at 0.8 cannot yield HIGH).
 
 Caveat: the probe samples top-cited open-access papers while the hit count covers all years, so
 the precision is an extrapolation from a small sample; the reason string states the sample size.

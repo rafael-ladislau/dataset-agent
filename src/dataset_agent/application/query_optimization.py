@@ -2181,33 +2181,33 @@ class QueryOptimizationUseCase:
             else:
                 best = max(candidates, key=lambda x: (x[0], x[1], x[2]))[3]
 
-        fp_sel = float(best.fp_rate_pct or 0.0)
-        if fp_sel < 1.0:
-            confidence = ConfidenceLevel.HIGH
-        elif fp_sel < 3.0:
-            confidence = ConfidenceLevel.MEDIUM
-        else:
-            confidence = ConfidenceLevel.LOW
-        if phase3_error is not None:
-            confidence = ConfidenceLevel.LOW
         if ft_enabled:
-            # Full-text precision is the primary metric: the reported confidence
-            # never exceeds what the selected iteration's full-text evidence supports.
-            ft_conf = ConfidenceLevel.LOW
-            if best_ft_iter is not None:
+            # In full-text mode confidence comes from the selected iteration's full-text
+            # precision and sample size only; the abstract FP rate stays in the notes and
+            # in IterationMetrics.abstract_fp_rate_pct.
+            confidence = ConfidenceLevel.LOW
+            if phase3_error is None and best_ft_iter is not None:
                 sel = next(m for m in ft_iterations if m.iteration == best_ft_iter)
                 prec = float(sel.fulltext_precision or 0.0)
                 if recall_min_precision is not None:
                     # A promoted complement may dominate the result set and was accepted
                     # at its own (possibly lower) bar; never report more than it supports.
                     prec = min(prec, recall_min_precision)
-                if prec >= 1.0 - threshold / 100.0:
-                    ft_conf = ConfidenceLevel.HIGH
-                elif prec >= 0.5:
-                    ft_conf = ConfidenceLevel.MEDIUM
-            rank = {ConfidenceLevel.LOW: 0, ConfidenceLevel.MEDIUM: 1, ConfidenceLevel.HIGH: 2}
-            if rank[ft_conf] < rank[confidence]:
-                confidence = ft_conf
+                if sel.n_evaluated >= self._settings.fulltext_recall_min_evidence:
+                    if prec >= 1.0 - threshold / 100.0:
+                        confidence = ConfidenceLevel.HIGH
+                    elif prec >= self._settings.fulltext_recall_min_precision:
+                        confidence = ConfidenceLevel.MEDIUM
+        else:
+            fp_sel = float(best.fp_rate_pct or 0.0)
+            if fp_sel < 1.0:
+                confidence = ConfidenceLevel.HIGH
+            elif fp_sel < 3.0:
+                confidence = ConfidenceLevel.MEDIUM
+            else:
+                confidence = ConfidenceLevel.LOW
+            if phase3_error is not None:
+                confidence = ConfidenceLevel.LOW
 
         proposal = None
         if ft_enabled and ft_candidates:
