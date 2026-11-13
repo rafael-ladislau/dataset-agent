@@ -812,3 +812,14 @@ def test_no_field_pattern_without_matching_papers():
     assert category_patterns(evi(matches(2)), 3) == []
     out = category_patterns(evi(matches(3)), 3)
     assert len(out) == 1 and "vs 0/3 matches" in out[0]
+
+
+def test_mixed_case_proper_names_pass_the_flag_name_rule():
+    from dataset_agent.adapters.fulltext_refiner import _generic_word
+
+    for name in ("dbGaP", "eICU", "gnomAD", "eBird", "eICU Collaborative Research Database",
+                 "Census Bureau"):
+        assert _generic_word(name) is False, name
+    for name in ("state UI", "administrative data", "employer", "Gen3 data commons",
+                 "data.midrc.org", "gen3"):
+        assert _generic_word(name) is True, name

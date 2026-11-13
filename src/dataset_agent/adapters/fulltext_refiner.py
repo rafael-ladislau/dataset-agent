@@ -214,19 +214,19 @@ _NAME_JOINERS = frozenset({"of", "the", "and", "for", "on", "in", "to", "at", "d
 
 
 def _generic_word(term: str) -> bool:
-    """Not a proper name: some word is lower case (other than a joiner such as "of").
+    """Not a proper name: some word has no upper-case letter (other than a joiner such as "of").
 
     Flags gate risky aliases, so they must name an agency, program or product: "BLS",
     "Census Bureau", "Bureau of Labor Statistics" pass; "state", "administrative data"
-    and "state UI" (a lower-case word next to an acronym) do not."""
+    and "state UI" (a lower-case word next to an acronym) do not. A coined name with an inner
+    capital ("dbGaP", "eICU", "gnomAD") passes; a digit is no exemption ("gen3", "p53")."""
     words = [w for w in term.split() if w]
     if not words:
         return True
     for w in words:
         if w.lower() in _NAME_JOINERS and len(words) > 1:
             continue
-        first = next((ch for ch in w if ch.isalpha()), "")
-        if first and first.islower():
+        if any(ch.isalpha() for ch in w) and not any(ch.isupper() for ch in w):
             return True
     return False
 
