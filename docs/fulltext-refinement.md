@@ -233,7 +233,6 @@ the precision is an extrapolation from a small sample; the reason string states 
 | `refine_max_exclude_checks` / `refine_impact_budget_reserve` | 5 / 14 | Impact checks per pass / Dimensions calls kept for the next gate evaluation |
 | `refine_flag_min_share` | 0.2 | Min share of matching papers carrying a new flag |
 | `refine_flag_max_hits` / `refine_max_flag_checks` | 500000 / 5 | Max Dimensions hits for a new flag / flag counts per pass |
-| `optimize_suffix_short_acronym_safe` | `false` | Keep `<short acronym> <generic suffix>` aliases ("WR dataset", "QWR program"), whether listed by research or the request or promoted by the suffix check, safe instead of risky (flag-gated); they stay safe anyway when there are no flag terms |
 | `refine_category_min_fp_papers` | 3 | Min false positives in a field of research before it is reported |
 | `probe_target`, `submit_target` | `dev` | Extraction instance for probes / submit |
 | `extraction_{dev,prod}_url`, `_user`, `_password` | empty (must be set; extraction requires HTTP Basic auth) | Per-target connection. Do not point it at dataset-agent's own port. |

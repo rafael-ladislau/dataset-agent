@@ -1680,7 +1680,7 @@ class QueryOptimizationUseCase:
             # "WR dataset" still matches other meanings of "WR", whether research listed it
             # or the suffix check promoted it: flag-gated. Without flag terms a risky alias
             # would never be searched, so it stays safe then.
-            if flag_terms and not self._settings.optimize_suffix_short_acronym_safe:
+            if flag_terms:
                 for s_alias in [x for x in safe if is_acronym_suffix_form(x)]:
                     risky.append(s_alias)
                     for entry in alias_entries:

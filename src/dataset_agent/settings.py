@@ -164,10 +164,6 @@ class Settings(BaseSettings):
     fp_sample_size: int = 1000
     #: Hard cap on Dimensions calls per optimize run (0 = no extra cap beyond use-case logic).
     optimize_max_dimensions_calls: int = Field(default=96, ge=0)
-    # "<short acronym> <generic suffix>" aliases ("WR dataset"), listed by research or
-    # promoted by the suffix check, still collide with other meanings of the acronym;
-    # they are risky (flag-gated) when flag terms exist, unless this is set.
-    optimize_suffix_short_acronym_safe: bool = False
     #: When the dataset title has no Dimensions hits and its aliases together find fewer
     #: than ``optimize_grounding_min_hits`` papers, ask the LLM (one structured call) for
     #: the proper names the description refers to and keep those Dimensions finds.
