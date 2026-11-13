@@ -44,7 +44,7 @@ class AnthropicAgent(AgentPort):
         base_url: str,
         temperature: float = 0.6,
         api_key: str,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
         max_iterations: int = 5,
         timeout_seconds: int = 120,
         http_client: Any | None = None,

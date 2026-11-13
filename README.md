@@ -56,7 +56,7 @@ All variables use the `DATASET_AGENT_` prefix.
 | `DATASET_AGENT_OPENAI_COMPATIBLE_BASE_URL` | _(empty, required)_ | Base URL of any other OpenAI-compatible server, used as given |
 | `DATASET_AGENT_OPENAI_COMPATIBLE_MODEL` | _(empty, required)_ | Model id for that server |
 | `DATASET_AGENT_OPENAI_COMPATIBLE_API_KEY` | _(empty)_ | Optional key (falls back to `DATASET_AGENT_LLM_API_KEY`) |
-| `DATASET_AGENT_LLM_MAX_TOKENS` | `8192` | Max completion tokens per LLM call; reasoning models such as gpt-oss spend reasoning tokens from this budget, so keep it generous |
+| `DATASET_AGENT_LLM_MAX_TOKENS` | `8192` | Max completion tokens per LLM call; reasoning models such as gpt-oss spend reasoning tokens from this budget, so keep it generous. The local reasoning-model runs (qwen, nemotron) used 16384 and still saw a few replies cut off; raise it for such models. |
 
 ##### Using LM Studio
 
