@@ -1060,13 +1060,7 @@ class QueryOptimizationUseCase:
             # 1. Paper titles: anchors for everything measured below.
             titles: list[str] = []
             for title in cands.paper_titles:
-                c = await self._clause_count(q(title))
-                if not c:
-                    model.decide(title, "paper_title", "rejected",
-                                 "0 Dimensions hits" if c == 0 else "not measured", c)
-                    continue
                 from_hub = title.casefold() in cands.hub_title_keys
-                names_model = contains_word(title, name) or contains_word(title, family)
                 if not from_hub:
                     # A title the LLM recalls proves nothing: "Aurora kinase inhibitors
                     # in cancer therapy" also names "Aurora". Only titles cited on the
@@ -1074,23 +1068,28 @@ class QueryOptimizationUseCase:
                     model.decide(
                         title, "paper_title", "rejected",
                         "not cited on the model card: an unverified title cannot be an anchor",
-                        c,
                     )
                     continue
+                c = await self._clause_count(q(title))
+                if not c:
+                    model.decide(title, "paper_title", "rejected",
+                                 "0 Dimensions hits" if c == 0 else "not measured", c)
+                    continue
+                names_model = contains_word(title, name) or contains_word(title, family)
                 if names_model:
                     reason = "cited on the model card; the title names the model"
                 else:
+                    if c > s.ai_model_title_max_hits:
+                        model.decide(title, "paper_title", "rejected",
+                                     f"cited on the model card, but quoted by {c} papers: too "
+                                     "widely cited to single out this model", c)
+                        continue
                     both = await self._clause_count(f"{q(title)} AND {q(name, family)}")
                     if both is None:
                         model.decide(title, "paper_title", "rejected",
                                      "not measured (Dimensions call budget)", c)
                         continue
                     share = both / c
-                    if c > s.ai_model_title_max_hits:
-                        model.decide(title, "paper_title", "rejected",
-                                     f"cited on the model card, but quoted by {c} papers: too "
-                                     "widely cited to single out this model", c)
-                        continue
                     if share < s.ai_model_title_min_name_share:
                         model.decide(
                             title, "paper_title", "rejected",
