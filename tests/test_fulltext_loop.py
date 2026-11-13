@@ -483,6 +483,8 @@ def test_recall_promotes_flag_naming_the_dataset(tmp_path):
     assert d.action == "add" and d.kind == "alias" and d.evidence
     assert re.match(r"^recall: complement precision 0\.90 on 10 papers; \+100 Dimensions hits", d.reason)
     assert "recall check: not eligible: NIH (short acronym)" in out.notes
+    assert "measured before the recall addition" in out.notes
+    assert "Selected gate-evaluated variant" not in out.notes
 
 
 def test_recall_large_expansion_needs_lower_bound(tmp_path):

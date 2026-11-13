@@ -2189,9 +2189,15 @@ class QueryOptimizationUseCase:
         # Prefer best gate-evaluated variant; fall back to lowest-FP among all tested
         if best_variant_entry is not None:
             best = best_variant_entry
-            notes_parts.append(
-                f"Selected gate-evaluated variant {best.label} (fp_rate={best.fp_rate_pct:.1f}%)."
-            )
+            if recall_diffs:
+                notes_parts.append(
+                    f"Selected variant {best.label} (abstract fp_rate={best.fp_rate_pct:.1f}% "
+                    "was measured before the recall addition)."
+                )
+            else:
+                notes_parts.append(
+                    f"Selected gate-evaluated variant {best.label} (fp_rate={best.fp_rate_pct:.1f}%)."
+                )
         else:
             candidates: list[tuple[float, int, int, VariantTestedEntry]] = []
             for ent in tested:
