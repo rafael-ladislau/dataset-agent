@@ -30,7 +30,7 @@ from dataset_agent.adapters.fulltext_evidence import (
     term_in_evidence,
     term_in_quote,
 )
-from dataset_agent.adapters.query_heuristics import is_acronym_suffix_form
+from dataset_agent.adapters.query_heuristics import is_acronym_suffix_form, is_short_acronym
 from dataset_agent.adapters.seed_mapping import QueryCandidate
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
 from dataset_agent.adapters.tools import EMIT_REFINEMENT_CANDIDATES
@@ -347,6 +347,7 @@ def refine_candidate(
             new_excludes.append((t, hit_fp))
         # Aliases are validated before flags: a flag equal to a current or new alias
         # would make the gate satisfy itself (("X") AND (... OR "X")).
+        short_aliases: list[str] = []
         for t in prop["new_aliases"]:
             if _covered(t, aliases):
                 already.append(t)
@@ -358,6 +359,12 @@ def refine_candidate(
             # acronym's other meanings; the refiner never adds one.
             if is_acronym_suffix_form(t):
                 reject("alias", t, "short acronym plus generic suffix")
+                continue
+            # "NOTA": a bare short acronym matches its other meanings even behind flags,
+            # and grounding already refuses one; the refiner never adds one either.
+            if is_short_acronym(t):
+                reject("alias", t, "bare short acronym")
+                short_aliases.append(t)
                 continue
             # A new alias must occur literally (no plural folding) in a genuine quote.
             hit_gen = [v for v in evidence.genuine if term_in_quote(t, v, exact=True)]
@@ -374,8 +381,13 @@ def refine_candidate(
             if _covered(t, candidate.flag_terms):
                 already.append(t)
                 continue
-            if _covered(t, aliases) or _covered(t, [a for a, _ in new_aliases]):
+            # A short acronym refused as an alias must not come back as a gate term.
+            if _covered(t, aliases) or _covered(t, [a for a, _ in new_aliases] + short_aliases):
                 reject("flag", t, "already an alias")
+                continue
+            # "EarthScope" next to "EarthScope Consortium" only widens the gate.
+            if any(_phrase_in(t, f, plural_ok=False) for f in candidate.flag_terms):
+                reject("flag", t, "broader form of an existing flag")
                 continue
             hit_gen = [v for v in evidence.genuine if term_in_evidence(t, v)]
             if len(hit_gen) < 2 or len(hit_gen) < settings.refine_flag_min_share * n_match:
@@ -477,11 +489,33 @@ def refine_candidate(
             continue
         (keep_risky if risky else keep_safe).append(t)
         added_aliases += 1
+        logger.info("refine: alias %r accepted: %d Dimensions hits, %s", t, c, "risky" if risky else "safe")
         diffs.append(TermDiff(
             kind="alias", term=t, action="add", status="verified",
             reason=f"mention form in {len(hits)} matching quote(s); {c} Dimensions hits"
             + (" (risky: requires flags)" if risky else ""),
             stats={"dimensions_count": c, "matching_papers": len(hits)}, evidence=_quotes(hits, t)))
+
+    for d in diffs:
+        if d.kind == "alias" and d.action in ("drop", "demote"):
+            logger.info("refine: alias %r %s: %s", d.term, d.action, d.reason)
+    for t, _ in new_flags:
+        logger.info("refine: flag %r accepted: %s", t,
+                    f"{flag_hits[t]} Dimensions hits" if t in flag_hits else "count not checked")
+    for t, _ in new_excludes:
+        logger.info("refine: exclude %r accepted: %s", t,
+                    f"removes {impacts[t]} results" if t in impacts else "impact not checked")
+    added_parts = [
+        f"{label} [{', '.join(items)}]"
+        for label, items in (
+            ("aliases", [d.term for d in diffs if d.kind == "alias" and d.action == "add"]),
+            ("flags", [t for t, _ in new_flags]),
+            ("excludes", [t for t, _ in new_excludes]),
+        )
+        if items
+    ]
+    if added_parts:
+        notes.append("refiner added: " + "; ".join(added_parts))
 
     for kind, items in rejected.items():
         if items:

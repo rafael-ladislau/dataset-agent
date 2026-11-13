@@ -653,12 +653,15 @@ def test_flag_equal_to_new_alias_is_rejected_aou_shape():
     calls = []
     r = refine_candidate(_aou_candidate(), ev(pubs), settings=S, agent=llm, dataset_name="All of Us",
                          count_fn=lambda t: calls.append(t) or 90_000, reference_count=100)
-    assert "AoU" in r.candidate.risky
+    # A bare short acronym is never added as an alias, and the refused alias cannot come
+    # back as a flag either.
+    assert "AoU" not in r.candidate.risky + r.candidate.safe
     assert "aou" not in [f.casefold() for f in r.candidate.flag_terms]
+    assert any("AoU (bare short acronym)" in n for n in r.notes)
     assert any("AoU (already an alias)" in n for n in r.notes)
-    assert calls.count("AoU") == 1   # only the alias count, none for the flag
+    assert calls.count("AoU") == 0
     clause = candidate_clause(r.candidate)
-    assert clause.count('\\"AoU\\"') == 1 or clause.count('"AoU"') == 1
+    assert '"AoU"' not in clause.replace('\\"', '"')
 
 
 def test_flag_equal_to_current_alias_is_rejected():
@@ -689,7 +692,7 @@ def test_flag_not_colliding_still_accepted():
     r = refine_candidate(_aou_candidate(), ev(pubs), settings=S, agent=llm, dataset_name="All of Us",
                          count_fn=lambda t: 5, reference_count=100)
     assert "All of Us Researcher Workbench" in r.candidate.flag_terms
-    assert "AoU" in r.candidate.safe
+    assert "AoU" not in r.candidate.safe + r.candidate.risky   # bare short acronym
 
 
 def test_new_alias_aou_dataset_is_rejected_but_add_health_is_not():
@@ -704,3 +707,52 @@ def test_new_alias_aou_dataset_is_rejected_but_add_health_is_not():
     assert "AoU dataset (short acronym plus generic suffix)" in note
     from dataset_agent.adapters.query_heuristics import is_acronym_suffix_form
     assert not is_acronym_suffix_form("Add Health")
+
+
+# --- gnss-n11 follow-up: sub-phrase flags, short-acronym aliases, accepted-change logging ---
+
+def _gnss_refine(proposal, counted=None):
+    pubs = [pub(f"g{i}", 40 - i, True,
+                "NHIS stations from PANGA and NOTA archived by EarthScope and the GAGE Facility")
+            for i in range(3)] + [pub("f0", 5, False, "NHIS nursing"), pub("f1", 4, False, "NHIS nursing")]
+    out = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    out.update(proposal)
+
+    def count(t):
+        if counted is not None:
+            counted.append(t)
+        return 5
+
+    cand = QueryCandidate("X", safe=["NHIS"], flag_terms=["EarthScope Consortium"])
+    return refine_candidate(cand, ev(pubs), settings=S, agent=FakeLLM(out), dataset_name="X",
+                            count_fn=count, reference_count=100)
+
+
+def test_new_flag_subphrase_of_existing_flag_rejected():
+    r = _gnss_refine({"flag_terms": ["EarthScope"]})
+    assert r.candidate.flag_terms == ["EarthScope Consortium"]
+    assert "EarthScope (broader form of an existing flag)" in " ".join(r.notes)
+
+
+def test_new_flag_unrelated_still_accepted():
+    r = _gnss_refine({"flag_terms": ["GAGE Facility"]})
+    assert "GAGE Facility" in r.candidate.flag_terms
+
+
+def test_new_alias_short_acronym_rejected():
+    counted: list[str] = []
+    r = _gnss_refine({"new_aliases": ["NOTA", "PANGA"]}, counted)
+    added = [d.term for d in r.diffs if d.kind == "alias" and d.action == "add"]
+    assert added == ["PANGA"] and "NOTA" not in counted
+    assert "NOTA (bare short acronym)" in " ".join(r.notes)
+
+
+def test_accepted_changes_are_logged(caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="dataset_agent.adapters.fulltext_refiner"):
+        r = _gnss_refine({"new_aliases": ["PANGA"], "flag_terms": ["GAGE Facility"]})
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any(m.startswith("refine: alias 'PANGA' accepted:") for m in msgs)
+    assert any(m.startswith("refine: flag 'GAGE Facility' accepted:") for m in msgs)
+    assert any(n.startswith("refiner added: aliases [PANGA]; flags [GAGE Facility]") for n in r.notes)
