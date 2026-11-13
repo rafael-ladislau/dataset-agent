@@ -31,10 +31,6 @@ class ProposalStateError(ProposalError):
     status_code = 409
 
 
-class ProposalForbidden(ProposalError):
-    status_code = 403
-
-
 class ProposalRepo(Protocol):
     def save(self, proposal: QueryProposal) -> None: ...
     def get(self, proposal_id: str) -> QueryProposal | None: ...
@@ -131,8 +127,6 @@ class ProposalService:
         if p.status != "approved":
             raise ProposalStateError("proposal must be approved before submit")
         target = self._settings.submit_target
-        if target == "prod" and p.status != "approved":  # defence in depth
-            raise ProposalForbidden("prod submit requires an approved proposal")
         payload = {**p.start_payload, "probe": False}
         client = self._client_factory(target)
         try:
