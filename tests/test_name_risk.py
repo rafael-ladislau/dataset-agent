@@ -265,3 +265,27 @@ def test_phase1_checks_keep_the_refiner_reserve(tmp_path, monkeypatch):
     # Every share query ran while the refiner's reserve (plus the next gate) was intact.
     last_share = max(i for i, c in enumerate(dsl.calls) if '\\" AND (' in c and "Station Network" in c)
     assert last_share + 1 <= cap - reserve - 2
+
+
+def _screen(flags):
+    settings = Settings(
+        tasks_db="t.db", output_dir="out", dimensions_api_key="k",
+        optimize_flag_max_hits=0, optimize_drop_short_acronym_flags=False,
+    )
+    uc = QueryOptimizationUseCase(
+        dsl_port=MagicMock(), research=MagicMock(), agent=MagicMock(), settings=settings
+    )
+    notes: list[str] = []
+    return asyncio.run(uc._screen_research_flags(flags, notes)), notes
+
+
+def test_research_flag_that_is_a_broader_form_of_another_is_dropped():
+    kept, notes = _screen(["EarthScope", "EarthScope Consortium", "UNAVCO", "IRIS Consortium"])
+    assert kept == ["EarthScope Consortium", "UNAVCO", "IRIS Consortium"]
+    assert notes == ["dropped research flag(s): EarthScope (broader form of EarthScope Consortium)"]
+
+
+def test_flags_differing_only_in_case_are_not_dropped_as_broader():
+    kept, notes = _screen(["EarthScope", "earthscope"])
+    assert kept == ["EarthScope", "earthscope"]
+    assert notes == []

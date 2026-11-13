@@ -49,7 +49,7 @@ from dataset_agent.adapters.extraction_client import (
     ExtractionClient,
     ExtractionError,
 )
-from dataset_agent.adapters.fulltext_evidence import Evidence, build_evidence
+from dataset_agent.adapters.fulltext_evidence import Evidence, _phrase_in, build_evidence
 from dataset_agent.adapters.fulltext_recall import (
     MAX_ADDED_HITS,
     RecallCandidate,
@@ -339,10 +339,28 @@ class QueryOptimizationUseCase:
     async def _screen_research_flags(self, flags: list[str], notes_parts: list[str]) -> list[str]:
         """Drop research flags that admit almost any paper, while other flags remain: a
         bare short acronym ("GAGE" is also a gene family and a spelling of gauge) or a
-        term with more than ``optimize_flag_max_hits`` Dimensions hits."""
+        term with more than ``optimize_flag_max_hits`` Dimensions hits. A flag that is a
+        whole-word phrase inside another kept flag ("EarthScope" in "EarthScope
+        Consortium") is dropped too: the refiner refuses that pair for its own proposals."""
         s = self._settings
         kept = list(flags)
         dropped: list[str] = []
+        broader: list[tuple[str, str]] = []
+        for f in kept:
+            g = next(
+                (
+                    g
+                    for g in kept
+                    if g.casefold() != f.casefold() and _phrase_in(f, g, plural_ok=False)
+                ),
+                None,
+            )
+            if g is not None:
+                broader.append((f, g))
+        if broader:
+            drop_keys = {f.casefold() for f, _g in broader}
+            kept = [f for f in kept if f.casefold() not in drop_keys]
+            dropped += [f"{f} (broader form of {g})" for f, g in broader]
         if s.optimize_drop_short_acronym_flags:
             short = [f for f in kept if is_short_acronym(f)]
             if short and len(short) < len(kept):
