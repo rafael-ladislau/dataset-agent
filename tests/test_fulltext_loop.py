@@ -366,6 +366,28 @@ def test_exclude_impact_is_counted_in_dimensions_and_patterns_reach_the_proposal
     assert "false-positive group 'nursing wards'" in notes and "'Nursing'" in notes
 
 
+def test_refiner_rejections_reach_the_proposal(tmp_path):
+    def fp(pid, cites):
+        p = pub(pid, cites, False, "")
+        p["validated_datasets"] = []
+        return p
+
+    first = [fp(f"n{i}", 50 - i) for i in range(3)] + [
+        pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(3)]
+    good = [pub(f"g{i}", 30 - i, True, "My Long Dataset Alpha data") for i in range(4)]
+    llm = MagicMock()
+    llm.get_structured.return_value = {
+        "false_positive_groups": [], "exclude_terms": [], "flag_terms": [],
+        "new_aliases": ["PBO"], "reasoning": ""}
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=llm,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, optimize_max_iterations=2,
+                               refine_min_alias_papers=10),
+        extraction_client=FakeClient([{"publications": first}, {"publications": good}]))
+    out = asyncio.run(uc.execute(REQ))
+    assert any("rejected" in n and "candidates" in n for n in out.proposal.notes)
+
+
 def test_impact_checks_stop_at_the_budget_reserve(tmp_path):
     import asyncio as _a
 

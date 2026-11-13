@@ -1891,6 +1891,7 @@ class QueryOptimizationUseCase:
         ft_entries: dict[int, VariantTestedEntry] = {}
         ft_candidates: dict[int, QueryCandidate] = {}
         ft_diffs: dict[int, list[TermDiff]] = {}
+        ft_refiner_notes: set[str] = set()
         if ft_enabled:
             current_for_clause = candidate_clause(ft_candidate)
             current_variant_label = "V4"
@@ -2023,7 +2024,9 @@ class QueryOptimizationUseCase:
                     ).result(),
                 )
                 ft_diffs[iteration] = result.diffs
-                notes_parts.extend(f"gate_iter{iteration}: {n}" for n in result.notes)
+                refiner_notes = [f"gate_iter{iteration}: {n}" for n in result.notes]
+                notes_parts.extend(refiner_notes)
+                ft_refiner_notes.update(refiner_notes)
                 if not result.changed:
                     notes_parts.append(f"gate_iter{iteration}: refiner found nothing to change.")
                     break
@@ -2261,6 +2264,7 @@ class QueryOptimizationUseCase:
                         or "refiner" in n
                         or "Dimensions query failed" in n
                         or n.startswith("recall check")
+                        or n in ft_refiner_notes
                     ],
                     seed_kw={"extra": {"home_url": request.dataset_url}},
                 )
