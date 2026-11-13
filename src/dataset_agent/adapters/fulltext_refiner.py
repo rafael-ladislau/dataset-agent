@@ -278,7 +278,8 @@ def refine_candidate(
     already: list[str] = []
     impacts: dict[str, int] = {}
     # Safe aliases that an exclude drawn from false positives overlaps ("Binex Co" next to
-    # "BINEX"): the alias has another meaning, mapped to the exclude that showed it.
+    # "BINEX"): the alias has another meaning, mapped to the exclude that showed it (seen in
+    # at least refine_min_exclude_papers false positives, none of the genuine papers).
     overlap_demote: dict[str, str] = {}
     if enough:
         notes.extend(category_patterns(evidence, settings.refine_category_min_fp_papers))
@@ -316,10 +317,9 @@ def refine_candidate(
             overlapped = [a for a in aliases if _phrase_in(t, a) or _phrase_in(a, t)]
             if overlapped or any(_phrase_in(t, f) for f in candidate.flag_terms):
                 reject("exclude", t, "overlaps an alias or flag")
-                if (
-                    settings.refine_demote_on_overlapping_exclude
-                    and any(term_in(t, v) for v in evidence.false_positives)
-                    and not any(term_in(t, v) for v in evidence.genuine)
+                n_fp_overlap = sum(1 for v in evidence.false_positives if term_in(t, v))
+                if n_fp_overlap >= settings.refine_min_exclude_papers and not any(
+                    term_in(t, v) for v in evidence.genuine
                 ):
                     for a in overlapped:
                         if a.lower() in safe_l and a.lower() != t.lower():

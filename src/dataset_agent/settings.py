@@ -334,9 +334,6 @@ class Settings(BaseSettings):
     # optimize_flag_max_hits (or an unknown count) is rejected. At most
     # refine_max_flag_checks counts per pass.
     refine_max_flag_checks: int = Field(default=5, ge=0, le=20)
-    #: Demote a safe alias to flag-gated when a false-positive exclude proposal overlaps it
-    #: ("Binex Co" next to alias "BINEX"): the alias has another meaning.
-    refine_demote_on_overlapping_exclude: bool = True
     #: Min false positives in one field of research before it is reported as a pattern.
     refine_category_min_fp_papers: int = Field(default=3, ge=1)
 

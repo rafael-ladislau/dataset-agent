@@ -180,10 +180,10 @@ class _LLM(AgentPort):
 _S = Settings(refine_min_alias_papers=3, fulltext_min_evidence=3, refine_min_exclude_papers=2)
 
 
-def _refine(excludes, **settings):
+def _refine(excludes, n_fp=2, **settings):
     pubs = (
         [_pub(f"g{i}", True, "GNSS data from the Network of the Americas") for i in range(4)]
-        + [_pub("f0", False, "BINEX tablets from Binex Co were dispensed")]
+        + [_pub(f"f{i}", False, "BINEX tablets from Binex Co were dispensed") for i in range(n_fp)]
     )
     cand = QueryCandidate("X", safe=["Network of the Americas", "BINEX"],
                           flag_terms=["EarthScope Consortium"])
@@ -202,9 +202,10 @@ def test_overlapping_exclude_demotes_safe_alias_with_little_evidence():
     assert "Network of the Americas" in r.candidate.safe
 
 
-def test_overlapping_exclude_backstop_can_be_disabled():
-    r = _refine(["Binex Co"], refine_demote_on_overlapping_exclude=False)
+def test_overlapping_exclude_in_one_false_positive_does_not_demote():
+    r = _refine(["Binex Co"], n_fp=1)
     assert "BINEX" in r.candidate.safe
+    assert any("Binex Co (overlaps an alias or flag)" in n for n in r.notes)
 
 
 def test_overlapping_exclude_in_genuine_paper_does_not_demote():
