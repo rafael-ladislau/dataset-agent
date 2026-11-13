@@ -78,7 +78,7 @@ def _run(tmp_path, monkeypatch, dsl, flags, suggested, **overrides):
         optimize_max_dimensions_calls=80, optimize_signal3_max_titles=0,
         optimize_abstract_exclude_max_hits=0, optimize_abstract_classify_max_calls=0,
         optimize_fp_domains_max_aliases=0, optimize_web_disambig_max_aliases=0,
-        optimize_suffix_check_max_aliases=0, optimize_name_history_enabled=False,
+        optimize_name_history_enabled=False,
     )
     settings = Settings(**{**base, **overrides})
     research = MagicMock()

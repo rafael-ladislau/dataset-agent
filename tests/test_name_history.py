@@ -93,7 +93,6 @@ def test_name_history_does_not_run_when_the_title_has_hits(tmp_path, monkeypatch
         optimize_max_dimensions_calls=60, optimize_signal3_max_titles=0,
         optimize_abstract_exclude_max_hits=0, optimize_abstract_classify_max_calls=0,
         optimize_fp_domains_max_aliases=0, optimize_web_disambig_max_aliases=0,
-        optimize_suffix_check_max_aliases=0,
     )
     research = MagicMock()
     research.execute.return_value = (rec, tmp_path / "r.json")

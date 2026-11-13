@@ -87,9 +87,7 @@ from dataset_agent.adapters.query_builder import (
     run_variant,
 )
 from dataset_agent.adapters.query_heuristics import (
-    _SUFFIX_CANDIDATES,
     apply_short_acronym_heuristic,
-    check_suffix_necessity,
     is_acronym_shaped_name,
     is_acronym_suffix_form,
     is_short_acronym,
@@ -626,50 +624,6 @@ class QueryOptimizationUseCase:
             raise DimensionsDslError("Dimensions budget reserve reached")
         self._dims_calls += 1
         return await run_alias_count(self._dsl, term, search_in="full_data")
-
-    async def _try_suffix_promote(
-        self,
-        alias: str,
-        bare_count: int,
-        *,
-        notes_parts: list[str],
-        suffix_checked: int,
-        c_full: int | None = None,
-        has_fn: bool = True,
-    ) -> tuple[str | None, int]:
-        """Return (suffixed safe form, updated suffix_checked) or (None, suffix_checked)."""
-        if not self._settings.optimize_suffix_check_enabled:
-            return None, suffix_checked
-        if suffix_checked >= self._settings.optimize_suffix_check_max_aliases:
-            return None, suffix_checked
-        if bare_count <= 0 or not self._budget_left():
-            return None, suffix_checked
-        ratio = (
-            float(self._settings.optimize_suffix_ratio_short_acronym)
-            if is_short_acronym(alias)
-            else float(self._settings.optimize_suffix_ratio_threshold)
-        )
-        counts: dict[str, int] = {}
-        suffixed = await check_suffix_necessity(
-            self._dsl,
-            alias,
-            bare_count=bare_count,
-            ratio_threshold=ratio,
-            counts_out=counts,
-        )
-        self._dims_calls += len(_SUFFIX_CANDIDATES)
-        suffix_checked += 1
-        if suffixed and c_full is not None and suffixed in counts:
-            # A promoted form keeps the risk rules: it must pass them on its own count.
-            if _alias_risk_label(counts[suffixed], c_full, has_fn) == "risky":
-                notes_parts.append(
-                    f"suffix_rejected: {suffixed!r} still risky "
-                    f"({counts[suffixed]} hits); {alias!r} stays risky"
-                )
-                return None, suffix_checked
-        if suffixed:
-            notes_parts.append(f"suffix_promoted: {alias!r} -> {suffixed!r}")
-        return suffixed, suffix_checked
 
     async def _recall_check(
         self,
@@ -1584,7 +1538,6 @@ class QueryOptimizationUseCase:
             risky: list[str] = []
             safe: list[str] = []
             has_fn = bool((request.dataset_name or "").strip())
-            suffix_checked = 0
             dropped_aliases = 0
 
             for a in rk0:
@@ -1599,14 +1552,7 @@ class QueryOptimizationUseCase:
                 if c <= 0:
                     risky.append(a)
                     continue
-                suffixed, suffix_checked = await self._try_suffix_promote(
-                    a, c, notes_parts=notes_parts, suffix_checked=suffix_checked,
-                    c_full=c_full, has_fn=has_fn,
-                )
-                if suffixed:
-                    safe.append(suffixed)
-                else:
-                    risky.append(a)
+                risky.append(a)
 
             for a in st0:
                 if not self._budget_left():
@@ -1621,14 +1567,7 @@ class QueryOptimizationUseCase:
                 if c <= 0:
                     continue
                 if risk == "risky":
-                    suffixed, suffix_checked = await self._try_suffix_promote(
-                        a, c, notes_parts=notes_parts, suffix_checked=suffix_checked,
-                        c_full=c_full, has_fn=has_fn,
-                    )
-                    if suffixed:
-                        safe.append(suffixed)
-                    else:
-                        risky.append(a)
+                    risky.append(a)
                 else:
                     safe.append(a)
 
@@ -1684,8 +1623,8 @@ class QueryOptimizationUseCase:
                     f"dropped organization alias(es) {org_aliases} in favor of {added_names}"
                 )
 
-            # "WR dataset" still matches other meanings of "WR", whether research listed it
-            # or the suffix check promoted it: flag-gated. Without flag terms a risky alias
+            # "WR dataset" still matches other meanings of "WR", as research
+            # lists it: flag-gated. Without flag terms a risky alias
             # would never be searched, so it stays safe then.
             if flag_terms:
                 for s_alias in [x for x in safe if is_acronym_suffix_form(x)]:

@@ -118,7 +118,6 @@ def _run(tmp_path, monkeypatch, counts, aliases, suggested, llm_names, record=No
         optimize_abstract_classify_max_calls=0,
         optimize_fp_domains_max_aliases=0,
         optimize_web_disambig_max_aliases=0,
-        optimize_suffix_check_max_aliases=0,
         **overrides,
     )
     research = MagicMock()

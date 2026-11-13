@@ -70,8 +70,7 @@ def make_settings(tmp_path, **kw):
     base = dict(tasks_db=tmp_path / "t.db", output_dir=tmp_path / "out", dimensions_api_key="k",
                 optimize_max_dimensions_calls=100, optimize_signal3_max_titles=0,
                 optimize_abstract_exclude_max_hits=0, optimize_abstract_classify_max_calls=0,
-                optimize_fp_domains_max_aliases=0, optimize_web_disambig_max_aliases=0,
-                optimize_suffix_check_max_aliases=0)
+                optimize_fp_domains_max_aliases=0, optimize_web_disambig_max_aliases=0)
     base.update(kw)
     return Settings(**base)
 

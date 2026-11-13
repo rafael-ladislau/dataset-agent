@@ -202,14 +202,6 @@ class Settings(BaseSettings):
     optimize_abstract_exclude_max_hits: int = Field(default=16, ge=0, le=80)
     #: Max abstract hits passed through ``classify_alias_mention`` before derive (0 = skip filtering).
     optimize_abstract_classify_max_calls: int = Field(default=12, ge=0, le=80)
-    #: When true, try suffix disambiguation (dataset/survey/…) for risky aliases in optimize Phase 1.
-    optimize_suffix_check_enabled: bool = True
-    #: Max risky aliases to test with suffix candidates (0 = skip).
-    optimize_suffix_check_max_aliases: int = Field(default=3, ge=0, le=10)
-    #: Bare/suffixed count ratio required to promote a normal risky alias.
-    optimize_suffix_ratio_threshold: float = Field(default=100.0, gt=0.0)
-    #: Lower ratio for short acronyms (≤4 chars), e.g. ONET vs ONET dataset (~9×).
-    optimize_suffix_ratio_short_acronym: float = Field(default=10.0, gt=0.0)
     #: Max risky aliases for LLM FP domain analysis in optimize Phase 3 (0 = crude keyword fallback).
     optimize_fp_domains_max_aliases: int = Field(default=3, ge=0, le=10)
     #: Max risky aliases for web-search disambiguation in optimize Phase 3 (0 = skip).

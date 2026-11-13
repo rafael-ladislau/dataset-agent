@@ -73,7 +73,6 @@ def test_optimize_success_with_dataset_override(tmp_path) -> None:
         optimize_abstract_classify_max_calls=0,
         optimize_fp_domains_max_aliases=0,
         optimize_web_disambig_max_aliases=0,
-        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -123,7 +122,6 @@ def test_optimize_all_variants_zero_publications(tmp_path) -> None:
         optimize_abstract_classify_max_calls=0,
         optimize_fp_domains_max_aliases=0,
         optimize_web_disambig_max_aliases=0,
-        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -209,7 +207,6 @@ def test_optimize_signal3_merges_high_fp_into_primary_variant(tmp_path) -> None:
         optimize_abstract_classify_max_calls=0,
         optimize_fp_domains_max_aliases=0,
         optimize_web_disambig_max_aliases=0,
-        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -301,7 +298,6 @@ def test_optimize_merges_abstract_derived_exclude_terms(monkeypatch: pytest.Monk
         optimize_abstract_classify_max_calls=0,
         optimize_fp_domains_max_aliases=0,
         optimize_web_disambig_max_aliases=0,
-        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -383,7 +379,6 @@ def test_optimize_abstract_classify_skips_derive_when_all_genuine(
         optimize_abstract_classify_max_calls=4,
         optimize_fp_domains_max_aliases=0,
         optimize_web_disambig_max_aliases=0,
-        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -477,7 +472,6 @@ def test_optimize_abstract_classify_fp_hits_feed_derive(monkeypatch: pytest.Monk
         optimize_abstract_classify_max_calls=4,
         optimize_fp_domains_max_aliases=0,
         optimize_web_disambig_max_aliases=0,
-        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -516,79 +510,10 @@ def test_fp_rate_counts_all_fp_domains() -> None:
     assert "patient" in noise
 
 
-@pytest.mark.parametrize("flags", [["NIH"], []])
-def test_optimize_short_acronym_suffix_via_rk0(
-    flags: list[str],
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
-    """Short acronyms pre-bucketed as risky (e.g. ONET) still get suffix promotion."""
-    responses = [
-        SimpleNamespace(count_total=2000),
-        SimpleNamespace(count_total=500_000),
-        SimpleNamespace(count_total=5000),
-        SimpleNamespace(
-            count_total=150,
-            publications=[{"basics": {"title": "Paper"}}],
-        ),
-        SimpleNamespace(count_total=800),
-        SimpleNamespace(count_total=400),
-    ]
-    dsl = _FakeDSL(responses)
-
-    async def _fake_suffix(_dsl, alias: str, **kw: object) -> str | None:
-        _ = kw
-        if alias == "ONET":
-            return "ONET dataset"
-        return None
-
-    monkeypatch.setattr(qopt_mod, "check_suffix_necessity", _fake_suffix)
-
-    settings = Settings(
-        tasks_db=tmp_path / "t.db",
-        output_dir=tmp_path / "out",
-        dimensions_api_key="test-key",
-        optimize_max_dimensions_calls=50,
-        optimize_signal3_max_titles=0,
-        optimize_abstract_exclude_max_hits=0,
-        optimize_abstract_classify_max_calls=0,
-        optimize_suffix_check_enabled=True,
-        optimize_suffix_check_max_aliases=3,
-        optimize_fp_domains_max_aliases=0,
-        optimize_web_disambig_max_aliases=0,
-    )
-    uc = QueryOptimizationUseCase(
-        dsl_port=dsl,
-        research=MagicMock(),
-        agent=MagicMock(),
-        settings=settings,
-    )
-    out = asyncio.run(
-        uc.execute(
-            OptimizeRequest(
-                dataset_name="My Long Dataset Alpha",
-                dataset_names=["My Long Dataset Alpha", "ONET"],
-                flag_terms=flags,
-            )
-        )
-    )
-    assert out.success is True
-    assert out.aliases is not None
-    assert "suffix_promoted: 'ONET'" in out.notes
-    if flags:
-        # A suffixed short acronym still collides with the acronym's other meanings.
-        assert "ONET dataset" in out.aliases.risky
-        assert "ONET dataset" not in out.aliases.safe
-        assert "suffix_risky: 'ONET dataset'" in out.notes
-    else:
-        # Without flag terms a risky alias would never be searched: keep it safe.
-        assert "ONET dataset" in out.aliases.safe
-        assert "suffix_risky" not in out.notes
-
-
 def test_optimize_listed_acronym_suffix_alias_is_risky_with_flags(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """Short acronyms pre-bucketed as risky (e.g. ONET) still get suffix promotion."""
+    """A research-listed suffixed acronym form (B-04 shape rule) stays risky with flags."""
     responses = [
         SimpleNamespace(count_total=2000),
         SimpleNamespace(count_total=500_000),
@@ -602,14 +527,6 @@ def test_optimize_listed_acronym_suffix_alias_is_risky_with_flags(
     ]
     dsl = _FakeDSL(responses)
 
-    async def _fake_suffix(_dsl, alias: str, **kw: object) -> str | None:
-        _ = kw
-        if alias == "ONET":
-            return "ONET dataset"
-        return None
-
-    monkeypatch.setattr(qopt_mod, "check_suffix_necessity", _fake_suffix)
-
     settings = Settings(
         tasks_db=tmp_path / "t.db",
         output_dir=tmp_path / "out",
@@ -618,8 +535,6 @@ def test_optimize_listed_acronym_suffix_alias_is_risky_with_flags(
         optimize_signal3_max_titles=0,
         optimize_abstract_exclude_max_hits=0,
         optimize_abstract_classify_max_calls=0,
-        optimize_suffix_check_enabled=True,
-        optimize_suffix_check_max_aliases=3,
         optimize_fp_domains_max_aliases=0,
         optimize_web_disambig_max_aliases=0,
     )
@@ -647,65 +562,6 @@ def test_optimize_listed_acronym_suffix_alias_is_risky_with_flags(
     assert out.notes.count("suffix_risky: 'ONET dataset'") == 1
     entry = next(e for e in out.alias_counts if e.alias == "ONET dataset")
     assert entry.risk == "risky"
-
-
-def test_optimize_suffix_promotes_risky_alias(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
-    """Risky alias with high bare/suffixed ratio is promoted to safe via suffix check."""
-    responses = [
-        SimpleNamespace(count_total=2000),
-        SimpleNamespace(count_total=80),
-        SimpleNamespace(count_total=500_000),
-        SimpleNamespace(
-            count_total=150,
-            publications=[{"basics": {"title": "Paper on Ambiguous Term dataset"}}],
-        ),
-        SimpleNamespace(count_total=800),
-        SimpleNamespace(count_total=400),
-    ]
-    dsl = _FakeDSL(responses)
-
-    async def _fake_suffix(_dsl, alias: str, **kw: object) -> str | None:
-        _ = kw
-        if alias == "Ambiguous Term":
-            return "Ambiguous Term dataset"
-        return None
-
-    monkeypatch.setattr(qopt_mod, "check_suffix_necessity", _fake_suffix)
-
-    settings = Settings(
-        tasks_db=tmp_path / "t.db",
-        output_dir=tmp_path / "out",
-        dimensions_api_key="test-key",
-        optimize_max_dimensions_calls=50,
-        optimize_signal3_max_titles=0,
-        optimize_abstract_exclude_max_hits=0,
-        optimize_abstract_classify_max_calls=0,
-        optimize_suffix_check_enabled=True,
-        optimize_suffix_check_max_aliases=3,
-        optimize_fp_domains_max_aliases=0,
-        optimize_web_disambig_max_aliases=0,
-    )
-    uc = QueryOptimizationUseCase(
-        dsl_port=dsl,
-        research=MagicMock(),
-        agent=MagicMock(),
-        settings=settings,
-    )
-    out = asyncio.run(
-        uc.execute(
-            OptimizeRequest(
-                dataset_name="My Long Dataset Alpha",
-                dataset_names=["My Long Dataset Alpha", "Ambiguous Term"],
-                flag_terms=["NIH"],
-            )
-        )
-    )
-    assert out.success is True
-    assert out.aliases is not None
-    assert any("dataset" in s.lower() for s in out.aliases.safe)
-    assert "suffix_promoted" in out.notes
 
 
 def test_optimize_fp_domains_enriches_keywords(
@@ -745,7 +601,6 @@ def test_optimize_fp_domains_enriches_keywords(
         optimize_abstract_classify_max_calls=0,
         optimize_fp_domains_max_aliases=2,
         optimize_web_disambig_max_aliases=0,
-        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -811,7 +666,6 @@ def test_optimize_web_disambig_adds_excludes(
         optimize_abstract_classify_max_calls=0,
         optimize_fp_domains_max_aliases=0,
         optimize_web_disambig_max_aliases=2,
-        optimize_suffix_check_max_aliases=0,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl,
@@ -856,7 +710,6 @@ def _phase1_settings(tmp_path) -> Settings:
         optimize_abstract_classify_max_calls=0,
         optimize_fp_domains_max_aliases=0,
         optimize_web_disambig_max_aliases=0,
-        optimize_suffix_check_max_aliases=0,
     )
 
 
@@ -923,75 +776,3 @@ def test_phase1_sanitizes_junk_aliases_before_counting(tmp_path) -> None:
     junk = "MIDRC" + "\xa0​\xa0\xa0" * 4 + "..."
     _optimize(tmp_path, dsl, ["MIDRC Data Commons", junk])
     assert not any("\xa0" in q or "​" in q or "..." in q for q in dsl.calls)
-
-
-class _KeyedDSL:
-    """Counts keyed by the quoted phrase found in the DSL string."""
-
-    def __init__(self, counts: dict[str, int]) -> None:
-        self._counts = counts
-
-    async def execute_dsl(self, dsl: str) -> SimpleNamespace:
-        for phrase, n in self._counts.items():
-            if f'\\"{phrase}\\"' in dsl:
-                return SimpleNamespace(count_total=n, publications=[])
-        return SimpleNamespace(count_total=0, publications=[])
-
-
-def _midas_phase1(tmp_path, counts: dict[str, int], aliases: list[str]):
-    settings = Settings(
-        tasks_db=tmp_path / "t.db",
-        output_dir=tmp_path / "out",
-        dimensions_api_key="test-key",
-        optimize_max_dimensions_calls=80,
-        optimize_signal3_max_titles=0,
-        optimize_abstract_exclude_max_hits=0,
-        optimize_abstract_classify_max_calls=0,
-        optimize_suffix_check_enabled=True,
-        optimize_suffix_check_max_aliases=5,
-        optimize_fp_domains_max_aliases=0,
-        optimize_web_disambig_max_aliases=0,
-    )
-    uc = QueryOptimizationUseCase(
-        dsl_port=_KeyedDSL(counts), research=MagicMock(), agent=MagicMock(), settings=settings
-    )
-    return asyncio.run(
-        uc.execute(
-            OptimizeRequest(
-                dataset_name="MIDRC Data Commons",
-                dataset_names=["MIDRC Data Commons", *aliases],
-                flag_terms=["radiology"],
-            )
-        )
-    )
-
-
-_MIDAS_COUNTS = {
-    "MIDRC Data Commons": 24,
-    "MIDAS": 183_973,
-    "MIDAS dataset": 434,
-    "MIDAS survey": 289,
-    "MIDAS program": 1295,
-    "MIDAS data": 1825,
-    "MIDAS study": 1210,
-    "MIDAS survey survey": 2,
-}
-
-
-def test_midas_survey_promotion_is_not_safe_and_not_doubled(tmp_path) -> None:
-    out = _midas_phase1(tmp_path, _MIDAS_COUNTS, ["MIDAS", "MIDAS survey"])
-    assert out.aliases is not None
-    safe = [a.lower() for a in out.aliases.safe]
-    assert "midas survey" not in safe
-    assert "midas survey survey" not in safe
-    assert "MIDAS survey survey" not in out.notes
-    assert "suffix_rejected: 'MIDAS survey'" in out.notes
-    assert "MIDAS" in out.aliases.risky
-
-
-def test_promoted_form_that_passes_risk_rules_stays_safe(tmp_path) -> None:
-    counts = {**_MIDAS_COUNTS, "MIDAS survey": 20}
-    out = _midas_phase1(tmp_path, counts, ["MIDAS"])
-    assert out.aliases is not None
-    assert "MIDAS survey" in out.aliases.safe
-    assert "suffix_rejected" not in out.notes
