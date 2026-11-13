@@ -176,8 +176,10 @@ def classify_alias_mention(
     snippet: str,
     title: str = "",
     entity_context: str = "",
-) -> bool:
+) -> bool | None:
     """LLM: whether the alias mention in *snippet* refers to the dataset (True) or an FP (False).
+    ``None`` when the call failed: the mention is unclassified, neither genuine nor a false
+    positive.
 
     With *entity_context* the target is an AI model: the text describes it (developer,
     domain) and the question is whether the mention is that model or another meaning of
@@ -206,7 +208,7 @@ Use emit_alias_mention_classification exactly once."""
         raw = agent.get_structured(prompt, EMIT_ALIAS_MENTION_CLASSIFICATION)
     except Exception as e:
         logger.warning("classify_alias_mention failed: %s", e)
-        return True
+        return None
     val = raw.get("is_genuine_dataset_reference")
     return bool(val)
 

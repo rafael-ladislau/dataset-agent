@@ -389,6 +389,18 @@ def test_own_name_with_mostly_genuine_mentions_survives_false_positives(tmp_path
     assert "dropped" not in out.notes
 
 
+def test_seed_is_withheld_when_no_abstract_could_be_classified(tmp_path, patched) -> None:
+    unknown = {"fp_rate_pct": None, "classified_count": 0, "failed_count": 10, "attempted_count": 10}
+    patched.eval = _fake_eval([unknown, unknown])
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request())
+
+    assert out.success and out.fp_rate_pct is None
+    assert out.ai_model_seed is None and out.ai_model_seed_clause is None
+    assert out.confidence.value == "low"
+    assert "abstract check: 10 of 10 classifications failed (unclassified)" in out.notes
+    assert "seed withheld: the abstract check classified none of the papers" in out.notes
+
+
 def test_seed_is_withheld_when_the_abstract_check_fails(tmp_path, patched) -> None:
     patched.eval = _fake_eval([{"fp_rate_pct": 90.0}, {"fp_rate_pct": 90.0}])
     out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request())

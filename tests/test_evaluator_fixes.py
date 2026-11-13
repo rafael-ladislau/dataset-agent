@@ -181,3 +181,46 @@ def test_evaluator_runner_path_is_not_double_retried(monkeypatch):
     )
     assert out["error"].startswith("dimensions_query_failed")
     assert len(seen) == 1
+
+
+class _FailingAgent(_FakeAgent):
+    def get_structured(self, prompt, result_tool):
+        raise RuntimeError("LLM down")
+
+
+class _FlakyAgent(_FakeAgent):
+    """Every third classification call fails; the others say false positive."""
+
+    def __init__(self):
+        self.n = 0
+
+    def get_structured(self, prompt, result_tool):
+        self.n += 1
+        if self.n % 3 == 0:
+            raise RuntimeError("LLM down")
+        return {"is_genuine_dataset_reference": False}
+
+
+def test_classify_alias_mention_returns_none_when_the_call_fails():
+    from dataset_agent.adapters.fp_analysis import classify_alias_mention
+
+    assert classify_alias_mention(_FailingAgent(), dataset_name="X", alias="Y", snippet="z") is None
+
+
+def test_all_classifications_failing_leaves_the_rate_unknown(monkeypatch):
+    _install_fake_dimcli(monkeypatch, 20)
+    s = Settings(dimensions_api_key="k", optimize_abstract_classify_max_calls=12, fp_sample_size=500)
+    out = lit.evaluate_for_clause_sync("NHIS", ["NHIS"], "NHIS", s, agent=_FailingAgent())
+    assert out["fp_rate_pct"] is None
+    assert out["classified_count"] == 0 and out["genuine_count"] == 0 and out["fp_count"] == 0
+    assert out["failed_count"] == 12 and out["attempted_count"] == 12
+
+
+def test_failed_classifications_stay_out_of_the_rate_denominator(monkeypatch):
+    _install_fake_dimcli(monkeypatch, 20)
+    s = Settings(dimensions_api_key="k", optimize_abstract_classify_max_calls=12, fp_sample_size=500)
+    out = lit.evaluate_for_clause_sync("NHIS", ["NHIS"], "NHIS", s, agent=_FlakyAgent())
+    # 12 calls, 4 fail; the 8 classified are all false positives.
+    assert out["failed_count"] == 4 and out["classified_count"] == 8
+    assert out["fp_count"] == 8 and out["genuine_count"] == 0
+    assert out["fp_rate_pct"] == 100.0

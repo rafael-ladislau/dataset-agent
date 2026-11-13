@@ -121,6 +121,11 @@ logger = logging.getLogger(__name__)
 _VARIANT_ORDER = {"V4": 0, "V3": 1, "V2": 2, "V1": 3, "V5": 4}
 
 
+def _pct_text(value: float | None) -> str:
+    """A percentage for notes; ``unknown`` when the abstract check classified nothing."""
+    return "unknown" if value is None else f"{value:.1f}%"
+
+
 def _alias_risk_label(c_alias: int, c_full: int, has_full_name: bool) -> Literal["safe", "risky"]:
     """Risky when count > 10x the title count, or any hits when the title has none; 50,000 when there is no title."""
     if not has_full_name:
@@ -1387,13 +1392,17 @@ class QueryOptimizationUseCase:
         notes = [out.notes] if out.notes else []
         threshold = float(s.optimize_fp_threshold_pct)
         evaluated = "~gate" in (out.selected_variant or "")
-        if not evaluated or float(out.fp_rate_pct or 0.0) > threshold:
+        if not evaluated or out.fp_rate_pct is None or float(out.fp_rate_pct) > threshold:
             # Never hand the pipeline a query the abstract check did not clear.
-            why = (
-                f"the abstract check measured {float(out.fp_rate_pct or 0.0):.0f}% false "
-                f"positives (limit {threshold:.0f}%)"
-                if evaluated else "the abstract check did not run on the selected query"
-            )
+            if not evaluated:
+                why = "the abstract check did not run on the selected query"
+            elif out.fp_rate_pct is None:
+                why = "the abstract check classified none of the papers, so no false-positive rate exists"
+            else:
+                why = (
+                    f"the abstract check measured {float(out.fp_rate_pct):.0f}% false "
+                    f"positives (limit {threshold:.0f}%)"
+                )
             out.confidence = ConfidenceLevel.LOW
             notes.append(f"seed withheld: {why}; review term_decisions before using this query")
             out.notes = " ".join(notes)
@@ -1951,7 +1960,14 @@ class QueryOptimizationUseCase:
                     )
                 break
 
+            fp_unknown = ev.get("fp_rate_pct") is None
             fp_rate = float(ev.get("fp_rate_pct") or 0.0)
+            fp_shown: float | None = None if fp_unknown else fp_rate
+            if int(ev.get("failed_count") or 0):
+                notes_parts.append(
+                    f"gate_iter{iteration}: abstract check: {int(ev['failed_count'])} of "
+                    f"{int(ev.get('attempted_count') or 0)} classifications failed (unclassified)"
+                )
             expected_count = int(ev.get("publications_total") or 0)
             coverage = float(ev.get("coverage_pct") or 0.0)
 
@@ -1960,15 +1976,17 @@ class QueryOptimizationUseCase:
                 label=label,
                 for_clause=current_for_clause,
                 expected_count=expected_count,
-                fp_rate_pct=fp_rate,
+                fp_rate_pct=fp_shown,
                 top_titles=[],
             )
             tested.append(entry)
             notes_parts.append(
-                f"gate_iter{iteration} fp_rate={fp_rate:.1f}% coverage={coverage:.1f}% total={expected_count}"
+                f"gate_iter{iteration} fp_rate={_pct_text(fp_shown)} coverage={coverage:.1f}% total={expected_count}"
             )
 
-            if best_ev is None or fp_rate < (best_ev.get("fp_rate_pct") or 100.0):
+            if best_ev is None or (100.0 if fp_unknown else fp_rate) < (
+                best_ev.get("fp_rate_pct") or 100.0
+            ):
                 best_ev = ev
                 best_variant_entry = entry
 
@@ -1984,13 +2002,13 @@ class QueryOptimizationUseCase:
                         IterationMetrics(
                             iteration=iteration,
                             for_clause=current_for_clause,
-                            abstract_fp_rate_pct=fp_rate,
+                            abstract_fp_rate_pct=fp_shown,
                             error=str(exc),
                         )
                     )
                     notes_parts.append(f"gate_iter{iteration}: full-text probe failed: {exc}")
                     break
-                metrics = evidence.metrics(iteration, current_for_clause, fp_rate)
+                metrics = evidence.metrics(iteration, current_for_clause, fp_shown)
                 ft_iterations.append(metrics)
                 shortfall = evidence.shortfall_note
                 if shortfall:
@@ -2223,12 +2241,12 @@ class QueryOptimizationUseCase:
             best = best_variant_entry
             if recall_diffs:
                 notes_parts.append(
-                    f"Selected variant {best.label} (abstract fp_rate={best.fp_rate_pct:.1f}% "
+                    f"Selected variant {best.label} (abstract fp_rate={_pct_text(best.fp_rate_pct)} "
                     "was measured before the recall addition)."
                 )
             else:
                 notes_parts.append(
-                    f"Selected gate-evaluated variant {best.label} (fp_rate={best.fp_rate_pct:.1f}%)."
+                    f"Selected gate-evaluated variant {best.label} (fp_rate={_pct_text(best.fp_rate_pct)})."
                 )
         else:
             candidates: list[tuple[float, int, int, VariantTestedEntry]] = []
@@ -2288,7 +2306,9 @@ class QueryOptimizationUseCase:
                         confidence = ConfidenceLevel.MEDIUM
         else:
             fp_sel = float(best.fp_rate_pct or 0.0)
-            if fp_sel < 1.0:
+            if best.fp_rate_pct is None:
+                confidence = ConfidenceLevel.LOW
+            elif fp_sel < 1.0:
                 confidence = ConfidenceLevel.HIGH
             elif fp_sel < 3.0:
                 confidence = ConfidenceLevel.MEDIUM

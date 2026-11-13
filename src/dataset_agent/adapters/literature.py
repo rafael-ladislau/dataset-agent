@@ -1088,6 +1088,8 @@ def evaluate_for_clause_sync(
     # Classify matched pubs (sampled/capped)
     fp_count = 0
     genuine_count = 0
+    failed_count = 0
+    attempted_count = 0
     fp_hits: list[dict[str, str]] = []
     genuine_by_alias: dict[str, int] = {}
     max_classify = max(1, settings.optimize_abstract_classify_max_calls or 20)
@@ -1105,6 +1107,7 @@ def evaluate_for_clause_sync(
             genuine_count += 1
             continue
 
+        attempted_count += 1
         try:
             genuine = classify_alias_mention(
                 agent,
@@ -1116,9 +1119,11 @@ def evaluate_for_clause_sync(
             )
         except Exception as exc:
             logger.warning("classify_alias_mention failed: %s", exc)
-            genuine = True
+            genuine = None
 
-        if genuine:
+        if genuine is None:
+            failed_count += 1
+        elif genuine:
             genuine_count += 1
             genuine_by_alias[matched_alias] = genuine_by_alias.get(matched_alias, 0) + 1
         else:
@@ -1137,7 +1142,15 @@ def evaluate_for_clause_sync(
     unclassified = max(0, len(matched) - classified_count)
 
     matched_count = len(matched)
-    fp_rate_pct = 100.0 * fp_count / classified_count if classified_count else 0.0
+    fp_rate_pct: float | None = 100.0 * fp_count / classified_count if classified_count else 0.0
+    if failed_count:
+        logger.warning(
+            "abstract check: %d of %d classifications failed (unclassified)",
+            failed_count, attempted_count,
+        )
+        if not classified_count:
+            # Nothing was classified: an outage must not read as 0% false positives.
+            fp_rate_pct = None
 
     return {
         "fp_rate_pct": fp_rate_pct,
@@ -1145,6 +1158,8 @@ def evaluate_for_clause_sync(
         "fp_count": fp_count,
         "classified_count": classified_count,
         "unclassified_count": unclassified,
+        "failed_count": failed_count,
+        "attempted_count": attempted_count,
         "matched_count": matched_count,
         "total_pubs": len(pubs),
         "coverage_pct": coverage,
