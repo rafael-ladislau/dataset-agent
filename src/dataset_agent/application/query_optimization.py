@@ -64,7 +64,7 @@ from dataset_agent.adapters.name_grounding import (
     needs_grounding,
     screen_candidates,
 )
-from dataset_agent.adapters.name_history import HISTORY_TOOL, history_phrases, history_prompt
+from dataset_agent.adapters.name_history import HISTORY_TOOL, history_prompt
 from dataset_agent.adapters.tools import web_search
 
 from dataset_agent.adapters.seed_mapping import (
@@ -535,7 +535,7 @@ class QueryOptimizationUseCase:
         )[:3] or [(name, 0)]
         # The plain search finds the history; with an organization added it stays on this
         # collection when the name is shared ("Network of the Americas" is also the name of
-        # unrelated networks). Junk from the plain search is filtered by the anchors below.
+        # unrelated networks).
         queries = [f'"{lead}" formerly OR renamed OR merged OR successor' for lead, _n in leading[:2]]
         if flag_terms:
             queries.append(f'"{leading[0][0]}" "{flag_terms[0]}" history formerly merged')
@@ -565,22 +565,20 @@ class QueryOptimizationUseCase:
 
         relation = {x["name"].strip().casefold(): x for x in _items("dataset_names")}
         llm_names = [x["name"].strip() for x in _items("dataset_names")]
-        # Web phrases count only in results that mention a leading name or an organization.
-        phrased = history_phrases(web, [a for a, _n in leading] + list(flag_terms))
-        unvouched = {n.casefold() for n in phrased} - set(relation)
         kept, rejected = screen_candidates(
-            llm_names + phrased,
+            llm_names,
             dataset_name=name,
             known_aliases=[e.alias for e in alias_entries],
             flag_terms=flag_terms,
             limit=s.optimize_name_history_max_candidates,
         )
-        found = await self._count_candidates(kept, unvouched, rejected, notes_parts)
+        found = await self._count_candidates(kept, set(), rejected, notes_parts)
 
         def _why(cand: str) -> str:
-            x = relation.get(cand.casefold())
-            if not x:
-                return "named as a former/successor in web results"
+            key = cand.casefold()
+            x = relation.get(key) or next(
+                (v for k, v in relation.items() if k.startswith(key + " (")), {}
+            )
             year = f", {x['year']}" if isinstance(x.get("year"), int) else ""
             return f"{x.get('relation', 'related')}{year}"
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataset_agent.adapters.name_history import HISTORY_TOOL, history_phrases
+from dataset_agent.adapters.name_history import HISTORY_TOOL
 from tests.test_name_grounding import TITLE, _record, _run
 
 NOTA_WEB = (
@@ -20,36 +20,6 @@ def _llm(history: dict, names: list[str] | None = None):
     def reply(prompt, tool, *a, **k):
         return history if tool is HISTORY_TOOL else {"names": names or []}
     return reply
-
-
-def test_history_phrases() -> None:
-    text = (
-        "NOTA, formerly the Plate Boundary Observatory, and later renamed to Network of the "
-        "Americas. The Data Portal was formerly called portal."
-    )
-    assert history_phrases(text) == ["Plate Boundary Observatory", "Network of the Americas"]
-
-
-def test_history_phrases_ignore_results_about_something_else() -> None:
-    web = (
-        "- Network of the Americas | EarthScope\n  NOTA, formerly the Plate Boundary "
-        "Observatory.\n- American Broadcasting Company - Wikipedia\n  ABC, formerly the NBC "
-        "Blue Network, merged with United Paramount Theatres."
-    )
-    assert history_phrases(web, ["Network of the Americas"]) == ["Plate Boundary Observatory"]
-
-
-def test_former_name_from_web_phrase_when_llm_is_silent(tmp_path, monkeypatch) -> None:
-    rec = _record([TITLE, "Network of the Americas"], [])
-    counts = {"Network of the Americas": 1011, "Plate Boundary Observatory": 2115}
-    out, agent = _run(
-        tmp_path, monkeypatch, counts, aliases=[], suggested=[], llm_names=[], record=rec,
-        web=NOTA_WEB,
-    )
-    assert len(_history_calls(agent)) == 1
-    pool = out.aliases.safe + out.aliases.risky
-    assert "Plate Boundary Observatory" in pool
-    assert "'Plate Boundary Observatory' (named as a former/successor in web results; 2115 hits)" in out.notes
 
 
 def test_llm_history_adds_names_and_renamed_organizations(tmp_path, monkeypatch) -> None:

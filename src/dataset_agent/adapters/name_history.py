@@ -5,15 +5,12 @@ Network of the Americas in 2018, and UNAVCO merged with IRIS into EarthScope Con
 2023. Papers in the search window cite whichever name was current when they were written,
 so a query with only today's names misses the older papers (and the reverse).
 
-One web search per leading name plus one structured LLM call name the history; phrases
-such as "formerly the Plate Boundary Observatory" in the web results are candidates too,
-so an LLM that returns nothing does not end the search. The caller screens the names with
-``name_grounding.screen_candidates`` and keeps only those Dimensions finds.
+One web search per leading name plus one structured LLM call name the history; the caller
+screens the names with ``name_grounding.screen_candidates`` and keeps only those Dimensions
+finds.
 """
 
 from __future__ import annotations
-
-import re
 
 HISTORY_TOOL: dict = {
     "name": "emit_name_history",
@@ -41,34 +38,6 @@ HISTORY_TOOL: dict = {
         "required": ["dataset_names"],
     },
 }
-
-_NAME = r"(?:the\s+)?([A-Z][\w'&-]*(?:\s+(?:[A-Z][\w'&-]*|of|the|and|for|on|in|de)){1,7})"
-_HISTORY_PHRASES = re.compile(
-    r"(?:formerly(?:\s+(?:known\s+as|called|named))?|previously\s+(?:known\s+as|called|named)"
-    r"|originally\s+(?:known\s+as|called|named)|renamed\s+(?:to|as|from)"
-    r"|successor\s+(?:to|of)|merged\s+(?:into|with))\s*,?\s+" + _NAME
-)
-_LINK_TAIL = re.compile(r"(?:\s+(?:of|the|and|for|on|in|de))+$")
-
-
-def history_phrases(text: str, anchors: list[str] | None = None) -> list[str]:
-    """Names introduced by "formerly", "renamed to", "successor to" and similar phrases.
-
-    With *anchors*, only web results (blocks starting ``"- "``) that mention one of them
-    count: a search for "Network of the Americas" also returns a broadcaster's history,
-    whose "merged with United Paramount Theatres" says nothing about this collection."""
-    keys = [a.casefold() for a in (anchors or []) if a and a.strip()]
-    blocks = re.split(r"\n(?=- )", text or "")
-    out: list[str] = []
-    for block in blocks:
-        if keys and not any(k in block.casefold() for k in keys):
-            continue
-        for m in _HISTORY_PHRASES.finditer(block):
-            name = _LINK_TAIL.sub("", m.group(1)).strip()
-            if len(name.split()) >= 2 and name.casefold() not in {n.casefold() for n in out}:
-                out.append(name)
-    return out
-
 
 def history_prompt(
     dataset_name: str,
