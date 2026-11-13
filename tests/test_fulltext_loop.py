@@ -288,6 +288,51 @@ def test_small_fulltext_sample_does_not_win_selection(tmp_path):
     assert "gate_iter1: full-text precision within threshold." not in str(out.notes)
 
 
+def _fp_pub(pid, cites, term):
+    p = pub(pid, cites, False, "")
+    p["validated_datasets"] = []
+    p["term_contexts"] = [{"term": "Another Long Title Here", "role": "alias", "part": "body",
+                           "text": f"Another Long Title Here in the {term}"}]
+    p["category_for"] = ["Nursing"]
+    return p
+
+
+def _selection_run(tmp_path, probes):
+    """One probe per round; the refiner returns a new exclude term each round so the loop continues."""
+    terms = iter(["nursing ward", "ward clinic", "clinic desk"])
+    llm = MagicMock()
+    llm.get_structured.side_effect = lambda *a, **k: {
+        "false_positive_groups": [{"label": "wards", "cause_term": "Another Long Title Here",
+                                   "papers": 3, "exclude_terms": [next(terms)]}],
+        "exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    results = []
+    for n, n_genuine, term in probes:
+        results.append({"publications": [pub(f"g{i}", 50 - i, True, "My Long Dataset Alpha data")
+                                         for i in range(n_genuine)]
+                        + [_fp_pub(f"n{i}", 20 - i, term) for i in range(n - n_genuine)]})
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=llm,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, optimize_max_iterations=len(probes),
+                               refine_min_alias_papers=1, refine_min_exclude_papers=1,
+                               fulltext_min_evidence=3),
+        extraction_client=FakeClient(results))
+    return asyncio.run(uc.execute(REQ))
+
+
+def test_selection_prefers_the_round_that_meets_the_bar(tmp_path, _zero_abstract_fp):
+    out = _selection_run(tmp_path, [(35, 27, "nursing ward"), (7, 6, "ward clinic"),
+                                    (30, 25, "clinic desk")])
+    assert [m.n_evaluated for m in out.fulltext_iterations] == [35, 7, 30]
+    assert out.selected_variant.endswith("~gate2")
+    assert out.confidence.value == "medium"
+
+
+def test_selection_without_a_round_at_the_bar_keeps_the_best_precision(tmp_path, _zero_abstract_fp):
+    out = _selection_run(tmp_path, [(30, 21, "nursing ward"), (8, 6, "ward clinic")])
+    assert [m.n_evaluated for m in out.fulltext_iterations] == [30, 8]
+    assert out.selected_variant.endswith("~gate1")
+
+
 def _two_iteration_run(tmp_path, n_genuine):
     pubs = [pub(f"p{i}", 50 - i, i < n_genuine, "My Long Dataset Alpha data") for i in range(10)]
     llm = MagicMock()

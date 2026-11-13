@@ -2081,21 +2081,27 @@ class QueryOptimizationUseCase:
         best_ft_iter: int | None = None
         if ft_enabled:
             scored = [
-                (m.fulltext_precision, -m.iteration)
+                (
+                    m.n_evaluated >= self._settings.fulltext_recall_min_evidence
+                    and m.fulltext_precision >= self._settings.fulltext_recall_min_precision,
+                    m.fulltext_precision,
+                    -m.iteration,
+                )
                 for m in ft_iterations
                 if m.fulltext_precision is not None
                 and m.n_evaluated >= self._settings.fulltext_min_evidence
                 and m.iteration in ft_entries
             ]
             if scored:
-                best_ft_iter = -max(scored)[1]
+                top = max(scored)
+                best_ft_iter = -top[2]
                 best_variant_entry = ft_entries[best_ft_iter]
                 bc = ft_candidates[best_ft_iter]
                 safe, risky = list(bc.safe), list(bc.risky)
                 flag_terms, exc_work = list(bc.flag_terms), list(bc.exclude_terms)
                 notes_parts.append(
                     f"Selected iteration {best_ft_iter} by full-text precision "
-                    f"({max(scored)[0]:.2f})."
+                    f"({top[1]:.2f})."
                 )
 
         recall_diffs: list[TermDiff] = []

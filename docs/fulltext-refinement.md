@@ -149,7 +149,9 @@ least `fulltext_min_evidence` evaluated papers, when it meets the confidence bar
 cap, or when a gate evaluation or a probe fails (an evaluation error is not read as 0% FP;
 it ends the loop and caps confidence at LOW). The proposal uses the iteration with the
 best full-text precision among those with at least `fulltext_min_evidence` evaluated
-papers (ties go to the earlier iteration); each iteration notes its `n_evaluated`. A
+papers (ties go to the earlier iteration); an iteration that meets the confidence bar
+(`fulltext_recall_min_precision` on at least `fulltext_recall_min_evidence` papers) is
+preferred over one that does not; each iteration notes its `n_evaluated`. A
 refinement produced on the last iteration is not probed and is therefore not proposed.
 
 With full text enabled, confidence comes from the selected iteration's full-text precision
