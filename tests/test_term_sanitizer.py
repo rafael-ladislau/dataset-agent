@@ -174,3 +174,25 @@ def test_model_markup_is_dropped() -> None:
     assert sanitize_term("<function=emit_suffix_form> <parameter=suffixed_form>") is None
     assert sanitize_term("<MIDRC>") == "MIDRC"
     assert sanitize_term("p<0.05 study") == "p<0.05 study"
+
+
+def test_empty_quote_pair_is_dropped() -> None:
+    assert sanitize_term("All “” survey") is None
+    assert sanitize_term('All "" survey') is None
+    assert sanitize_term("All\xa0\u200b\xa0“\u200b\xa0“”\xa0“”, “”") is None
+    assert sanitize_term('"A" "B" study') == "A B study"
+
+
+def test_ascii_inner_quotes_are_removed_and_seed_accepts_term() -> None:
+    from dataset_agent.adapters.seed_mapping import QueryCandidate, candidate_to_seed
+
+    cleaned = sanitize_term('"All of Us" Research Program')
+    assert cleaned == "All of Us Research Program"
+    seed = candidate_to_seed(QueryCandidate(cleaned, safe=[cleaned]))
+    assert cleaned in seed["standalone_names"]
+
+
+def test_sanitize_term_is_idempotent() -> None:
+    for x in ["Foo “,”", '"MIDRC Data Commons".', "MIDAS (?)", "NHANES` data",
+              "NIH ‘All of Us’", "Plate Boundary Observatory (PBO)", "  'Foo Bar',  "]:
+        assert sanitize_term(sanitize_term(x)) == sanitize_term(x)

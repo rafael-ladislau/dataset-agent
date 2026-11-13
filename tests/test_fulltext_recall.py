@@ -60,7 +60,7 @@ def test_safety_rejections():
     cand = QueryCandidate(main_dataset_name="Plate Boundary Observatory Data",
                           safe=["Plate Boundary Observatory Data"], risky=["PBO network"],
                           flag_terms=["Plate Boundary Observatory"])
-    known = ["AoU", "WR dataset", "PBO network", 'The "Big" Survey', "Refiner Dropped Name",
+    known = ["AoU", "WR dataset", "PBO network", 'The Big\\Survey', "Refiner Dropped Name",
              "Refiner Demoted Name", "Plate Boundary Observatory Data", "lowercase generic phrase"]
     eligible, notes = run(cand, ["Plate Boundary Observatory Data"], known=known,
                           against=["Refiner Dropped Name", "refiner demoted name"])

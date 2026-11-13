@@ -66,7 +66,6 @@ def sanitize_term(term: object) -> str | None:
     if not isinstance(term, str):
         return None
     s = unicodedata.normalize("NFKC", term)
-    had_ascii_dq = '"' in s
     s = s.translate(_DASHES).translate(_ZERO_WIDTH).translate(_QUOTES)
     s = "".join(
         " " if (ch.isspace() or unicodedata.category(ch) == "Zs")
@@ -81,6 +80,12 @@ def sanitize_term(term: object) -> str | None:
     # Leaked control tokens or tool-call tags are never part of a name.
     if _MARKUP_RE.search(s):
         return None
+    if '"' in s:
+        # An empty pair ("All “” survey") is a placeholder echo, like the empty backtick pair.
+        if any(not inner.strip() for inner in re.findall(r'"([^"]*)"', s)):
+            return None
+        # Seeds reject a double quote and Dimensions ignores it for phrase matching.
+        s = re.sub(r"\s+", " ", s.replace('"', "")).strip()
     if "`" in s:
         # An empty pair ("All `` survey") is a placeholder echo; removing the
         # backticks would leave a plausible-looking but wrong phrase.
@@ -95,10 +100,6 @@ def sanitize_term(term: object) -> str | None:
     s = _strip_edges(s)
     if before.rstrip(".,;: ").endswith("?") or _UNCERTAIN_TAIL.search(before):
         logger.info("Stripped uncertainty marker from term %r -> %r", term, s)
-    if not had_ascii_dq:
-        # Inner double quotes came from curly quotes; seeds reject them and
-        # Dimensions ignores them for phrase matching.
-        s = re.sub(r"\s+", " ", s.replace('"', "")).strip()
     if not s or not any(ch.isalpha() for ch in s):
         return None
     if is_sentinel_text(s):

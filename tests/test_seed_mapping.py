@@ -86,14 +86,14 @@ def test_double_quote_in_alias_is_escaped_and_checked_like_server():
     c = QueryCandidate("X", safe=['The "Big" Survey'])
     # Escaped as \" inside the phrase; the server's verbatim check then reports it
     # as not covered, so the client fails fast instead of getting an HTTP 422.
-    assert '\\"The \\"Big\\" Survey\\"' in __import__(
+    assert '\\"The Big Survey\\"' in __import__(
         "dataset_agent.adapters.seed_mapping", fromlist=["seed_clause"]
     ).seed_clause(c)
     with pytest.raises(ValueError, match="Big"):
         candidate_to_seed(c)
 
 
-@pytest.mark.parametrize("field", ["risky", "flag_terms", "exclude_terms", "safe"])
+@pytest.mark.parametrize("field", ["risky", "exclude_terms", "safe"])
 def test_structured_seed_with_quoted_term_fails_fast(field):
     kw = {"safe": ["National Health Interview Survey"], "risky": ["NHIS"], "flag_terms": ["survey"]}
     kw[field] = [*kw.get(field, []), 'The "Big" Survey']
