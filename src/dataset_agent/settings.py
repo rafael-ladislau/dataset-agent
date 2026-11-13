@@ -304,8 +304,7 @@ class Settings(BaseSettings):
     #: it admits ("<name>" AND "<term>") already match a precise name or paper title.
     ai_model_flag_min_anchor_precision: float = Field(default=0.5, ge=0.0, le=1.0)
     #: Below the flag bar but above this one, a term is reported as "context" (related
-    #: to the model, too loose to gate a name); below it the term is rejected. Also the
-    #: lowest citing share a coined name may have.
+    #: to the model, too loose to gate a name); below it the term is rejected.
     ai_model_context_min_anchor_precision: float = Field(default=0.1, ge=0.0, le=1.0)
     #: A flag must be specific in its own right: a term with more Dimensions hits than
     #: this is a topic or a household name, however well it scores next to the model.

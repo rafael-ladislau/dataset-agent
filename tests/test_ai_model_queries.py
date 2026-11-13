@@ -529,7 +529,7 @@ def test_name_shapes(name: str, plain: bool, distinctive: bool) -> None:
 def _classify(name: str, count: int, confirmation: float | None, developer: str = "Microsoft"):
     return classify_model_name(
         name, count=count, confirmation=confirmation, developer=developer,
-        safe_share=0.5, context_share=0.1, plain_word_max_hits=20_000,
+        safe_share=0.5, plain_word_max_hits=20_000,
     )[0]
 
 
@@ -553,7 +553,7 @@ def test_classify_model_name_rules() -> None:
     # Titles exist but the share was not measured: never in the name's favor.
     assert classify_model_name(
         "GraphCast", count=2_322, confirmation=None, has_titles=True, developer="",
-        safe_share=0.5, context_share=0.1, plain_word_max_hits=20_000,
+        safe_share=0.5, plain_word_max_hits=20_000,
     )[0] == "gate"
     assert _classify("Microsoft Aurora", 96, 0.65) == "safe"
     assert _classify("Microsoft Aurora", 96, 0.3) == "safe"  # developer-qualified: half the bar

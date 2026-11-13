@@ -330,7 +330,6 @@ def classify_model_name(
     has_titles: bool = False,
     developer: str,
     safe_share: float,
-    context_share: float,
     plain_word_max_hits: int,
 ) -> tuple[str, str]:
     """``(verdict, reason)`` for one counted name; verdict is ``safe``, ``gate`` or
@@ -359,7 +358,7 @@ def classify_model_name(
     if is_distinctive(name):
         if confirmation is None:
             return "safe", "coined name"
-        if confirmation >= max(context_share, safe_share / 2):
+        if confirmation >= safe_share / 2:
             return "safe", f"coined name; {pct} of its hits cite the model's papers"
         return (
             "gate" if single_word else "unconfirmed",

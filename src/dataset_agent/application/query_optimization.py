@@ -1129,7 +1129,6 @@ class QueryOptimizationUseCase:
                     has_titles=bool(title_group),
                     developer=model.developer,
                     safe_share=s.ai_model_safe_min_context_share,
-                    context_share=s.ai_model_context_min_anchor_precision,
                     plain_word_max_hits=s.ai_model_plain_word_max_safe_hits,
                 )
                 stats = {} if confirmation is None else {"title_confirmation": round(confirmation, 3)}
