@@ -141,7 +141,7 @@ S = Settings()
 
 def test_judge_promotes_with_exact_reason():
     ok, reason, stats = judge_complement("Term One", ev(8, 10), 123, S)
-    assert ok and reason == "recall: complement precision 0.80 on 10 papers; +123 Dimensions hits"
+    assert ok and reason == "recall: complement precision 0.80 on 10 papers; +123 Dimensions hits; 8 of 10 use the data"
     assert stats["added_hits"] == 123 and stats["term_in_text"] == 10
 
 
@@ -246,3 +246,61 @@ def test_flag_equal_to_shared_phrase_is_not_promoted_by_alias_overlap():
     cand = QueryCandidate(main_dataset_name="PSID", flag_terms=["University of Michigan"])
     res = run(cand, ["PSID"], known=["University of Michigan PSID"])
     assert "University of Michigan" not in terms(res)
+
+
+# --- gnss-n11 follow-up: risky alias heads, large-expansion evidence bar ---
+
+N11_RISKY = ["PBO GNSS", "Plate Boundary Observatory GNSS", "UNAVCO geodetic data",
+             "Plate Boundary Observatory", "Network of the Americas"]
+
+
+def test_gnss_n11_risky_alias_head_does_not_make_org_flag_a_name():
+    cand = QueryCandidate(main_dataset_name="GNSS EarthScope UNAVCO Earthquakes", risky=list(N11_RISKY),
+                          flag_terms=["EarthScope Consortium", "UNAVCO", "IRIS Consortium"])
+    res = run(cand, ["GNSS EarthScope UNAVCO Earthquakes"], known=N11_RISKY)
+    got = terms(res)
+    assert "UNAVCO" not in got
+    assert "UNAVCO (not a name of the dataset)" in "; ".join(res[1])
+    assert "Plate Boundary Observatory" in got and "Network of the Americas" in got
+
+
+def test_dataset_acronyms_head_aliases():
+    from dataset_agent.adapters.fulltext_recall import dataset_acronyms
+
+    names = ["GNSS EarthScope UNAVCO Earthquakes"]
+    aliases = ["UNAVCO geodetic data", "CMIP6"]
+    vetted_none = dataset_acronyms(names, aliases, head_aliases=[])
+    assert {"CMIP6", "GNSS"} <= vetted_none and "UNAVCO" not in vetted_none
+    assert "UNAVCO" in dataset_acronyms(names, aliases, head_aliases=["UNAVCO geodetic data"])
+    assert "UNAVCO" in dataset_acronyms(names, aliases)
+
+
+def test_safe_alias_head_still_makes_flag_related():
+    cand = QueryCandidate(main_dataset_name="Medical Imaging Repository", safe=["MIDRC imaging collection"],
+                          flag_terms=["MIDRC"])
+    res = run(cand, ["Medical Imaging Repository"])
+    assert "MIDRC" in terms(res)
+
+
+def test_wilson_lower():
+    from dataset_agent.adapters.fulltext_recall import wilson_lower
+
+    assert 0.66 < wilson_lower(23, 27) < 0.69
+    assert wilson_lower(24, 27) > 0.70
+    assert wilson_lower(0, 0) == 0.0
+
+
+def test_large_expansion_needs_lower_bound():
+    ok, reason, stats = judge_complement("Term One", ev(23, 27), 3866, S, base_count=880)
+    assert not ok and "too uncertain" in reason and "lower bound" in reason
+    assert stats["base_count"] == 880 and stats["precision_lower_bound"] is not None
+
+
+def test_large_expansion_passes_with_strong_evidence():
+    ok, reason, _ = judge_complement("Term One", ev(26, 27), 3866, S, base_count=880)
+    assert ok and reason.startswith("recall: complement precision") and "use the data" in reason
+
+
+def test_small_expansion_keeps_point_rule():
+    assert judge_complement("Term One", ev(23, 27), 300, S, base_count=880)[0]
+    assert judge_complement("Term One", ev(23, 27), 3866, S)[0]

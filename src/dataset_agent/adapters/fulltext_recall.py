@@ -11,6 +11,8 @@ the filters below only save probe slots.
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -66,15 +68,19 @@ def _initials(term: str, *, drop_joiners: bool) -> str:
     return "".join(t[0] for t in toks).upper()
 
 
-def dataset_acronyms(names: list[str], aliases: list[str]) -> set[str]:
+def dataset_acronyms(
+    names: list[str], aliases: list[str], *, head_aliases: list[str] | None = None
+) -> set[str]:
     """Upper-case acronyms that stand for the dataset: single-token acronym-shaped names
-    or aliases, the acronym head of any multi-word name or alias (head position only, so
-    "All of Us NIH" never makes NIH related), and initials of names with 3+ words."""
+    or aliases, the acronym head of a multi-word name or of a multi-word alias in
+    *head_aliases* (vetted aliases only; all *aliases* when omitted) — head position only,
+    so "All of Us NIH" never makes NIH related — and initials of names with 3+ words."""
     out: set[str] = set()
     for t in [*names, *aliases]:
         toks = (t or "").split()
         if len(toks) == 1 and looks_like_acronym_head(toks[0], max_len=10):
             out.add(_fold(toks[0]).upper())
+    for t in [*names, *(aliases if head_aliases is None else head_aliases)]:
         head = head_acronym(t)
         if head:
             out.add(head.upper())
@@ -166,8 +172,10 @@ def recall_candidates(
         sa = sanitize_term(a)
         if sa and len(sa.split()) >= 2:
             related_forms.append(sa)
+    # A flag-gated or dropped alias such as "UNAVCO geodetic data" must not make its head
+    # organization ("UNAVCO") a name of the dataset; only safe aliases lend their head.
     acronyms = dataset_acronyms(
-        all_names, [*current.safe, *current.risky, *known_aliases]
+        all_names, [*current.safe, *current.risky, *known_aliases], head_aliases=list(current.safe)
     )
     pool: list[tuple[str, str, int]] = []
     pool += [(t, "flag", 0) for t in flag_terms]
@@ -214,16 +222,33 @@ def recall_candidates(
     return eligible, rejected
 
 
+def wilson_lower(k: int, n: int, z: float = 1.96) -> float:
+    """Wilson score lower bound of the proportion *k*/*n* (0.0 when *n* is 0)."""
+    if n <= 0:
+        return 0.0
+    p = k / n
+    denom = 1 + z * z / n
+    centre = p + z * z / (2 * n)
+    spread = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+    return max(0.0, (centre - spread) / denom)
+
+
 def judge_complement(
     term: str,
     evidence: Evidence,
     added_hits: int,
     settings: Settings,
+    *,
+    base_count: int | None = None,
 ) -> tuple[bool, str, dict[str, Any]]:
-    """``(promote, reason, stats)`` for one complement probe."""
+    """``(promote, reason, stats)`` for one complement probe.
+
+    *base_count*: Dimensions count of the selected query. A promotion adding more than
+    ``fulltext_recall_expansion_ratio`` x that count must also clear the Wilson lower bound."""
     n = evidence.n_evaluated
     genuine = evidence.genuine
     precision = (len(genuine) / n) if n else None
+    lower = wilson_lower(len(genuine), n) if n else None
     stats: dict[str, Any] = {
         "added_hits": added_hits,
         "n_evaluated": n,
@@ -235,6 +260,8 @@ def judge_complement(
         "stop_reason": evidence.stop_reason,
         "budget_exhausted": evidence.budget_exhausted,
         "term_in_text": sum(1 for v in evidence.verdicts if term_in(term, v)),
+        "precision_lower_bound": round(lower, 4) if lower is not None else None,
+        "base_count": base_count,
     }
     need_n = settings.fulltext_recall_min_evidence
     need_p = settings.fulltext_recall_min_precision
@@ -246,7 +273,19 @@ def judge_complement(
     assert precision is not None
     if precision < need_p:
         return False, f"complement precision {precision:.2f} on {n} papers (need {need_p:.2f})", stats
-    return True, f"recall: complement precision {precision:.2f} on {n} papers; +{added_hits} Dimensions hits", stats
+    if base_count and added_hits > settings.fulltext_recall_expansion_ratio * base_count:
+        need_lb = need_p - settings.fulltext_recall_expansion_margin
+        assert lower is not None
+        if lower < need_lb:
+            return False, (
+                f"complement precision {precision:.2f} on {n} papers is too uncertain for "
+                f"+{added_hits} hits on a query of {base_count} "
+                f"(lower bound {lower:.2f}, need {need_lb:.2f})"
+            ), stats
+    return True, (
+        f"recall: complement precision {precision:.2f} on {n} papers; +{added_hits} Dimensions hits"
+        f"; {stats['used']} of {n} use the data"
+    ), stats
 
 
 def evidence_quotes(term: str, evidence: Evidence) -> list:

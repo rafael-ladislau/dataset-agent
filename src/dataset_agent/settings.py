@@ -269,6 +269,12 @@ class Settings(BaseSettings):
     fulltext_recall_min_precision: float = Field(default=0.8, ge=0.0, le=1.0)
     #: Min full-text papers evaluated in a complement probe (and min Dimensions hits added).
     fulltext_recall_min_evidence: int = Field(default=10, ge=1)
+    #: A promotion adding more than ratio x the selected query's count is a large expansion.
+    fulltext_recall_expansion_ratio: float = Field(default=1.0, ge=0.0)
+    #: For a large expansion the Wilson 95% lower bound of complement precision must reach
+    #: fulltext_recall_min_precision minus this margin (a point estimate on ~25 top-cited
+    #: papers cannot justify multiplying the query).
+    fulltext_recall_expansion_margin: float = Field(default=0.1, ge=0.0, le=1.0)
     #: Delivered full texts a complement probe tries to collect (raised to the min evidence).
     fulltext_recall_target_delivered: int = Field(default=20, ge=1, le=500)
     #: Extraction instance used for probes ("dev" or "prod"; probes never publish).

@@ -732,6 +732,7 @@ class QueryOptimizationUseCase:
         known_aliases: list[str],
         flag_terms: list[str],
         evidence_against: set[str],
+        base_count: int | None = None,
     ) -> tuple[QueryCandidate, list[TermDiff], list[str], float | None]:
         """Propose missing canonical names as safe aliases; returns
         ``(candidate, add diffs, notes, min complement precision of promoted terms)``.
@@ -819,7 +820,7 @@ class QueryOptimizationUseCase:
             except ValueError as exc:
                 notes.append(f"recall check: '{term}' not evaluated: {exc}")
                 continue
-            ok, reason, stats = judge_complement(term, evidence, k, s)
+            ok, reason, stats = judge_complement(term, evidence, k, s, base_count=base_count)
             stats = {**stats, "source": cand.source,
                      "complement_clause": complement_clause(term, current)}
             if not ok:
@@ -2205,6 +2206,9 @@ class QueryOptimizationUseCase:
                 final_c, recall_diffs, rnotes, recall_min_precision = await self._recall_check(
                     request, sel_c, main_names=names, known_aliases=known,
                     flag_terms=flags, evidence_against=against,
+                    base_count=(
+                        best_variant_entry.expected_count if best_variant_entry is not None else None
+                    ),
                 )
                 notes_parts.extend(rnotes)
                 if recall_diffs:

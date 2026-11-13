@@ -491,6 +491,18 @@ def test_recall_promotes_flag_naming_the_dataset(tmp_path):
     assert "recall check: not eligible: NIH (short acronym)" in out.notes
 
 
+def test_recall_large_expansion_needs_lower_bound(tmp_path):
+    # Selected query counts 100; the complement adds 500 (5x), so 17/20 (lower bound ~0.64)
+    # is too uncertain even though the point estimate clears 0.80.
+    out, _, _ = run_recall(tmp_path, [{"publications": gate_pubs()},
+                                      {"publications": comp_pubs(PROGRAM, 20, 17)}],
+                           dsl=RecallDSL(not_total=500),
+                           request_settings=dict(fulltext_recall_max_candidates=1))
+    assert PROGRAM not in out.aliases.safe and not out.selected_variant.endswith("+recall")
+    assert (f"recall check: '{PROGRAM}' rejected: complement precision 0.85 on 20 papers is too uncertain "
+            "for +500 hits on a query of 100 (lower bound 0.64, need 0.70)") in out.notes
+
+
 def test_recall_rejects_low_complement_precision(tmp_path):
     out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs()},
                                             {"publications": comp_pubs(PROGRAM, 10, 5)}])
