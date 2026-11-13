@@ -10,7 +10,6 @@ import pytest
 from dataset_agent.adapters.extraction_client import (
     ExtractionClient,
     ExtractionError,
-    parse_status,
 )
 
 
@@ -221,52 +220,11 @@ def test_topup_batch_timeout_raises_and_cleans_up():
     assert srv.calls[-1][1] == "/pipelines/cleanup"
 
 
-def test_parse_status_no_fulltext_delivered_is_llm_done():
-    st = parse_status({"status": "DONE", "fulltext": {"selected": 5, "attempted": 5, "delivered": 0}})
-    assert st.search_done and st.llm_done
-
-
 def test_submit_forces_probe_false():
     srv = _Server([{"status": "DONE"}])
     out = _client(srv).submit({"main_dataset_name": "X", "probe": True})
     assert out == {"task_id": "T1"}
     assert srv.calls[0][2]["probe"] is False
-
-
-def test_parse_status_fetch_running_llm_completed_is_not_done():
-    st = parse_status({
-        "status": "DONE",
-        "llm_analysis": {"status": "completed", "pending": 0},
-        "fulltext": {"selected": 30, "attempted": 5, "delivered": 5},
-    })
-    assert not st.llm_done
-
-
-def test_parse_status_fetch_finished_llm_completed_is_done():
-    st = parse_status({
-        "status": "DONE",
-        "llm_analysis": {"status": "completed", "total_queued": 12, "pending": 0},
-        "fulltext": {"selected": 30, "attempted": 30, "delivered": 12},
-    })
-    assert st.llm_done
-
-
-def test_parse_status_total_queued_below_delivered_is_not_done():
-    st = parse_status({
-        "status": "DONE",
-        "llm_analysis": {"status": "completed", "total_queued": 3, "analyzed": 3, "failed": 0, "pending": 0},
-        "fulltext": {"selected": 30, "attempted": 30, "delivered": 12},
-    })
-    assert not st.llm_done
-
-
-def test_parse_status_total_queued_covers_delivered_is_done():
-    st = parse_status({
-        "status": "DONE",
-        "llm_analysis": {"status": "completed", "total_queued": 12, "analyzed": 11, "failed": 1, "pending": 0},
-        "fulltext": {"selected": 30, "attempted": 30, "delivered": 12},
-    })
-    assert st.llm_done
 
 
 def test_dev_url_has_no_default_so_a_probe_fails_clearly(tmp_path, monkeypatch):

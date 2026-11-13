@@ -83,8 +83,6 @@ class ProbeStatus:
     """Normalized view of ``GET /pipelines/{task_id}/status``."""
 
     search_done: bool
-    llm_done: bool
-    llm_pending: int = 0
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -98,40 +96,10 @@ def failure_reason(payload: dict[str, Any]) -> str | None:
 
 
 def parse_status(payload: dict[str, Any]) -> ProbeStatus:
-    """Normalize the status payload.
-
-    ``search_done``: task status DONE. ``llm_done``: the ``llm_analysis`` block is
-    completed with nothing pending and ``total_queued >= delivered``, or full-text fetch finished with nothing delivered
-    (so nothing was ever queued for the LLM). With a ``fulltext`` block the fetch must
-    also be finished (``attempted >= selected``).
-    """
-    search_done = str(payload.get("status") or "").upper() in _SEARCH_DONE
-    llm = payload.get("llm_analysis")
-    ft = payload.get("fulltext")
-    fetch_finished = True
-    delivered = 0
-    if isinstance(ft, dict):
-        selected = ft.get("selected")
-        attempted = int(ft.get("attempted") or 0)
-        delivered = int(ft.get("delivered") or 0)
-        fetch_finished = selected is not None and attempted >= int(selected)
-    pending = 0
-    llm_done = False
-    if isinstance(llm, dict):
-        pending = int(llm.get("pending") or 0)
-        # total_queued only counts papers delivered so far, so "completed" is
-        # trustworthy only once the full-text fetch has finished and every
-        # delivered paper has been queued for analysis.
-        total_queued = int(llm.get("total_queued") or 0)
-        llm_done = (
-            str(llm.get("status") or "").lower() == "completed"
-            and pending == 0
-            and fetch_finished
-            and total_queued >= delivered
-        )
-    elif isinstance(ft, dict) and fetch_finished and delivered == 0:
-        llm_done = True
-    return ProbeStatus(search_done=search_done, llm_done=llm_done, llm_pending=pending, raw=payload)
+    """Normalize the status payload. ``search_done``: task status DONE."""
+    return ProbeStatus(
+        search_done=str(payload.get("status") or "").upper() in _SEARCH_DONE, raw=payload
+    )
 
 
 class ExtractionClient:
