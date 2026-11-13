@@ -79,7 +79,7 @@ def test_llm_history_adds_names_and_renamed_organizations(tmp_path, monkeypatch)
     assert "Plate Boundary Observatory" in pool
     assert "PBO" not in pool and "Tiny Old Network" not in pool
     assert "'Plate Boundary Observatory' (former, 2018; 2115 hits)" in out.notes
-    assert "name history: added organization name(s) ['EarthScope Consortium']" in out.notes
+    assert out.flag_terms == ['UNAVCO'] and 'added organization name' not in out.notes
 
 
 def test_name_history_can_be_disabled(tmp_path, monkeypatch) -> None:

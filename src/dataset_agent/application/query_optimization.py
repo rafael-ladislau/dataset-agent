@@ -526,9 +526,9 @@ class QueryOptimizationUseCase:
         alias_entries: list[AliasCountEntry],
         flag_terms: list[str],
         notes_parts: list[str],
-    ) -> tuple[list[tuple[str, int]], list[str]]:
-        """Former and successor names of the collection (each with its Dimensions count)
-        and of its organizations (new flag terms); see ``adapters.name_history``."""
+    ) -> list[tuple[str, int]]:
+        """Former and successor names of the collection, each with its Dimensions count;
+        see ``adapters.name_history``."""
         s = self._settings
         name = request.dataset_name
         # The collection's own names lead; an organization-only alias would search the
@@ -585,24 +585,6 @@ class QueryOptimizationUseCase:
         )
         found = await self._count_candidates(kept, unvouched, rejected, notes_parts)
 
-        # An organization's other name is a context term only when it renames a listed one
-        # or is what a listed one merged into. A partner absorbed by the same merger
-        # ("merged_from": IRIS next to UNAVCO in EarthScope) may work in another field.
-        listed = {f.casefold() for f in flag_terms}
-        new_flags: list[str] = []
-        for x in _items("organizations"):
-            org, of = x["name"].strip(), str(x.get("of") or "").strip()
-            if (
-                x.get("relation") in ("former", "successor", "merged_into")
-                and of.casefold() in listed
-                and org.casefold() not in listed
-                and org.casefold() not in BROAD_FUNDER_FLAGS
-                and any(ch.isupper() for ch in org)
-                and not is_short_acronym(org)
-                and org.casefold() not in {f.casefold() for f in new_flags}
-            ):
-                new_flags.append(org)
-
         def _why(cand: str) -> str:
             x = relation.get(cand.casefold())
             if not x:
@@ -615,12 +597,10 @@ class QueryOptimizationUseCase:
                 "name history: added "
                 + ", ".join(f"{a!r} ({_why(a)}; {n} hits)" for a, n in found)
             )
-        if new_flags:
-            notes_parts.append(f"name history: added organization name(s) {new_flags}")
         if rejected:
             notes_parts.append("name history: rejected " + "; ".join(rejected))
-        logger.info("name history: added=%s flags=%s rejected=%s", found, new_flags, rejected)
-        return found, new_flags
+        logger.info("name history: added=%s rejected=%s", found, rejected)
+        return found
 
     async def _refine_count(self, term: str) -> int:
         """Refiner-only count: like ``_exclude_impact`` it raises (instead of returning 0)
@@ -1637,11 +1617,9 @@ class QueryOptimizationUseCase:
                     added_names.append(g_alias)
 
             if rec is not None and self._settings.optimize_name_history_enabled:
-                h_names, h_flags = await self._name_history(
+                for h_alias, h_count in await self._name_history(
                     request, rec, alias_entries, flag_terms, notes_parts
-                )
-                flag_terms.extend(h_flags)
-                for h_alias, h_count in h_names:
+                ):
                     h_risk = await self._added_name_risk(
                         h_alias, h_count, c_full, has_fn, flag_terms, notes_parts
                     )

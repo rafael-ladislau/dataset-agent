@@ -1,4 +1,4 @@
-"""Former and successor names of a dataset and its organizations.
+"""Former and successor names of a dataset.
 
 Data collections get renamed and merged: the Plate Boundary Observatory became part of the
 Network of the Americas in 2018, and UNAVCO merged with IRIS into EarthScope Consortium in
@@ -17,7 +17,7 @@ import re
 
 HISTORY_TOOL: dict = {
     "name": "emit_name_history",
-    "description": "Former, successor and merged names of a data collection and its organizations.",
+    "description": "Former, successor and merged names of a data collection.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -37,25 +37,8 @@ HISTORY_TOOL: dict = {
                     "required": ["name", "relation"],
                 },
             },
-            "organizations": {
-                "type": "array",
-                "description": "Former or successor names of the listed organizations.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "of": {"type": "string", "description": "The listed organization it renames."},
-                        "relation": {
-                            "type": "string",
-                            "enum": ["former", "successor", "merged_into", "merged_from"],
-                        },
-                        "year": {"type": "integer"},
-                    },
-                    "required": ["name", "of", "relation"],
-                },
-            },
         },
-        "required": ["dataset_names", "organizations"],
+        "required": ["dataset_names"],
     },
 }
 
@@ -107,13 +90,11 @@ Organizations used as context terms:
 {(web_results or "(none)")[:6000]}
 
 === YOUR TASK ===
-Call emit_name_history with the renames and merges of this collection and of the listed
-organizations, so papers written under any of its names are found:
+Call emit_name_history with the renames and merges of this collection, so papers written
+under any of its names are found:
 - dataset_names: other proper names of the SAME data collection: what it was called
   before (relation "former"), what it is called now ("successor"), or a collection it was
   merged into or absorbed ("merged_into"/"merged_from").
-- organizations: former or successor names of a LISTED organization; set "of" to the
-  listed name it renames (for example an organization that merged into a consortium).
 Rules: only renames and merges the web results or well-established history support.
 Networks or archives that were combined into this collection count ("merged_from"), as
 does a larger collection it now belongs to ("merged_into"). Never a sibling product that
