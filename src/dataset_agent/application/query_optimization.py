@@ -436,6 +436,37 @@ class QueryOptimizationUseCase:
         logger.info("optimize: flag share of %r = %d/%d -> %s", name, with_flags, count, label)
         return label
 
+    async def _count_candidates(
+        self,
+        kept: list[str],
+        unvouched: set[str],
+        rejected: list[str],
+        notes_parts: list[str],
+    ) -> list[tuple[str, int]]:
+        """Count each kept candidate in Dimensions; apply the hit floor and the unvouched ceiling."""
+        s = self._settings
+        found: list[tuple[str, int]] = []
+        for cand in kept:
+            if not self._budget_left():
+                rejected.append(f"{cand} (Dimensions call budget)")
+                continue
+            n = await self._count_alias(cand, notes_parts)
+            if n is None:
+                continue
+            floor = (
+                s.optimize_grounding_min_hits
+                if cand.casefold() in unvouched
+                else s.optimize_grounding_min_alias_hits
+            )
+            ceiling = s.optimize_grounding_unvouched_max_hits
+            if n < floor:
+                rejected.append(f"{cand} ({n} Dimensions hits)")
+            elif cand.casefold() in unvouched and ceiling and n > ceiling:
+                rejected.append(f"{cand} ({n} Dimensions hits: too common for an unvouched name)")
+            else:
+                found.append((cand, n))
+        return found
+
     async def _ground_names(
         self,
         request: OptimizeRequest,
@@ -485,27 +516,7 @@ class QueryOptimizationUseCase:
             flag_terms=flag_terms,
             limit=s.optimize_grounding_max_candidates,
         )
-        found: list[tuple[str, int]] = []
-        for cand in kept:
-            if not self._budget_left():
-                rejected.append(f"{cand} (Dimensions call budget)")
-                continue
-            n = await self._count_alias(cand, notes_parts)
-            if n is None:
-                continue
-            floor = (
-                s.optimize_grounding_min_hits
-                if cand.casefold() in unvouched
-                else s.optimize_grounding_min_alias_hits
-            )
-            if n < floor:
-                rejected.append(f"{cand} ({n} Dimensions hits)")
-                continue
-            ceiling = s.optimize_grounding_unvouched_max_hits
-            if cand.casefold() in unvouched and ceiling and n > ceiling:
-                rejected.append(f"{cand} ({n} Dimensions hits: too common for an unvouched name)")
-                continue
-            found.append((cand, n))
+        found = await self._count_candidates(kept, unvouched, rejected, notes_parts)
         added = ", ".join(f"{a!r} ({n} hits)" for a, n in found) or "none"
         notes_parts.append(f"grounding: title has no Dimensions hits; added {added}")
         rejected += [f"{n} (spells out a title acronym)" for n in spelled]
@@ -578,26 +589,7 @@ class QueryOptimizationUseCase:
             flag_terms=flag_terms,
             limit=s.optimize_name_history_max_candidates,
         )
-        found: list[tuple[str, int]] = []
-        for cand in kept:
-            if not self._budget_left():
-                rejected.append(f"{cand} (Dimensions call budget)")
-                continue
-            n = await self._count_alias(cand, notes_parts)
-            if n is None:
-                continue
-            floor = (
-                s.optimize_grounding_min_hits
-                if cand.casefold() in unvouched
-                else s.optimize_grounding_min_alias_hits
-            )
-            ceiling = s.optimize_grounding_unvouched_max_hits
-            if n < floor:
-                rejected.append(f"{cand} ({n} Dimensions hits)")
-            elif cand.casefold() in unvouched and ceiling and n > ceiling:
-                rejected.append(f"{cand} ({n} Dimensions hits: too common for an unvouched name)")
-            else:
-                found.append((cand, n))
+        found = await self._count_candidates(kept, unvouched, rejected, notes_parts)
 
         # An organization's other name is a context term only when it renames a listed one
         # or is what a listed one merged into. A partner absorbed by the same merger
