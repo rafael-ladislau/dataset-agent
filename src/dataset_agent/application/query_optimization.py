@@ -1652,7 +1652,9 @@ class QueryOptimizationUseCase:
                     (risky if g_risk == "risky" else safe).append(g_alias)
                     added_names.append(g_alias)
 
-            if rec is not None and self._settings.optimize_name_history_enabled:
+            # A title with hits already names the dataset: history there added a different
+            # dataset, a name with no hits, or nothing.
+            if rec is not None and self._settings.optimize_name_history_enabled and c_full <= 0:
                 for h_alias, h_count in await self._name_history(
                     request, rec, alias_entries, flag_terms, org_keys, notes_parts
                 ):

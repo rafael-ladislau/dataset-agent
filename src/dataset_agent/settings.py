@@ -180,6 +180,7 @@ class Settings(BaseSettings):
     optimize_grounding_unvouched_max_hits: int = Field(default=20000, ge=0)
     #: Look up former/successor names of the collection (renames,
     #: merges) after phase 1 counting; one web search per leading name plus one LLM call.
+    #: Runs only when the dataset title has no Dimensions hits.
     optimize_name_history_enabled: bool = True
     #: Max history names counted in Dimensions per run.
     optimize_name_history_max_candidates: int = Field(default=6, ge=0, le=20)

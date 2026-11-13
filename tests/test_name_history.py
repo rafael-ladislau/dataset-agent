@@ -61,10 +61,8 @@ def test_name_history_can_be_disabled(tmp_path, monkeypatch) -> None:
     assert _history_calls(agent) == []
 
 
-def test_history_name_does_not_drop_program_named_alias_of_live_title(tmp_path, monkeypatch) -> None:
-    # "All of Us" is a strict part of the title and sits inside the flag "All of Us
-    # Research Program", but the title has hits: it is the dataset's name, not an
-    # organization alias, and a former name found by history must not delete it.
+def test_name_history_does_not_run_when_the_title_has_hits(tmp_path, monkeypatch) -> None:
+    # The title has hits, so name history is not asked at all; "All of Us" stays a name.
     import asyncio
     from unittest.mock import MagicMock
 
@@ -104,6 +102,7 @@ def test_history_name_does_not_drop_program_named_alias_of_live_title(tmp_path, 
     uc = QueryOptimizationUseCase(dsl_port=_KeyedDSL(counts), research=research, agent=agent, settings=settings)
     out = asyncio.run(uc.execute(OptimizeRequest(dataset_name=title)))
     pool = out.aliases.safe + out.aliases.risky
-    assert "Precision Medicine Initiative Cohort Program" in pool
+    assert _history_calls(agent) == []
+    assert "Precision Medicine Initiative Cohort Program" not in pool
     assert "All of Us" in pool
     assert "dropped organization alias" not in out.notes
