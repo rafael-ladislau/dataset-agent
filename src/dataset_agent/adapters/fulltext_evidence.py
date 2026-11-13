@@ -18,6 +18,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
+from dataset_agent.adapters.extraction_client import is_attempted, is_delivered
 from dataset_agent.adapters.literature import _stem_text
 from dataset_agent.adapters.query_heuristics import head_acronym
 from dataset_agent.domain.proposals import EvidenceQuote, IterationMetrics
@@ -157,11 +158,6 @@ def _verdict_for(pub: dict[str, Any]) -> tuple[str, str] | None:
     return ("not_mentioned", str(entries[0].get("text_quote") or ""))
 
 
-def _attempted(pub: dict[str, Any]) -> bool:
-    ft = pub.get("fulltext") or {}
-    return ft.get("status") == "delivered" or (bool(ft) and ft.get("reason") != "not_attempted")
-
-
 def build_evidence(results: dict[str, Any]) -> Evidence:
     """Build :class:`Evidence` from a ``GET /pipelines/{id}/llm-results`` body.
 
@@ -170,11 +166,10 @@ def build_evidence(results: dict[str, Any]) -> Evidence:
     """
     pubs = [p for p in (results.get("publications") or []) if isinstance(p, dict)]
     pubs.sort(key=lambda p: -(p.get("citation_count") or 0))
-    sample = [p for p in pubs if _attempted(p)]
+    sample = [p for p in pubs if is_attempted(p)]
     ev = Evidence(n_sampled=len(sample))
     for p in sample:
-        ft = p.get("fulltext") or {}
-        if ft.get("status") != "delivered":
+        if not is_delivered(p):
             continue
         ev.n_delivered += 1
         if not p.get("analyzed") or p.get("validation_failed"):
