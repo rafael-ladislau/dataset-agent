@@ -143,7 +143,7 @@ class _StrictToolAgent:
         return {"suffixed_form": self.suffix_answer}
 
 
-def _run_suffix_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path, answer: str):
+def _run_suffix_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path, answer: str, dsl_port=None):
     for attr, fn in {
         "web_search": lambda *_a, **_k: "",
         "refine_flag_terms_with_llm": lambda _agent, **kw: kw["flag_terms"],
@@ -166,6 +166,7 @@ def _run_suffix_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path, answer: str)
         repository=MagicMock(),
         settings=settings,
         literature_gate=None,
+        dsl_port=dsl_port,
     )
     record = uc._run_pipeline_once(ResearchRequest(dataset_name="Current Population Survey"))
     return agent, record
@@ -187,4 +188,18 @@ def test_llm_suffix_fallback_empty_answer_adds_nothing(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     _agent, record = _run_suffix_fallback(monkeypatch, tmp_path, "")
+    assert record.dataset_names == ["Current Population Survey"]
+
+
+def test_llm_suffix_fallback_is_skipped_when_dimensions_check_ran(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    async def _no_suffix(_dsl, _alias):
+        return None
+
+    monkeypatch.setattr(research_mod, "check_suffix_necessity", _no_suffix)
+    agent, record = _run_suffix_fallback(
+        monkeypatch, tmp_path, "Current Population Survey dataset", dsl_port=MagicMock()
+    )
+    assert agent.tools == []
     assert record.dataset_names == ["Current Population Survey"]

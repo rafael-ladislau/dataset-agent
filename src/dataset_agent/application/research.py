@@ -506,6 +506,7 @@ class DatasetResearchUseCase:
             logger.info("Step 8: suffix necessity check on top %s aliases", suffix_max)
             for alias in dataset_names[:suffix_max]:
                 result = None
+                dsl_checked = False
                 # Try DSL-based suffix check first
                 if self._dsl_port is not None:
                     try:
@@ -514,6 +515,7 @@ class DatasetResearchUseCase:
                             check_suffix_necessity(self._dsl_port, alias)
                         )
                         loop.close()
+                        dsl_checked = True
                         if result:
                             suffix_forms[alias] = result
                             logger.info("Suffix promoted: %r -> %r", alias, result)
@@ -525,8 +527,9 @@ class DatasetResearchUseCase:
                             logger.warning("Suffix check failed for %r: %s", alias, exc)
                     except Exception as exc:
                         logger.warning("Suffix check failed for %r: %s", alias, exc)
-                # LLM fallback (also used when nested event loop fails)
-                if result is None and alias in suffix_forms:
+                # LLM fallback: only when the Dimensions check could not run (no port, or it
+                # raised). A check that ran and promoted nothing is the measured answer.
+                if dsl_checked:
                     continue
                 try:
                     prompt = (
@@ -537,7 +540,12 @@ class DatasetResearchUseCase:
                     )
                     raw = self._agent.get_structured(prompt, EMIT_SUFFIX_FORM)
                     value = raw.get("suffixed_form") if isinstance(raw, dict) else None
-                    cleaned = sanitize_terms([value], "suffixed alias") if isinstance(value, str) else []
+                    # An empty answer means "no suffix" and is not a dropped term.
+                    cleaned = (
+                        sanitize_terms([value], "suffixed alias")
+                        if isinstance(value, str) and value.strip()
+                        else []
+                    )
                     if cleaned:
                         cleaned = [_suffixed_form_of(alias, cleaned[0])]
                         if not cleaned[0]:
