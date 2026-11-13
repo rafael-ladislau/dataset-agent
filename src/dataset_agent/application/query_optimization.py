@@ -47,6 +47,7 @@ from dataset_agent.adapters.fp_analysis import (
 from dataset_agent.adapters.extraction_client import ExtractionClient, ExtractionError
 from dataset_agent.adapters.fulltext_evidence import Evidence, build_evidence
 from dataset_agent.adapters.fulltext_recall import (
+    MAX_ADDED_HITS,
     RecallCandidate,
     evidence_quotes,
     judge_complement,
@@ -728,7 +729,7 @@ class QueryOptimizationUseCase:
                 continue
             if k < s.fulltext_recall_min_evidence:
                 notes.append(f"recall check: '{cand.term}' rejected: adds only {k} Dimensions hits")
-            elif k > s.refine_flag_max_hits:
+            elif k > MAX_ADDED_HITS:
                 notes.append(f"recall check: '{cand.term}' rejected: {k} hits, too broad")
             else:
                 counted.append((cand, k))

@@ -194,7 +194,7 @@ names as **safe aliases**, only with full-text evidence.
    refiner already dropped or demoted on full text, no bare rhetorical phrase.
 2. **Count**: the Dimensions hits each candidate adds beyond the current query (at most three
    times the candidate cap); fewer than the minimum evidence is rejected, as is a count above
-   `refine_flag_max_hits`.
+   500,000.
 3. **Complement probe**: top-cited papers matching the candidate but not the current query
    (`("term") NOT (<current query>)`), one probe per candidate within the usual probe limits.
    The candidate is sent as the alias so the validator looks for it. Promoted only with

@@ -30,6 +30,8 @@ from dataset_agent.adapters.term_sanitizer import sanitize_term
 from dataset_agent.settings import Settings
 
 _MAX_TERM_LEN = 120
+# a candidate that adds more Dimensions hits than this is not probed
+MAX_ADDED_HITS = 500_000
 _MAX_QUOTES = 3
 # Words that describe a kind of resource without naming one ("Data Commons", "Research Center").
 _GENERIC_NAME_WORDS = frozenset({

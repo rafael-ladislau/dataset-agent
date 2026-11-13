@@ -541,6 +541,12 @@ def test_recall_small_gain_skips_probe(tmp_path):
     assert f"recall check: '{PROGRAM}' rejected: adds only 4 Dimensions hits" in out.notes
 
 
+def test_recall_too_broad_candidate_is_not_probed(tmp_path):
+    out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs()}], dsl=RecallDSL(not_total=600_000))
+    assert len(client.seeds) == 1
+    assert f"recall check: '{PROGRAM}' rejected: 600000 hits, too broad" in out.notes
+
+
 def test_recall_stops_on_dimensions_budget(tmp_path):
     uc, client, dsl = recall_uc(tmp_path, [{"publications": gate_pubs()}])
     orig = uc._recall_check
