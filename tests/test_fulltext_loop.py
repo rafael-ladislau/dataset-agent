@@ -533,6 +533,19 @@ def test_recall_promotes_flag_naming_the_dataset(tmp_path):
     assert "Selected gate-evaluated variant" not in out.notes
 
 
+def test_recall_inexpressible_candidate_costs_no_count_call(tmp_path):
+    risky = "Beta Health Survey Network"
+    req = OptimizeRequest(dataset_name=RC_NAME,
+                          dataset_names=[RC_NAME, risky, "Beta Health & Wellness Survey"],
+                          flag_terms=[PROGRAM])
+    out, client, dsl = run_recall(
+        tmp_path, [{"publications": gate_pubs()}, {"publications": comp_pubs(risky, 10, 10)}],
+        req=req, dsl=RecallDSL(risky_marker="Network"))
+    assert f"recall check: '{PROGRAM}' not evaluated: complement not expressible" in out.notes
+    assert risky in out.aliases.safe and risky not in out.aliases.risky
+    assert dsl.n_not() == 1
+
+
 def test_recall_large_expansion_needs_lower_bound(tmp_path):
     # Selected query counts 100; the complement adds 500 (5x), so 17/20 (lower bound ~0.64)
     # is too uncertain even though the point estimate clears 0.80.

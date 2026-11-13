@@ -129,6 +129,17 @@ def test_complement_candidate_hybrid_is_raw_and_special_chars_are_refused():
         complement_candidate("Term One", bad)
 
 
+def test_complement_candidate_risky_term_is_expressible_with_special_characters():
+    cur = QueryCandidate("Main", safe=["R&D Survey"], risky=["RDS", "Other Name"],
+                         flag_terms=["F G", "RDS"], exclude_terms=["e f"])
+    seed = candidate_to_seed(complement_candidate("RDS", cur))
+    assert seed["dimensions_query"] is None
+    assert seed["standalone_names"] == ["RDS"]
+    assert seed["exclude_terms"] == ["R&D Survey", "F G", "e f"]
+    with pytest.raises(ValueError, match="not expressible"):
+        complement_candidate("Term One", cur)
+
+
 def ev(n_genuine, n_total, **kw):
     verdicts = [PubVerdict(publication_id=str(i), doi=None, title="t", citation_count=1,
                            verdict="used" if i < n_genuine else "not_mentioned", quote="Term One text")

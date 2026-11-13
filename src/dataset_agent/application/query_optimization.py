@@ -671,6 +671,16 @@ class QueryOptimizationUseCase:
         if rejected:
             more = f"; and {len(rejected) - 8} more" if len(rejected) > 8 else ""
             notes.append("recall check: not eligible: " + "; ".join(rejected[:8]) + more)
+        # A candidate whose complement cannot be expressed is dropped before any count call.
+        expressible: list[RecallCandidate] = []
+        for cand in eligible:
+            try:
+                complement_candidate(cand.term, current)
+            except ValueError as exc:
+                notes.append(f"recall check: '{cand.term}' not evaluated: {exc}")
+                continue
+            expressible.append(cand)
+        eligible = expressible
         if not eligible:
             return current, diffs, notes, None
 

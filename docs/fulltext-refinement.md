@@ -202,8 +202,10 @@ names as **safe aliases**, only with full-text evidence.
    The candidate is sent as the alias so the validator looks for it. Promoted only with
    precision >= `fulltext_recall_min_precision` on >= `fulltext_recall_min_evidence` papers;
    otherwise the run notes say why (including free-full-text shortfalls). Later candidates are
-   measured beyond the ones already promoted. A flag-gated query whose terms contain DSL special
-   characters cannot be expressed as a complement and is reported as not evaluated.
+   measured beyond the ones already promoted. A flag-gated name is probed as a plain alias
+   with the safe names, the flags and the excludes excluded; a flag or main-name candidate on
+   a flag-gated query whose terms contain DSL special characters cannot be expressed and is
+   reported as not evaluated, before any count call.
 4. **Output**: a `TermDiff` (`alias`, `add`) with reason `recall: complement precision X on N
    papers; +K Dimensions hits` and evidence quotes; the final query, proposal and
    `selected_variant` (`...+recall`) include the alias. The abstract FP rate is not

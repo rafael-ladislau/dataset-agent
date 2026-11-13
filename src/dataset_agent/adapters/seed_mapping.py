@@ -251,6 +251,18 @@ def complement_candidate(term: str, current: QueryCandidate) -> QueryCandidate:
             exclude_terms=dedupe_strings_ci_preserve_order(excl),
             description=desc,
         )
+    if term.casefold() in {r.casefold() for r in current.risky}:
+        # The term is itself flag-gated, so among its own papers '(risky AND flags)' is
+        # 'flags': probe it as a plain alias with everything else excluded.
+        flags = drop_flags_equal_to_aliases(current.flag_terms, current.risky)
+        return QueryCandidate(
+            main_dataset_name=current.main_dataset_name,
+            safe=[term],
+            exclude_terms=dedupe_strings_ci_preserve_order(
+                list(current.safe) + flags + list(current.exclude_terms)
+            ),
+            description=desc,
+        )
     probe = QueryCandidate(
         main_dataset_name=current.main_dataset_name,
         safe=[term], risky=list(current.risky), flag_terms=list(current.flag_terms),
