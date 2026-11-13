@@ -128,7 +128,7 @@ _VARIANT_ORDER = {"V4": 0, "V3": 1, "V2": 2, "V1": 3, "V5": 4}
 
 
 def _alias_risk_label(c_alias: int, c_full: int, has_full_name: bool) -> Literal["safe", "risky"]:
-    """Same rules as ``classify_alias_risk`` without extra Dimensions round-trips."""
+    """Risky when count > 10x the title count, or any hits when the title has none; 50,000 when there is no title."""
     if not has_full_name:
         return "risky" if c_alias > 50_000 else "safe"
     if c_full <= 0:

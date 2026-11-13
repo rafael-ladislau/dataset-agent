@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from dataset_agent.adapters.dataset_aliases import (
-    classify_alias_risk,
     detect_subdataset_aliases,
     heuristic_strip_flags_from_dataset_names,
     refine_dataset_names_with_llm,
@@ -169,27 +166,6 @@ def test_detect_subdataset_aliases_merges_back_unremoved() -> None:
     assert "NLSY97" not in out
     assert "Other" in out
     assert set(removed) >= {"NLSY79", "NLSY97"}
-
-
-def test_classify_alias_risk_uses_counts() -> None:
-    class _CountPort:
-        def __init__(self) -> None:
-            self.n = 0
-
-        async def execute_dsl(self, dsl: str) -> object:
-            self.n += 1
-            from types import SimpleNamespace
-
-            if self.n == 1:
-                return SimpleNamespace(count_total=500_000)
-            return SimpleNamespace(count_total=5_000)
-
-    async def _run() -> None:
-        port = _CountPort()
-        r = await classify_alias_risk(port, "ACS", "American Community Survey")
-        assert r == "risky"
-
-    asyncio.run(_run())
 
 
 def test_refine_flag_terms_uses_structured_result() -> None:

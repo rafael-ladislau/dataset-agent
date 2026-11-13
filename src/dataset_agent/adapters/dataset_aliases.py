@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from dataset_agent.adapters.term_sanitizer import sanitize_terms
 from dataset_agent.application import prompts
@@ -15,7 +15,7 @@ from dataset_agent.adapters.tools import (
 )
 
 if TYPE_CHECKING:
-    from dataset_agent.domain.ports import AgentPort, DimensionsDslPort
+    from dataset_agent.domain.ports import AgentPort
 
 logger = logging.getLogger(__name__)
 
@@ -240,29 +240,3 @@ def detect_subdataset_aliases(
         merged.insert(0, main)
 
     return _dedupe_ci_preserve_order(merged), removed
-
-
-async def classify_alias_risk(
-    dsl_port: DimensionsDslPort,
-    alias: str,
-    full_name: str,
-    *,
-    search_in: str = "full_data",
-    ratio_threshold: float = 10.0,
-) -> Literal["safe", "risky"]:
-    """10× Dimensions count rule: bare acronym risky if count(alias) > ratio * count(full_name)."""
-    from dataset_agent.adapters.dimensions_dsl import run_alias_count
-
-    a = (alias or "").strip()
-    fn = (full_name or "").strip()
-    if not a:
-        return "safe"
-    c_alias = await run_alias_count(dsl_port, a, search_in=search_in)
-    if not fn:
-        return "risky" if c_alias > 50_000 else "safe"
-    c_full = await run_alias_count(dsl_port, fn, search_in=search_in)
-    if c_full <= 0:
-        return "risky" if c_alias > 0 else "safe"
-    if c_alias > ratio_threshold * float(c_full):
-        return "risky"
-    return "safe"
