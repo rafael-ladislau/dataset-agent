@@ -145,3 +145,11 @@ def test_as_quote_falls_back_to_the_snippet_for_the_term():
     assert v.as_quote().quote == "first snippet"
     assert _v(quote="validator quote", contexts=[_ctx("snip")]).as_quote("BLS").quote == "validator quote"
     assert _v().as_quote("BLS").quote == ""
+
+
+def test_metrics_store_a_verdict_per_evaluated_paper():
+    m = build_evidence(RESULTS).metrics(0, "q", None)
+    assert m.papers == [
+        ("a", "used"), ("b", "mentioned"), ("c", "mentioned"), ("d", "not_mentioned"), ("h", "used"),
+    ]
+    assert [p for p, _v in m.papers] == [v.publication_id for v in build_evidence(RESULTS).verdicts]

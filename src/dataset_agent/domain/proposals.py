@@ -45,6 +45,10 @@ class IterationMetrics(BaseModel):
         default=False, description="OpenAlex refused at least one file for budget"
     )
     abstract_fp_rate_pct: Optional[float] = Field(default=None, description="secondary signal")
+    papers: list[tuple[str, str]] = Field(
+        default_factory=list,
+        description="(publication id, used | mentioned | not_mentioned) for every evaluated paper",
+    )
     error: Optional[str] = None
 
 

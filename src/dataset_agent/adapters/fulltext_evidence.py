@@ -129,6 +129,7 @@ class Evidence:
             fulltext_batches=self.batches,
             fulltext_stop_reason=self.stop_reason,
             fulltext_budget_exhausted=self.budget_exhausted,
+            papers=[(v.publication_id, v.verdict) for v in self.verdicts],
         )
 
 
