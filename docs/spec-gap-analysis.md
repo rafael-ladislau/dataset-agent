@@ -201,7 +201,7 @@ This is the core orchestration layer. **Nothing exists.**
 
 **How to implement:**
 - New file or extension: `src/dataset_agent/adapters/query_heuristics.py`
-- `detect_rhetorical_name(name) → bool` + `rhetorical_exclusions(name) → list[str]`
+- `detect_rhetorical_name(name) → bool`
 - `is_short_acronym(alias) → bool` (len < 5)
 - `detect_sub_products(url, agent) → list[str]` (reuses `make_request` tool)
 - `generate_multilingual_aliases(name, agent) → list[str]`

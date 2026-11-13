@@ -41,23 +41,6 @@ _COMMON_ENGLISH_WORDS: frozenset[str] = frozenset(
     """.split()
 )
 
-# Extra rhetorical collocations (All of Us style) from dataset_query_agent_spec.md.
-_RHETORICAL_FIXED_EXTRAS: tuple[str, ...] = (
-    "affects all of us",
-    "benefits all of us",
-    "for all of us",
-    "concerns all of us",
-    "impacts all of us",
-    "all of us need",
-    "all of us can",
-    "all of us should",
-    "teach all of us",
-    "among all of us",
-    "all of us together",
-    "matters to all of us",
-)
-
-
 def is_short_acronym(alias: str) -> bool:
     """True if *alias* must not appear as a bare OR term (length ≤ 4 characters)."""
     s = (alias or "").strip()
@@ -147,44 +130,6 @@ def detect_rhetorical_name(dataset_name: str) -> bool:
     if any(len(w) > 10 for w in lowered):
         return False
     return all(w in _COMMON_ENGLISH_WORDS for w in lowered)
-
-
-def rhetorical_exclusions(dataset_name: str) -> list[str]:
-    """Suggested NOT phrases when :func:`detect_rhetorical_name` is true."""
-    core = " ".join(re.findall(r"[A-Za-z]+", dataset_name)).strip().lower()
-    if not core:
-        return list(_RHETORICAL_FIXED_EXTRAS)
-    dynamic = [
-        f"affects {core}",
-        f"benefits {core}",
-        f"for {core}",
-        f"concerns {core}",
-        f"impacts {core}",
-        f"among {core}",
-        f"matters to {core}",
-    ]
-    merged = dedupe_strings_ci_preserve_order(list(_RHETORICAL_FIXED_EXTRAS) + dynamic)
-    return merged
-
-
-def platform_exclude_suggestions(dataset_url: str | None) -> list[str]:
-    """Extra NOT candidates when the dataset lives on a noisy consumer-tech domain."""
-    if not dataset_url or not isinstance(dataset_url, str):
-        return []
-    u = dataset_url.lower()
-    if "linkedin.com" in u:
-        return [
-            "social media marketing",
-            "sentiment analysis",
-            "social network analysis",
-            "linkedin profile",
-            "recruitment analytics",
-        ]
-    if "twitter.com" in u or "x.com" in u:
-        return ["tweet", "twitter api", "social media", "hashtag"]
-    if "facebook.com" in u:
-        return ["facebook users", "social network", "privacy concerns"]
-    return []
 
 
 def detect_sub_products(url: str | None, agent: AgentPort) -> list[str]:

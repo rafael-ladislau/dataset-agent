@@ -94,12 +94,9 @@ from dataset_agent.adapters.query_heuristics import (
     _SUFFIX_CANDIDATES,
     apply_short_acronym_heuristic,
     check_suffix_necessity,
-    detect_rhetorical_name,
     is_acronym_shaped_name,
     is_acronym_suffix_form,
     is_short_acronym,
-    platform_exclude_suggestions,
-    rhetorical_exclusions,
 )
 from dataset_agent.application.proposal_service import build_proposal, merge_diffs
 from dataset_agent.adapters.term_sanitizer import sanitize_terms
@@ -1733,16 +1730,9 @@ class QueryOptimizationUseCase:
     ) -> QueryOptimizationRecord:
         """Phases 2-4: probe variants, evaluate the gate, refine, select.
 
-        With *model* (AI-model runs) the terms were measured already: no heuristic
-        excludes are added, full-text probes are skipped, and refinement keeps to
-        the model rules (see ``_refine_model_terms``)."""
-        ex_extra: list[str] = []
-        if model is None and detect_rhetorical_name(request.dataset_name):
-            ex_extra.extend(rhetorical_exclusions(request.dataset_name))
-            notes_parts.append("Applied rhetorical NOT heuristics.")
-        if model is None:
-            ex_extra.extend(platform_exclude_suggestions(request.dataset_url))
-        exclusion_terms = dedupe_strings_ci_preserve_order(exclude_terms + ex_extra)
+        With *model* (AI-model runs) the terms were measured already: full-text probes are skipped and
+        refinement keeps to the model rules (see ``_refine_model_terms``)."""
+        exclusion_terms = dedupe_strings_ci_preserve_order(exclude_terms)
 
         phase2 = "phase2_variant_building"
         seq = default_variant_build_order(

@@ -13,8 +13,6 @@ from dataset_agent.adapters.query_heuristics import (
     head_acronym,
     generate_multilingual_aliases,
     is_short_acronym,
-    platform_exclude_suggestions,
-    rhetorical_exclusions,
     strip_accents,
 )
 
@@ -36,16 +34,6 @@ def test_apply_short_acronym_moves_to_risky() -> None:
 def test_detect_rhetorical_all_of_us() -> None:
     assert detect_rhetorical_name("All of Us") is True
     assert detect_rhetorical_name("American Community Survey") is False
-
-
-def test_rhetorical_exclusions_contains_templates() -> None:
-    ex = rhetorical_exclusions("All of Us")
-    assert any("benefits" in x.lower() for x in ex)
-
-
-def test_platform_exclude_linkedin() -> None:
-    out = platform_exclude_suggestions("https://www.linkedin.com/economicgraph")
-    assert any("social" in x.lower() for x in out)
 
 
 def test_strip_accents() -> None:
