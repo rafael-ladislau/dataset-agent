@@ -823,3 +823,53 @@ def test_mixed_case_proper_names_pass_the_flag_name_rule():
     for name in ("state UI", "administrative data", "employer", "Gen3 data commons",
                  "data.midrc.org", "gen3"):
         assert _generic_word(name) is True, name
+
+
+def _gen_pubs(quote):
+    return [pub(f"g{i}", 40 - i, True, quote) for i in range(3)] + [
+        pub("f0", 5, False, "NHIS nursing"), pub("f1", 4, False, "NHIS nursing")]
+
+
+def _rejected_note(r, kind):
+    return next(n for n in r.notes if n.startswith(f"rejected {kind} candidates"))
+
+
+def test_bare_short_acronym_flag_is_rejected_when_flags_exist():
+    pubs = _gen_pubs("we used NHIS data from the PMI cohort")
+    out = {"exclude_terms": [], "flag_terms": ["PMI"], "new_aliases": [], "reasoning": ""}
+    cand = QueryCandidate("X", safe=["NHIS"], flag_terms=["Census Bureau"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=FakeLLM(out), dataset_name="X",
+                         count_fn=lambda t: 5, reference_count=100)
+    assert "PMI" not in r.candidate.flag_terms
+    assert "PMI (bare short acronym)" in _rejected_note(r, "flag")
+
+
+def test_rhetorical_alias_is_rejected():
+    pubs = _gen_pubs("we used NHIS data from All of Us")
+    r = _refine_with(pubs, new_aliases=["All of Us"])
+    assert not [d for d in r.diffs if d.kind == "alias" and d.action == "add"]
+    assert "All of Us (rhetorical phrase)" in _rejected_note(r, "alias")
+
+
+def test_flag_inside_a_flag_gated_alias_is_rejected():
+    pubs = _gen_pubs("NHIS data and the Precision Medicine Initiative Cohort Program")
+    out = {"exclude_terms": [], "flag_terms": ["Precision Medicine Initiative"], "new_aliases": [],
+           "reasoning": ""}
+    cand = QueryCandidate("X", safe=["NHIS"], risky=["Precision Medicine Initiative Cohort Program"],
+                          flag_terms=["Census Bureau"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=FakeLLM(out), dataset_name="X",
+                         count_fn=lambda t: 5, reference_count=100)
+    assert "Precision Medicine Initiative" not in r.candidate.flag_terms
+    assert "Precision Medicine Initiative (contained in a flag-gated alias)" in _rejected_note(r, "flag")
+
+
+def test_flag_inside_a_new_risky_alias_accepted_in_the_same_round_is_rejected():
+    pubs = _gen_pubs("NHIS data and the Precision Medicine Initiative Cohort Program")
+    out = {"exclude_terms": [], "flag_terms": ["Precision Medicine Initiative"],
+           "new_aliases": ["Precision Medicine Initiative Cohort Program"], "reasoning": ""}
+    cand = QueryCandidate("X", safe=["NHIS"], flag_terms=["Census Bureau"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=FakeLLM(out), dataset_name="X",
+                         count_fn=lambda t: 5000, reference_count=100)
+    assert "Precision Medicine Initiative Cohort Program" in r.candidate.risky
+    assert "Precision Medicine Initiative" not in r.candidate.flag_terms
+    assert "contained in a flag-gated alias" in _rejected_note(r, "flag")

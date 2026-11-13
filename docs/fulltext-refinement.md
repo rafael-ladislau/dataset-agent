@@ -123,14 +123,17 @@ LLM proposals (validated against the quotes before acceptance):
   "of" or "the" is rejected ("state", "administrative data", "state UI"; "Bureau of Labor
   Statistics" passes), and a proper name needs a Dimensions
   full-data count between 1 and `optimize_flag_max_hits` (an unknown count rejects it; at
-  most `refine_max_flag_checks` counts per pass);
+  most `refine_max_flag_checks` counts per pass); a bare short acronym is rejected when the
+  query already has flags (`optimize_drop_short_acronym_flags`), and so is a flag that is a
+  phrase of a flag-gated alias, current or accepted as risky in the same pass;
 * proposals are deduplicated case-insensitively before any Dimensions count (a flag
   proposed as "Census Bureau" and "census bureau" costs one call), and proposals already
   in the query are skipped and noted as "already in the query";
 * new aliases: must occur in a matching evidence quote (titles never count) and be absent
   from the query; Dimensions
   counts are re-probed (zero-hit aliases are rejected; very broad ones become risky). A
-  `<short acronym> <generic suffix>` form ("UI data", "WR dataset") is never added.
+  `<short acronym> <generic suffix>` form ("UI data", "WR dataset"), a bare short acronym and a
+  rhetorical phrase of ultra-common words ("All of Us") are never added.
 * a term proposed both as a new alias and as a flag is judged as a flag only.
 
 Flag and new-alias counts (and exclude impact checks) share the reserve: once the call

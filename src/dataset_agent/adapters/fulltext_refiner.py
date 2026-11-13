@@ -30,7 +30,11 @@ from dataset_agent.adapters.fulltext_evidence import (
     term_in_evidence,
     term_in_quote,
 )
-from dataset_agent.adapters.query_heuristics import is_acronym_suffix_form, is_short_acronym
+from dataset_agent.adapters.query_heuristics import (
+    detect_rhetorical_name,
+    is_acronym_suffix_form,
+    is_short_acronym,
+)
 from dataset_agent.adapters.seed_mapping import QueryCandidate
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
 from dataset_agent.adapters.tools import EMIT_REFINEMENT_CANDIDATES
@@ -374,6 +378,10 @@ def refine_candidate(
                 reject("alias", t, "bare short acronym")
                 short_aliases.append(t)
                 continue
+            # "All of Us": a phrase of ultra-common words matches ordinary prose.
+            if detect_rhetorical_name(t):
+                reject("alias", t, "rhetorical phrase")
+                continue
             # A term the LLM lists both as an alias and as a flag is context around the
             # dataset (an organization, a facility), not a name: it is judged as a flag only.
             if _covered(t, prop["flag_terms"]):
@@ -397,6 +405,19 @@ def refine_candidate(
             # A short acronym refused as an alias must not come back as a gate term.
             if _covered(t, aliases) or _covered(t, [a for a, _ in new_aliases] + short_aliases):
                 reject("flag", t, "already an alias")
+                continue
+            # "PMI": a bare short acronym as a gate term matches its other meanings.
+            if (
+                settings.optimize_drop_short_acronym_flags
+                and is_short_acronym(t)
+                and candidate.flag_terms
+            ):
+                reject("flag", t, "bare short acronym")
+                continue
+            # A flag that is a phrase of a flag-gated alias widens nothing and lets the alias
+            # satisfy its own gate. Aliases accepted as risky this round are checked below.
+            if any(_phrase_in(t, a, plural_ok=False) for a in candidate.risky):
+                reject("flag", t, "contained in a flag-gated alias")
                 continue
             # "EarthScope" next to "EarthScope Consortium" only widens the gate.
             if any(_phrase_in(t, f, plural_ok=False) for f in candidate.flag_terms):
@@ -509,6 +530,19 @@ def refine_candidate(
             reason=f"mention form in {len(hits)} matching quote(s); {c} Dimensions hits"
             + (" (risky: requires flags)" if risky else ""),
             stats={"dimensions_count": c, "matching_papers": len(hits)}, evidence=_quotes(hits, t)))
+
+    # Flags inside an alias that became flag-gated in this round (a new risky alias).
+    new_risky = [t for t in keep_risky if t not in candidate.risky]
+    if new_risky and new_flags:
+        kept_flags = []
+        for t, hits in new_flags:
+            if any(_phrase_in(t, a, plural_ok=False) for a in new_risky):
+                reject("flag", t, "contained in a flag-gated alias")
+                flag_hits.pop(t, None)
+            else:
+                kept_flags.append((t, hits))
+        new_flags = kept_flags
+        flags = list(candidate.flag_terms) + [t for t, _ in new_flags]
 
     for d in diffs:
         if d.kind == "alias" and d.action in ("drop", "demote"):
