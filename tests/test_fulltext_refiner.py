@@ -772,6 +772,18 @@ def test_new_alias_short_acronym_rejected():
     assert "NOTA (bare short acronym)" in " ".join(r.notes)
 
 
+def test_term_proposed_as_alias_and_flag_is_judged_as_a_flag_only():
+    counted: list[str] = []
+    r = _gnss_refine({"new_aliases": ["GAGE Facility", "PANGA"], "flag_terms": ["GAGE Facility"]},
+                     counted)
+    added = [d.term for d in r.diffs if d.kind == "alias" and d.action == "add"]
+    assert added == ["PANGA"]
+    assert "GAGE Facility" not in r.candidate.safe and "GAGE Facility" not in r.candidate.risky
+    assert "GAGE Facility (also proposed as a flag term)" in " ".join(r.notes)
+    assert "GAGE Facility" in r.candidate.flag_terms
+    assert counted.count("GAGE Facility") == 1
+
+
 def test_accepted_changes_are_logged(caplog):
     import logging
 

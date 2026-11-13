@@ -374,6 +374,11 @@ def refine_candidate(
                 reject("alias", t, "bare short acronym")
                 short_aliases.append(t)
                 continue
+            # A term the LLM lists both as an alias and as a flag is context around the
+            # dataset (an organization, a facility), not a name: it is judged as a flag only.
+            if _covered(t, prop["flag_terms"]):
+                reject("alias", t, "also proposed as a flag term")
+                continue
             # A new alias must occur literally (no plural folding) in a genuine quote.
             hit_gen = [v for v in evidence.genuine if term_in_quote(t, v, exact=True)]
             if hit_gen:

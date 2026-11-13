@@ -131,6 +131,7 @@ LLM proposals (validated against the quotes before acceptance):
   from the query; Dimensions
   counts are re-probed (zero-hit aliases are rejected; very broad ones become risky). A
   `<short acronym> <generic suffix>` form ("UI data", "WR dataset") is never added.
+* a term proposed both as a new alias and as a flag is judged as a flag only.
 
 Flag and new-alias counts (and exclude impact checks) share the reserve: once the call
 budget is down to `refine_impact_budget_reserve` they fail as "hit count unknown" instead
