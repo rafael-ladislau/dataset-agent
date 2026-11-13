@@ -89,6 +89,30 @@ def test_disabled_by_default_never_touches_extraction(tmp_path):
     assert out.success and client.seeds == [] and out.fulltext_iterations == []
 
 
+def test_flag_gated_name_is_not_searched_without_flag_terms(tmp_path, monkeypatch):
+    gate_clauses: list[str] = []
+
+    def fake_eval(*a, **k):
+        gate_clauses.append(k.get("for_clause", ""))
+        return {"fp_rate_pct": 5.0, "genuine_count": 10, "fp_count": 0, "matched_count": 10,
+                "total_pubs": 100, "coverage_pct": 100.0, "for_clause": k.get("for_clause", ""),
+                "publications_total": 100, "fp_hits": []}
+
+    monkeypatch.setattr(qopt_mod, "evaluate_for_clause_sync", fake_eval)
+    req = OptimizeRequest(dataset_name="My Long Dataset Alpha",
+                          dataset_names=["My Long Dataset Alpha", "MLDA"], flag_terms=[])
+    client = FakeClient([{"publications": [pub("a", 9, True, "used My Long Dataset Alpha data")]}])
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(),
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True),
+        extraction_client=client)
+    out = asyncio.run(uc.execute(req))
+    assert out.success
+    assert "MLDA" not in gate_clauses[0] and "My Long Dataset Alpha" in gate_clauses[0]
+    assert "MLDA" not in str(client.seeds[0])
+    assert "not searched: no flag terms" in out.notes
+
+
 def test_probe_metrics_recorded_when_enabled(tmp_path):
     results = {"publications": [
         pub("a", 9, True, "used My Long Dataset Alpha data"),

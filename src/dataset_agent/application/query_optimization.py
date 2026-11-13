@@ -129,12 +129,11 @@ def _alias_risk_label(c_alias: int, c_full: int, has_full_name: bool) -> Literal
 
 
 def _pick_start_variant(tested: list[VariantTestedEntry]) -> VariantTestedEntry:
-    """Best Phase-2 variant: non-empty results first, then lowest FP, then variant preference."""
+    """Best Phase-2 variant: non-empty results first, then variant preference."""
     return min(
         tested,
         key=lambda v: (
             0 if (v.expected_count or 0) > 0 else 1,
-            float(v.fp_rate_pct or 0.0),
             _VARIANT_ORDER.get(v.label, 99),
         ),
     )
@@ -1794,9 +1793,12 @@ class QueryOptimizationUseCase:
         current_safe = list(safe)
         current_risky = list(risky)
         current_flags = list(flag_terms)
+        if model is None and current_risky and not current_flags:
+            notes_parts.append(f"risky alias(es) {current_risky} not searched: no flag terms")
+            current_risky = []
 
-        # Start with the best Phase-2 variant: lowest FP, then non-empty result,
-        # then the variant preference order (V4 > V3 > V2 > V1 > V5).
+        # Start with the best Phase-2 variant: non-empty result first, then the variant
+        # preference order (V4 > V3 > V2 > V1 > V5).
         best_variant = _pick_start_variant(tested)
         current_for_clause = best_variant.for_clause
         current_variant_label = best_variant.label.split("~", 1)[0]

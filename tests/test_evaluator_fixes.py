@@ -62,7 +62,7 @@ def test_gate_for_clause_keeps_flag_terms():
     assert "NOT" in clause and "Foo Fighters" in clause
 
 
-def test_phase3_starts_from_lowest_fp_variant_with_real_label():
+def test_phase3_starts_from_non_empty_variant_by_preference_with_real_label():
     from dataset_agent.application.query_optimization import _pick_start_variant
     from dataset_agent.domain.models import VariantTestedEntry
 
@@ -72,7 +72,7 @@ def test_phase3_starts_from_lowest_fp_variant_with_real_label():
         VariantTestedEntry(label="V4", for_clause="c", expected_count=10, fp_rate_pct=2.0),
         VariantTestedEntry(label="V2", for_clause="d", expected_count=0, fp_rate_pct=0.0),
     ]
-    # V2 has 0 FP but zero hits so it loses; V4 wins the FP tie by preference order.
+    # V2 has zero hits so it loses; among the rest V4 wins by preference order (FP is ignored).
     assert _pick_start_variant(tested).label == "V4"
 
 
