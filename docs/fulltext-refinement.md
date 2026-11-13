@@ -96,7 +96,7 @@ second number is how many false positives contain the cause term, not per-group 
 proper names (agency, program, product), not lower-case context words. Fields of research that
 hold at least half of the false positives (and at least
 `refine_category_min_fp_papers`) but at most 10% of the matches are reported as a
-manual suggestion; they are never applied.
+manual suggestion, and only when at least that many matching papers exist to compare with; they are never applied.
 
 ### Refinement actions
 
@@ -234,7 +234,7 @@ the precision is an extrapolation from a small sample; the reason string states 
 | `refine_max_exclude_checks` / `refine_impact_budget_reserve` | 5 / 14 | Impact checks per pass / Dimensions calls kept for the next gate evaluation |
 | `refine_flag_min_share` | 0.2 | Min share of matching papers carrying a new flag |
 | `optimize_flag_max_hits` / `refine_max_flag_checks` | 500000 / 5 | Max Dimensions hits for a flag (research and refiner; 0 = off) / flag counts per pass |
-| `refine_category_min_fp_papers` | 3 | Min false positives in a field of research before it is reported |
+| `refine_category_min_fp_papers` | 3 | Min false positives in a field, and min matching papers, before a field of research is reported |
 | `probe_target`, `submit_target` | `dev` | Extraction instance for probes / submit |
 | `extraction_{dev,prod}_url`, `_user`, `_password` | empty (must be set; extraction requires HTTP Basic auth) | Per-target connection. Do not point it at dataset-agent's own port. |
 

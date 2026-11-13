@@ -176,7 +176,9 @@ def category_patterns(evidence: Evidence, min_fp: int) -> list[str]:
     Reported only (never applied): excluding a whole field is a strong, manual decision.
     """
     fps, matches = evidence.false_positives, evidence.genuine
-    if not fps:
+    # Without matching papers to compare with, every field of the false positives would be
+    # reported, the dataset's own field included.
+    if not fps or len(matches) < min_fp:
         return []
     counts: dict[str, list[int]] = {}
     for v in fps:
@@ -189,7 +191,7 @@ def category_patterns(evidence: Evidence, min_fp: int) -> list[str]:
     for name, (n_fp, n_match) in sorted(counts.items(), key=lambda kv: -kv[1][0]):
         if n_fp < min_fp or n_fp / len(fps) < 0.5:
             continue
-        if matches and n_match / len(matches) > 0.1:
+        if n_match / len(matches) > 0.1:
             continue
         out.append(
             f"full-text pattern: {n_fp}/{len(fps)} false positives are in field of research "

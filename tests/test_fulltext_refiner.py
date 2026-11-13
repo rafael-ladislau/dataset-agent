@@ -781,3 +781,22 @@ def test_accepted_changes_are_logged(caplog):
     assert any(m.startswith("refine: alias 'PANGA' accepted:") for m in msgs)
     assert any(m.startswith("refine: flag 'GAGE Facility' accepted:") for m in msgs)
     assert any(n.startswith("refiner added: aliases [PANGA]; flags [GAGE Facility]") for n in r.notes)
+
+
+def test_no_field_pattern_without_matching_papers():
+    from dataset_agent.adapters.fulltext_refiner import category_patterns
+
+    def fps():
+        return [ctx_pub(f"f{i}", 10 - i, "not_mentioned", "t", [], categories=["37 Earth Sciences"])
+                for i in range(5)]
+
+    def matches(n):
+        return [ctx_pub(f"g{i}", 50 - i, "used", "t", [], categories=["46 Information"]) for i in range(n)]
+
+    def evi(m):
+        return ev(fps() + m)
+
+    assert category_patterns(evi([]), 3) == []
+    assert category_patterns(evi(matches(2)), 3) == []
+    out = category_patterns(evi(matches(3)), 3)
+    assert len(out) == 1 and "vs 0/3 matches" in out[0]
