@@ -164,13 +164,12 @@ def test_aou_real_main_name_with_agency_suffix_uses_known_alias():
     assert "NIH" in notes and "NIH" not in terms(res)
 
 
-def test_generic_phrase_and_acronym_compound_rejected():
+def test_generic_phrase_rejected_acronym_pairs_eligible():
     cand = QueryCandidate(main_dataset_name="MIDRC Data Commons", safe=["MIDRC Data Commons"])
-    res = run(cand, ["MIDRC Data Commons"], flags=[], known=["Data Commons", "PBO GPS"])
-    assert terms(res) == []
+    res = run(cand, ["MIDRC Data Commons"], flags=[], known=["Data Commons", "PBO GPS", "CPS ASEC"])
+    assert terms(res) == ["PBO GPS", "CPS ASEC"]
     notes = "; ".join(res[1])
     assert "Data Commons (generic phrase)" in notes
-    assert "PBO GPS (acronyms only)" in notes
 
 
 # Real gpt-oss inputs (aou-g2 / midrc-g2 / gnss-b2): bare "All of Us" is not a known name.

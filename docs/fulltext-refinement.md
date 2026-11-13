@@ -192,7 +192,7 @@ names as **safe aliases**, only with full-text evidence.
    a dataset acronym (so "All of Us Research Program" and "Medical Imaging and Data Resource
    Center" pass while NIH, NSF and "National Cancer Institute" do not). Head-position acronyms
    only, so the alias "All of Us NIH" does not make NIH related. The existing safety bar
-   applies: proper names only, no short acronym, no acronym plus generic suffix, nothing the
+   applies: proper names only, no short acronym, no acronym plus generic suffix, no all-generic phrase, nothing the
    refiner already dropped or demoted on full text, no bare rhetorical phrase.
 2. **Count**: the Dimensions hits each candidate adds beyond the current query (at most three
    times the candidate cap); fewer than the minimum evidence is rejected, as is a count above

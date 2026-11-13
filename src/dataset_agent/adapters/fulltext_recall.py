@@ -48,14 +48,6 @@ def _all_generic_words(term: str) -> bool:
     return bool(toks) and all(t in _GENERIC_NAME_WORDS for t in toks)
 
 
-def _acronym_compound(term: str) -> bool:
-    """Two or more short acronym-shaped tokens ("PBO GPS"): no distinctive name."""
-    toks = term.split()
-    return len(toks) >= 2 and all(
-        looks_like_acronym_head(t, max_len=5) and len(t) <= 5 for t in toks
-    )
-
-
 @dataclass
 class RecallCandidate:
     term: str
@@ -209,8 +201,6 @@ def recall_candidates(
             reject("not a proper name")
         elif _all_generic_words(term):
             reject("generic phrase")
-        elif _acronym_compound(term):
-            reject("acronyms only")
         elif _fold(term) in against:
             reject("full text already rejected it")
         elif detect_rhetorical_name(term):
