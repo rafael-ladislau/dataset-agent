@@ -166,3 +166,11 @@ def test_agent_sentinel_text_is_dropped() -> None:
     assert sanitize_term("No output from agent.") is None
     assert sanitize_term("Error in agent execution: boom") is None
     assert sanitize_terms(["No output from agent", "MIDRC"]) == ["MIDRC"]
+
+
+def test_model_markup_is_dropped() -> None:
+    assert sanitize_term("<|start|>assistant<|channel|>final<|message|>MIDRC") is None
+    assert sanitize_term("</parameter> </function> GNSS") is None
+    assert sanitize_term("<function=emit_suffix_form> <parameter=suffixed_form>") is None
+    assert sanitize_term("<MIDRC>") == "MIDRC"
+    assert sanitize_term("p<0.05 study") == "p<0.05 study"

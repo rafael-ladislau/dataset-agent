@@ -27,6 +27,9 @@ _QUOTES = {
 _PAIRS = {"(": ")", "[": "]", "{": "}", "<": ">"}
 _QUOTE_CHARS = "\"'"
 _UNCERTAIN_TAIL = re.compile(r"\s*[(\[]\s*\?+\s*[)\]]\s*$")
+# Model control markup: Harmony tokens ("<|start|>") or tool-call tags ("</parameter>",
+# "<function=name>"). A plain "<Name>" wrapper is not markup.
+_MARKUP_RE = re.compile(r"<\||\|>|</[A-Za-z_][^<>\s]*>|<[A-Za-z_][^<>\s=]*=[^<>\s]*>")
 
 
 def _strip_edges(s: str) -> str:
@@ -74,6 +77,9 @@ def sanitize_term(term: object) -> str | None:
     s = re.sub(r"\s+", " ", s).strip()
     # Placeholder echoes: check before stripping trailing punctuation.
     if "..." in s or "…" in s:
+        return None
+    # Leaked control tokens or tool-call tags are never part of a name.
+    if _MARKUP_RE.search(s):
         return None
     if "`" in s:
         # An empty pair ("All `` survey") is a placeholder echo; removing the
