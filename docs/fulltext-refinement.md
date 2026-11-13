@@ -188,12 +188,16 @@ names as **safe aliases**, only with full-text evidence.
 
 1. **Candidates** (deterministic, no LLM): flag terms that name the dataset, the main names,
    and known aliases that are not safe now (risky, or dropped in phase 1). A flag counts as
-   naming the dataset when a main name sits inside it, or it is/starts with/has the initials of
-   a dataset acronym (so "All of Us Research Program" and "Medical Imaging and Data Resource
-   Center" pass while NIH, NSF and "National Cancer Institute" do not). Head-position acronyms
-   only, so the alias "All of Us NIH" does not make NIH related. The existing safety bar
-   applies: proper names only, no short acronym, no acronym plus generic suffix, no all-generic phrase, nothing the
-   refiner already dropped or demoted on full text, no bare rhetorical phrase.
+   naming the dataset when a main name sits inside it, when it contains a known multi-word
+   alias, when it shares a distinctive phrase of two or more words with a name or such an alias,
+   or when it is/starts with/has the initials of a dataset acronym (so "All of Us Research
+   Program" and "Medical Imaging and Data Resource Center" pass while NIH, NSF and "National
+   Cancer Institute" do not). Head-position acronyms only, so the alias "All of Us NIH" does
+   not make NIH related, and the acronym head of a multi-word alias counts only when that
+   alias is safe ("UNAVCO geodetic data" must not make "UNAVCO" a name). The existing safety
+   bar applies: proper names only, no short acronym, no acronym plus generic suffix, no
+   all-generic phrase such as "Data Commons", nothing the refiner already dropped or demoted
+   on full text, no bare rhetorical phrase.
 2. **Count**: the Dimensions hits each candidate adds beyond the current query (at most three
    times the candidate cap); fewer than the minimum evidence is rejected, as is a count above
    500,000.
@@ -201,7 +205,11 @@ names as **safe aliases**, only with full-text evidence.
    (`("term") NOT (<current query>)`), one probe per candidate within the usual probe limits.
    The candidate is sent as the alias so the validator looks for it. Promoted only with
    precision >= `fulltext_recall_min_precision` on >= `fulltext_recall_min_evidence` papers;
-   otherwise the run notes say why (including free-full-text shortfalls). Later candidates are
+   otherwise the run notes say why (including free-full-text shortfalls). A promotion that
+   adds more than `fulltext_recall_expansion_ratio` times the selected query's count must also
+   have a Wilson 95% lower bound of at least `fulltext_recall_min_precision` minus
+   `fulltext_recall_expansion_margin`; otherwise it is rejected with "too uncertain". The
+   reason of a promotion also says how many papers use the data. Later candidates are
    measured beyond the ones already promoted. A flag-gated name is probed as a plain alias
    with the safe names, the flags and the excludes excluded; a flag or main-name candidate on
    a flag-gated query whose terms contain DSL special characters cannot be expressed and is
@@ -228,6 +236,7 @@ the precision is an extrapolation from a small sample; the reason string states 
 | `fulltext_recall_enabled` | `true` | Recall check after the precision loop (needs the loop) |
 | `fulltext_recall_max_candidates` | 2 | Complement probes per run (0 disables) |
 | `fulltext_recall_min_precision` / `fulltext_recall_min_evidence` | 0.8 / 10 | Bar a complement probe must meet (precision; evaluated papers and added Dimensions hits) |
+| `fulltext_recall_expansion_ratio` / `fulltext_recall_expansion_margin` | 1.0 / 0.1 | Large-expansion rule: above ratio x the selected query's count, the Wilson lower bound must reach min precision minus margin |
 | `fulltext_recall_target_delivered` | 20 | Full texts a complement probe aims for (at least the min evidence) |
 | `fulltext_min_evidence` | 3 | Min evaluated papers before anything changes |
 | `refine_min_alias_papers` | 3 | Min verified papers per alias |

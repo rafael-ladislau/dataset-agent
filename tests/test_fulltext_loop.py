@@ -521,7 +521,7 @@ def test_recall_promotes_flag_naming_the_dataset(tmp_path):
     assert PROGRAM in comp["dataset_names"] and "Beta Health Survey" in str(comp["dimensions_query"])
     assert client.kwargs[1]["target"] == 20
     assert PROGRAM in out.aliases.safe and PROGRAM in out.for_clause
-    assert "NIH" in out.flag_terms or out.flag_terms
+    assert "NIH" in out.flag_terms and "NIH" not in out.aliases.safe
     assert out.selected_variant.endswith("+recall")
     p = out.proposal
     assert PROGRAM in p.proposed.safe and PROGRAM in str(p.start_payload)
