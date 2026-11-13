@@ -288,6 +288,30 @@ def test_small_fulltext_sample_does_not_win_selection(tmp_path):
     assert "gate_iter1: full-text precision within threshold." not in str(out.notes)
 
 
+def _two_iteration_run(tmp_path, n_genuine):
+    pubs = [pub(f"p{i}", 50 - i, i < n_genuine, "My Long Dataset Alpha data") for i in range(10)]
+    llm = MagicMock()
+    llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=llm,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, optimize_max_iterations=2),
+        extraction_client=FakeClient([{"publications": pubs}]))
+    return asyncio.run(uc.execute(REQ)), llm
+
+
+def test_loop_stops_refining_once_fulltext_meets_the_bar(tmp_path):
+    out, llm = _two_iteration_run(tmp_path, 8)
+    assert len(out.fulltext_iterations) == 1
+    assert "gate_iter0: full-text precision meets the bar (>= 0.80 on >= 10 papers)." in str(out.notes)
+    assert llm.get_structured.call_count == 0
+
+
+def test_loop_keeps_refining_below_the_bar(tmp_path):
+    out, llm = _two_iteration_run(tmp_path, 7)
+    assert "meets the bar" not in str(out.notes)
+    assert llm.get_structured.call_count >= 1
+
+
 @pytest.fixture
 def _zero_abstract_fp(monkeypatch):
     """Abstract evaluator says 0% FP, which alone would mean HIGH confidence."""

@@ -143,7 +143,9 @@ Every rejected candidate is logged with its reason and summarized in the iterati
 notes ("rejected exclude candidates: …").
 
 The loop stops when full-text precision reaches `1 - optimize_fp_threshold_pct/100` on at
-least `fulltext_min_evidence` evaluated papers, when nothing changes, after the iteration
+least `fulltext_min_evidence` evaluated papers, when it meets the confidence bar
+(`fulltext_recall_min_precision` on at least `fulltext_recall_min_evidence` evaluated papers,
+0.80 on 10 by default: further refinement is not worth another probe), when nothing changes, after the iteration
 cap, or when a gate evaluation or a probe fails (an evaluation error is not read as 0% FP;
 it ends the loop and caps confidence at LOW). The proposal uses the iteration with the
 best full-text precision among those with at least `fulltext_min_evidence` evaluated

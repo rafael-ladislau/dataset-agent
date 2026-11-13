@@ -256,10 +256,11 @@ class Settings(BaseSettings):
     #: Max recall candidates evaluated (one complement probe each) per run.
     fulltext_recall_max_candidates: int = Field(default=2, ge=0, le=5)
     #: Min complement precision (papers matching the candidate but not the current query);
-    #: also the MEDIUM confidence floor.
+    #: also the MEDIUM confidence floor and the early-stop bar of the full-text loop.
     fulltext_recall_min_precision: float = Field(default=0.8, ge=0.0, le=1.0)
     #: Min full-text papers evaluated in a complement probe (and min Dimensions hits added);
-    #: also the sample needed for MEDIUM or HIGH confidence.
+    #: also the sample needed for MEDIUM or HIGH confidence and the early-stop bar of the
+    #: full-text loop.
     fulltext_recall_min_evidence: int = Field(default=10, ge=1)
     #: A promotion adding more than ratio x the selected query's count is a large expansion.
     fulltext_recall_expansion_ratio: float = Field(default=1.0, ge=0.0)

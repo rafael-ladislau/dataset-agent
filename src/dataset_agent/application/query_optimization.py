@@ -1964,6 +1964,17 @@ class QueryOptimizationUseCase:
                 ):
                     notes_parts.append(f"gate_iter{iteration}: full-text precision within threshold.")
                     break
+                if (
+                    prec is not None
+                    and metrics.n_evaluated >= self._settings.fulltext_recall_min_evidence
+                    and prec >= self._settings.fulltext_recall_min_precision
+                ):
+                    notes_parts.append(
+                        f"gate_iter{iteration}: full-text precision meets the bar "
+                        f"(>= {self._settings.fulltext_recall_min_precision:.2f} on >= "
+                        f"{self._settings.fulltext_recall_min_evidence} papers)."
+                    )
+                    break
                 if iteration == max_iters - 1:
                     break
                 # Term changes are driven by full-text evidence only; the abstract FP
