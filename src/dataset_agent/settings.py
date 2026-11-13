@@ -150,7 +150,9 @@ class Settings(BaseSettings):
     default_publication_types: list[str] = Field(default_factory=lambda: ["article"])
     default_filter_us_affiliation: bool = False
 
-    literature_gate: Literal["noop", "dimensions"] = "dimensions"
+    #: "noop" accepts research results without a literature lookup; "dimensions" validates
+    #: them against the Dimensions API and needs DATASET_AGENT_DIMENSIONS_API_KEY.
+    literature_gate: Literal["noop", "dimensions"] = "noop"
     literature_max_attempts: int = 3
     literature_threshold: float = 0.5
     dimensions_api_key: str = ""

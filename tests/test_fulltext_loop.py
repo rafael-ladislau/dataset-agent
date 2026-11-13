@@ -85,6 +85,10 @@ def test_default_is_two_refinement_rounds():
     assert Settings.model_fields["optimize_max_iterations"].default == 2
 
 
+def test_default_literature_gate_is_noop():
+    assert Settings.model_fields["literature_gate"].default == "noop"
+
+
 def test_disabled_by_default_never_touches_extraction(tmp_path):
     client = FakeClient([{}])
     uc = QueryOptimizationUseCase(dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(),
