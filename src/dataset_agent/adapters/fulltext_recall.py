@@ -269,6 +269,8 @@ def judge_complement(
         need_lb = need_p - settings.fulltext_recall_expansion_margin
         assert lower is not None
         if lower < need_lb:
+            # The point precision met the need; only the interval rejects it.
+            stats["rejected_on_lower_bound"] = True
             return False, (
                 f"complement precision {precision:.2f} on {n} papers is too uncertain for "
                 f"+{added_hits} hits on a query of {base_count} "

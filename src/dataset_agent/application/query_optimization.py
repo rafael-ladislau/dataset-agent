@@ -44,7 +44,11 @@ from dataset_agent.adapters.fp_analysis import (
     score_title_signal3,
     web_search_alias_meanings,
 )
-from dataset_agent.adapters.extraction_client import ExtractionClient, ExtractionError
+from dataset_agent.adapters.extraction_client import (
+    STOP_POOL_EXHAUSTED,
+    ExtractionClient,
+    ExtractionError,
+)
 from dataset_agent.adapters.fulltext_evidence import Evidence, build_evidence
 from dataset_agent.adapters.fulltext_recall import (
     MAX_ADDED_HITS,
@@ -654,9 +658,10 @@ class QueryOptimizationUseCase:
         flag_terms: list[str],
         evidence_against: set[str],
         base_count: int | None = None,
-    ) -> tuple[QueryCandidate, list[TermDiff], list[str], float | None]:
+    ) -> tuple[QueryCandidate, list[TermDiff], list[str], float | None, list[str]]:
         """Propose missing canonical names as safe aliases; returns
-        ``(candidate, add diffs, notes, min complement precision of promoted terms)``.
+        ``(candidate, add diffs, notes, min complement precision of promoted terms,
+        terms rejected only on the Wilson lower bound)``.
 
         Every note starts with ``recall check:``. A candidate is promoted only when a
         complement probe (papers matching it but not the current query) is precise enough."""
@@ -664,6 +669,7 @@ class QueryOptimizationUseCase:
         notes: list[str] = []
         diffs: list[TermDiff] = []
         precisions: list[float] = []
+        lower_bound_only: list[str] = []
         eligible, rejected = recall_candidates(
             current, main_names=main_names, known_aliases=known_aliases,
             flag_terms=flag_terms, evidence_against=evidence_against,
@@ -682,7 +688,7 @@ class QueryOptimizationUseCase:
             expressible.append(cand)
         eligible = expressible
         if not eligible:
-            return current, diffs, notes, None
+            return current, diffs, notes, None, lower_bound_only
 
         # Count stage: the Dimensions hits each candidate would add (tier order, bounded).
         counted: list[tuple[RecallCandidate, int]] = []
@@ -756,6 +762,8 @@ class QueryOptimizationUseCase:
                      "complement_clause": complement_clause(term, current)}
             if not ok:
                 notes.append(f"recall check: '{term}' rejected: {reason}")
+                if stats.get("rejected_on_lower_bound"):
+                    lower_bound_only.append(term)
                 continue
             was_gated = any(r.lower() == term.lower() for r in current.risky)
             if was_gated:
@@ -772,7 +780,7 @@ class QueryOptimizationUseCase:
                 reason=reason, stats=stats, evidence=evidence_quotes(term, evidence),
             ))
             notes.append(f"recall check: promoted '{term}': {reason}")
-        return current, diffs, notes, (min(precisions) if precisions else None)
+        return current, diffs, notes, (min(precisions) if precisions else None), lower_bound_only
 
     # ------------------------------------------------------------------ AI models
 
@@ -2107,6 +2115,7 @@ class QueryOptimizationUseCase:
         recall_diffs: list[TermDiff] = []
         recall_min_precision: float | None = None
         recall_final: QueryCandidate | None = None
+        recall_lower_bound_terms: list[str] = []
         s_cfg = self._settings
         if ft_enabled and s_cfg.fulltext_recall_enabled and s_cfg.fulltext_recall_max_candidates > 0:
             if best_ft_iter is None:
@@ -2137,7 +2146,9 @@ class QueryOptimizationUseCase:
                     for d in ds
                     if d.kind == "alias" and d.action in ("drop", "demote")
                 }
-                final_c, recall_diffs, rnotes, recall_min_precision = await self._recall_check(
+                (
+                    final_c, recall_diffs, rnotes, recall_min_precision, recall_lower_bound_terms,
+                ) = await self._recall_check(
                     request, sel_c, main_names=names, known_aliases=known,
                     flag_terms=flags, evidence_against=against,
                     base_count=(
@@ -2215,6 +2226,29 @@ class QueryOptimizationUseCase:
                         confidence = ConfidenceLevel.HIGH
                     elif prec >= self._settings.fulltext_recall_min_precision:
                         confidence = ConfidenceLevel.MEDIUM
+                if confidence == ConfidenceLevel.HIGH:
+                    # HIGH needs more than a precise sample: a sample cut short by an exhausted
+                    # pool, or a precise addition the recall check could not make, caps it.
+                    capped = False
+                    if (
+                        sel.fulltext_stop_reason == STOP_POOL_EXHAUSTED
+                        and sel.fulltext_target is not None
+                        and sel.n_fulltext_delivered < sel.fulltext_target
+                    ):
+                        notes_parts.append(
+                            "confidence capped at MEDIUM: the probe pool was exhausted "
+                            f"({sel.n_fulltext_delivered} of {sel.fulltext_target} papers)"
+                        )
+                        capped = True
+                    if recall_lower_bound_terms:
+                        notes_parts.append(
+                            "confidence capped at MEDIUM: the recall check measured a precise "
+                            "addition it could not make "
+                            f"({', '.join(recall_lower_bound_terms)})"
+                        )
+                        capped = True
+                    if capped:
+                        confidence = ConfidenceLevel.MEDIUM
         else:
             fp_sel = float(best.fp_rate_pct or 0.0)
             if fp_sel < 1.0:
@@ -2245,6 +2279,7 @@ class QueryOptimizationUseCase:
                         or "refiner" in n
                         or "Dimensions query failed" in n
                         or n.startswith("recall check")
+                        or n.startswith("confidence capped")
                         or n in ft_refiner_notes
                     ],
                     seed_kw={"extra": {"home_url": request.dataset_url}},

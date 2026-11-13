@@ -165,6 +165,12 @@ and its notes say why. A probe failure in a later iteration ends the loop: the b
 iteration is proposed with its own confidence, and the recall check is skipped. After a recall promotion the precision used is the lower of the
 iteration's and the complement's.
 
+HIGH is capped at MEDIUM, with a note saying why, in two cases: the selected iteration's
+probe pool was exhausted before the target was reached (for example 16 of 30 papers), or the
+recall check rejected a candidate only on the Wilson lower bound although its point
+precision met `fulltext_recall_min_precision` (a precise addition it could not make). LOW
+and MEDIUM are never changed by this cap.
+
 ## Seed mapping
 
 safe aliases -> `standalone_names`; risky aliases -> `dataset_names` (+ `flag_terms`);

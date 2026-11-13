@@ -655,6 +655,50 @@ def test_recall_large_expansion_needs_lower_bound(tmp_path):
             "for +500 hits on a query of 100 (lower bound 0.64, need 0.70)") in out.notes
 
 
+def test_confidence_capped_at_medium_when_the_probe_pool_was_exhausted(tmp_path, _zero_abstract_fp):
+    # midrc-h3 shape: 16 of 30 papers from an exhausted pool, all genuine.
+    out = asyncio.run(_ft_uc_pool(tmp_path, "pool_exhausted").execute(REQ))
+    assert out.fulltext_iterations[0].n_evaluated == 16
+    assert out.fulltext_iterations[0].fulltext_precision == 1.0
+    assert out.confidence.value == "medium"
+    assert "confidence capped at MEDIUM: the probe pool was exhausted (16 of 30 papers)" in str(out.notes)
+    assert any("probe pool was exhausted" in n for n in out.proposal.notes)
+
+
+def test_confidence_stays_high_when_the_probe_stopped_for_another_reason(tmp_path, _zero_abstract_fp):
+    out = asyncio.run(_ft_uc_pool(tmp_path, "max_batches").execute(REQ))
+    assert out.confidence.value == "high"
+    assert "confidence capped" not in str(out.notes)
+
+
+def _ft_uc_pool(tmp_path, stop_reason):
+    llm = MagicMock()
+    llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    return QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=llm,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, optimize_max_iterations=1),
+        extraction_client=FakeClient([{"publications": _probe_of(16, 16)}], stop_reason=stop_reason))
+
+
+def test_confidence_capped_at_medium_when_recall_rejected_only_on_the_lower_bound(tmp_path):
+    out, _, _ = run_recall(tmp_path, [{"publications": gate_pubs(10)},
+                                      {"publications": comp_pubs(PROGRAM, 20, 17)}],
+                           dsl=RecallDSL(not_total=500),
+                           request_settings=dict(fulltext_recall_max_candidates=1))
+    assert "too uncertain" in out.notes
+    assert out.confidence.value == "medium"
+    assert (f"confidence capped at MEDIUM: the recall check measured a precise addition it could not "
+            f"make ({PROGRAM})") in out.notes
+
+
+def test_confidence_stays_high_when_recall_rejects_on_point_precision(tmp_path):
+    out, _, _ = run_recall(tmp_path, [{"publications": gate_pubs(10)},
+                                      {"publications": comp_pubs(PROGRAM, 10, 5)}])
+    assert "rejected: complement precision 0.50" in out.notes
+    assert out.confidence.value == "high"
+    assert "confidence capped" not in out.notes
+
+
 def test_recall_rejects_low_complement_precision(tmp_path):
     out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs()},
                                             {"publications": comp_pubs(PROGRAM, 10, 5)}])
