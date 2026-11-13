@@ -1164,8 +1164,6 @@ class QueryOptimizationUseCase:
                 else:
                     model.decide(nm, "alias", "rejected",
                                  f"{reason}; not confirmed as a name of this model", c, **stats)
-            if s.ai_model_paper_titles_as_aliases:
-                safe.extend(titles)
 
             # 3. Reference set: papers that certainly refer to the model.
             reference = dedupe_strings_ci_preserve_order(titles + safe)

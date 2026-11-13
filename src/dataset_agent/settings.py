@@ -326,9 +326,6 @@ class Settings(BaseSettings):
     #: each removing at most this share of the current result.
     ai_model_refine_max_excludes: int = Field(default=3, ge=0, le=10)
     ai_model_refine_exclude_max_share: float = Field(default=0.02, ge=0.0, le=1.0)
-    #: Also search the titles of the model's own papers (finds papers that cite the
-    #: model without naming it in the text). Titles are always used as anchors.
-    ai_model_paper_titles_as_aliases: bool = False
     refine_max_new_aliases: int = Field(default=3, ge=0, le=10)
     #: Min false-positive papers an exclude must occur in (title or full-text snippet).
     refine_min_exclude_papers: int = Field(default=2, ge=1)

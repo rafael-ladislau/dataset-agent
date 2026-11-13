@@ -15,7 +15,7 @@ Candidate kinds:
 * names: the family name, version strings, qualified phrases ("Microsoft Aurora",
   "Aurora foundation model"), former names.
 * paper titles: titles of the papers that introduce the model. They are anchors (papers
-  quoting one certainly refer to the model) and optional aliases.
+  quoting one certainly refer to the model).
 * context terms: proper names that co-occur with the model in papers (peer models,
   benchmarks, training data, the developer lab). They gate an ambiguous name.
 * other meanings: phrases specific to other senses of the name (exclude candidates).
