@@ -48,6 +48,15 @@ def test_proposal_contents(tmp_path):
     assert p.proposed.for_clause
 
 
+def test_proposal_years_end_defaults_to_the_current_year(tmp_path, monkeypatch):
+    import time
+
+    monkeypatch.delenv("DATASET_AGENT_DEFAULT_YEARS_END", raising=False)
+    _, _, p = make(tmp_path, _env_file=None)
+    assert p.start_payload["years_range"]["end_year"] == time.gmtime().tm_year
+    assert Settings(default_years_end=2020, _env_file=None).default_years_end == 2020
+
+
 def test_merge_diffs_change_beats_keep():
     keep = TermDiff(kind="alias", term="A", action="keep", status="unverified")
     drop = TermDiff(kind="alias", term="a", action="drop", status="verified")

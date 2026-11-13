@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -145,7 +146,7 @@ class Settings(BaseSettings):
     default_engine: str = "dimensions"
     default_group_name: str = "default"
     default_years_start: int = 2015
-    default_years_end: int = 2025
+    default_years_end: int = Field(default_factory=lambda: time.gmtime().tm_year)
     default_publication_types: list[str] = Field(default_factory=lambda: ["article"])
     default_filter_us_affiliation: bool = False
 
