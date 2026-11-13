@@ -90,3 +90,32 @@ def test_preview_query_escapes_ampersand_in_phrases() -> None:
     q = build_dimensions_literature_query(rec, sample_size=5)
     assert "Imaging \\& Data" in q
     assert "Imaging & Data" not in q
+
+
+def _gate_result(monkeypatch, fp_rate_pct):
+    import sys
+    import types
+
+    from dataset_agent.adapters import literature as lit
+    from dataset_agent.settings import Settings
+
+    monkeypatch.setitem(sys.modules, "dimcli", types.ModuleType("dimcli"))
+    monkeypatch.setattr(
+        lit, "evaluate_for_clause_sync",
+        lambda **kw: {"fp_rate_pct": fp_rate_pct, "matched_count": 5, "genuine_count": 5},
+    )
+    settings = Settings(dimensions_api_key="k", literature_threshold=0.5)
+    return lit.DimensionsLiteratureGate(settings).assess(_sample_record(), for_clause="x")
+
+
+def test_gate_does_not_pass_on_an_unknown_false_positive_rate(monkeypatch) -> None:
+    res = _gate_result(monkeypatch, None)
+    assert res.passed is False
+    assert res.indicator == 0.0
+    assert res.detail["reason"] == "fp rate unknown: no abstract classified"
+
+
+def test_gate_still_passes_on_a_known_low_false_positive_rate(monkeypatch) -> None:
+    res = _gate_result(monkeypatch, 10.0)
+    assert res.passed is True
+    assert res.indicator == 0.9

@@ -1250,7 +1250,19 @@ class DimensionsLiteratureGate(LiteratureGatePort):
                 {"error": ev["error"], "query": ev.get("query")},
             )
 
-        fp_rate = float(ev.get("fp_rate_pct") or 0.0)
+        if ev.get("fp_rate_pct") is None:
+            # Every abstract classification failed: the rate is unknown, not zero.
+            logger.warning("Dimensions gate: false-positive rate unknown; gate does not pass")
+            detail = dict(ev)
+            detail.update(
+                passed=False,
+                indicator=0.0,
+                threshold=self._settings.literature_threshold,
+                reason="fp rate unknown: no abstract classified",
+            )
+            return LiteratureGateResult(passed=False, indicator=0.0, detail=detail)
+
+        fp_rate = float(ev["fp_rate_pct"])
         indicator = max(0.0, 1.0 - fp_rate / 100.0)
         thr = self._settings.literature_threshold
         passed = indicator >= thr
