@@ -381,27 +381,6 @@ class QueryOptimizationUseCase:
             logger.info("optimize: dropped research flag(s) %s", dropped)
         return kept
 
-    async def _top_fields(self, name: str) -> list[str]:
-        """Top three fields of research of the papers matching *name* (diagnostic)."""
-        if not self._phase1_budget_left():
-            return []
-        dsl = (
-            f'search publications in full_data for "\\"{inner_quoted_term(name)}\\"" '
-            "return category_for limit 3"
-        )
-        try:
-            result = await self._counted_execute(dsl)
-        except DimensionsDslError as exc:
-            logger.warning("optimize: fields of %r not read: %s", name, exc)
-            return []
-        data = getattr(result, "json", result)
-        rows = data.get("category_for") if isinstance(data, dict) else None
-        return [
-            f"{x.get('name')} ({x.get('count')})"
-            for x in (rows if isinstance(rows, list) else [])
-            if isinstance(x, dict)
-        ]
-
     async def _added_name_risk(
         self,
         name: str,
@@ -420,11 +399,6 @@ class QueryOptimizationUseCase:
         networks ("Network of the Americas", 7%) is still worth searching with flags."""
         s = self._settings
         risk = _alias_risk_label(count, c_full, has_fn)
-        if s.optimize_name_field_diagnostic:
-            fields = await self._top_fields(name)
-            if fields:
-                notes_parts.append(f"fields of {name!r}: {', '.join(fields)}")
-                logger.info("optimize: fields of %r: %s", name, fields)
         if not flag_terms:
             return risk
         if is_acronym_shaped_name(name):

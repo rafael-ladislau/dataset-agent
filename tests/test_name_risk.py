@@ -32,22 +32,17 @@ _PHRASE = re.compile(r'\\"([^"\\]+)\\"')
 
 
 class _ShareDSL:
-    """Counts per phrase; ``"<name>" AND (<flags>)`` reads ``with_flags[name]``; a
-    ``return category_for`` facet returns ``fields[name]``."""
+    """Counts per phrase; ``"<name>" AND (<flags>)`` reads ``with_flags[name]``."""
 
-    def __init__(self, counts, with_flags=None, fields=None):
+    def __init__(self, counts, with_flags=None):
         self.counts = counts
         self.with_flags = with_flags or {}
-        self.fields = fields or {}
         self.calls: list[str] = []
 
     async def execute_dsl(self, dsl: str):
         self.calls.append(dsl)
         phrases = _PHRASE.findall(dsl)
         first = phrases[0] if phrases else ""
-        if "return category_for" in dsl:
-            rows = [{"name": n, "count": c} for n, c in self.fields.get(first, [])]
-            return SimpleNamespace(json={"category_for": rows})
         if " AND (" in dsl and first in self.with_flags:
             return SimpleNamespace(count_total=self.with_flags[first], publications=[])
         return SimpleNamespace(count_total=self.counts.get(first, 0), publications=[])
@@ -111,12 +106,10 @@ def test_gage_flag_dropped_and_names_classified_by_flag_share(tmp_path, monkeypa
                 "EarthScope PBO": 64, "GAGE": 5_291_583, "EarthScope Consortium": 2000,
                 "UNAVCO": 9000},
         with_flags={"BINEX": 35, "Network of the Americas": 74, "EarthScope PBO": 33},
-        fields={"BINEX": [("32 Biomedical and Clinical Sciences", 95), ("37 Earth Sciences", 42)]},
     )
     out = _run(
         tmp_path, monkeypatch, dsl, flags=["EarthScope Consortium", "GAGE", "UNAVCO"],
         suggested=["BINEX", "Network of the Americas", "EarthScope PBO"],
-        optimize_name_field_diagnostic=True,
     )
     assert "GAGE" not in out.flag_terms
     assert "dropped research flag(s): GAGE (bare short acronym)" in out.notes
@@ -127,7 +120,6 @@ def test_gage_flag_dropped_and_names_classified_by_flag_share(tmp_path, monkeypa
     assert "'Network of the Americas': 74/1011 hits (7%) contain a flag term; risky" in out.notes
     # 52% carry a flag: searched alone.
     assert "EarthScope PBO" in out.aliases.safe
-    assert "fields of 'BINEX': 32 Biomedical and Clinical Sciences (95)" in out.notes
     # The share query ORs only the screened flags.
     share_q = next(c for c in dsl.calls if '\\"BINEX\\" AND (' in c or '\\"Network of the Americas\\" AND (' in c)
     assert "GAGE" not in share_q
@@ -253,7 +245,6 @@ def test_all_flags_overlapping_name_keeps_default_risk(tmp_path, monkeypatch):
 def test_budget_defaults_leave_room_for_refinement():
     s = Settings(dimensions_api_key="k")
     assert s.optimize_max_dimensions_calls == 96
-    assert s.optimize_name_field_diagnostic is False
 
 
 def test_phase1_checks_keep_the_refiner_reserve(tmp_path, monkeypatch):
