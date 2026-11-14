@@ -776,3 +776,43 @@ def test_phase1_sanitizes_junk_aliases_before_counting(tmp_path) -> None:
     junk = "MIDRC" + "\xa0​\xa0\xa0" * 4 + "..."
     _optimize(tmp_path, dsl, ["MIDRC Data Commons", junk])
     assert not any("\xa0" in q or "​" in q or "..." in q for q in dsl.calls)
+
+
+def _unknown_rate_run(monkeypatch, tmp_path):
+    """Non-full-text run whose abstract check classified nothing (every call failed)."""
+    def _eval(*_a, **kwargs):
+        return {
+            "fp_rate_pct": None, "genuine_count": 1, "fp_count": 0, "classified_count": 1,
+            "failed_count": 4, "attempted_count": 4, "matched_count": 10, "total_pubs": 100,
+            "coverage_pct": 100.0, "for_clause": kwargs.get("for_clause", ""),
+            "query": "search publications ...", "publications_total": 100, "fp_hits": [],
+        }
+
+    monkeypatch.setattr(qopt_mod, "evaluate_for_clause_sync", _eval)
+    monkeypatch.setattr(
+        qopt_mod, "derive_exclude_terms_from_fps",
+        lambda *_a, **_k: pytest.fail("no refinement on an unknown FP rate"),
+    )
+    responses = [SimpleNamespace(count_total=c) for c in (2000, 80, 90, 150, 40, 800, 400, 10, 8)]
+    settings = Settings(
+        tasks_db=tmp_path / "t.db", output_dir=tmp_path / "out", dimensions_api_key="test-key",
+        optimize_max_dimensions_calls=50, optimize_signal3_max_titles=0,
+        optimize_abstract_classify_max_calls=4, optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0, optimize_max_iterations=3,
+    )
+    uc = QueryOptimizationUseCase(dsl_port=_FakeDSL(responses), research=MagicMock(), agent=MagicMock(),
+                                  settings=settings)
+    return asyncio.run(uc.execute(OptimizeRequest(
+        dataset_name="My Long Dataset Alpha",
+        dataset_names=["My Long Dataset Alpha", "Another Long Title Here", "RISK"],
+        flag_terms=["NIH"],
+    )))
+
+
+def test_unknown_fp_rate_stops_the_gate_loop_without_within_threshold(monkeypatch, tmp_path) -> None:
+    out = _unknown_rate_run(monkeypatch, tmp_path)
+    assert out.success is True
+    assert "FP rate within threshold" not in out.notes
+    assert "gate_iter0: FP rate unknown; stopping." in out.notes
+    assert out.fp_rate_pct is None
+    assert out.confidence.value == "low"

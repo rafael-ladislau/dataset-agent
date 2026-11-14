@@ -224,3 +224,32 @@ def test_failed_classifications_stay_out_of_the_rate_denominator(monkeypatch):
     assert out["failed_count"] == 4 and out["classified_count"] == 8
     assert out["fp_count"] == 8 and out["genuine_count"] == 0
     assert out["fp_rate_pct"] == 100.0
+
+
+def test_all_calls_failing_is_unknown_even_with_alias_less_papers_counted_genuine(monkeypatch):
+    # One matched paper has no alias in its text (counted genuine with no call); the
+    # three that need a call all fail. The rate is unknown, not 0%.
+    pubs = [{"id": "p0", "title": "NHIS survey", "abstract": "uses NHIS data"}] + [
+        {"id": f"p{i}", "title": "NHIS survey", "abstract": "uses NHIS data"} for i in range(1, 4)
+    ]
+
+    class _Dsl:
+        def query(self, q):
+            return {"publications": pubs, "_stats": {"total_count": len(pubs)}}
+
+    monkeypatch.setitem(sys.modules, "dimcli", types.SimpleNamespace(login=lambda **kw: None, Dsl=_Dsl))
+    monkeypatch.setattr(lit, "_find_matched_alias", lambda pub, aliases: None if pub["id"] == "p0" else "NHIS")
+    s = Settings(dimensions_api_key="k", optimize_abstract_classify_max_calls=12, fp_sample_size=500)
+    out = lit.evaluate_for_clause_sync("NHIS", ["NHIS"], "NHIS", s, agent=_FailingAgent())
+    assert out["genuine_count"] == 1 and out["failed_count"] == out["attempted_count"] == 3
+    assert out["fp_rate_pct"] is None
+
+
+def test_fp_better_treats_unknown_as_worst_and_zero_as_best():
+    from dataset_agent.application.query_optimization import _fp_better
+
+    assert _fp_better(0.0, None)
+    assert not _fp_better(2.0, 0.0)  # 0% then 2%: the 0% round is kept
+    assert _fp_better(0.0, 2.0)
+    assert not _fp_better(None, 50.0)
+    assert not _fp_better(None, None)

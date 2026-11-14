@@ -135,6 +135,14 @@ def _alias_risk_label(c_alias: int, c_full: int, has_full_name: bool) -> Literal
     return "safe"
 
 
+def _fp_better(new: float | None, best: float | None) -> bool:
+    """True when abstract FP rate *new* beats *best*. Unknown (None) is the worst rate and
+    never beats anything; a measured 0.0 is the best rate, not a missing value."""
+    if new is None:
+        return False
+    return best is None or float(new) < float(best)
+
+
 def _pick_start_variant(tested: list[VariantTestedEntry]) -> VariantTestedEntry:
     """Best Phase-2 variant: non-empty results first, then variant preference."""
     return min(
@@ -1931,9 +1939,7 @@ class QueryOptimizationUseCase:
                 f"gate_iter{iteration} fp_rate={_pct_text(fp_shown)} coverage={coverage:.1f}% total={expected_count}"
             )
 
-            if best_ev is None or (100.0 if fp_unknown else fp_rate) < (
-                best_ev.get("fp_rate_pct") or 100.0
-            ):
+            if best_ev is None or _fp_better(fp_shown, best_ev.get("fp_rate_pct")):
                 best_ev = ev
                 best_variant_entry = entry
 
@@ -2022,6 +2028,9 @@ class QueryOptimizationUseCase:
                 current_for_clause = new_fc
                 continue
 
+            if fp_unknown:
+                notes_parts.append(f"gate_iter{iteration}: FP rate unknown; stopping.")
+                break
             if fp_rate <= threshold:
                 notes_parts.append(f"gate_iter{iteration}: FP rate within threshold.")
                 break
@@ -2199,7 +2208,9 @@ class QueryOptimizationUseCase:
             candidates: list[tuple[float, int, int, VariantTestedEntry]] = []
             for ent in tested:
                 cnt = ent.expected_count or 0
-                fp = float(ent.fp_rate_pct or 0.0)
+                if ent.fp_rate_pct is None:
+                    continue  # unknown rate: worst, never preferred
+                fp = float(ent.fp_rate_pct)
                 if fp > 5.0:
                     continue
                 score = float(cnt) * (1.0 - fp / 100.0)

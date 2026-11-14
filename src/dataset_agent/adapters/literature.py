@@ -1148,8 +1148,9 @@ def evaluate_for_clause_sync(
             "abstract check: %d of %d classifications failed (unclassified)",
             failed_count, attempted_count,
         )
-        if not classified_count:
-            # Nothing was classified: an outage must not read as 0% false positives.
+        if not classified_count or failed_count == attempted_count:
+            # Every classification call failed: an outage must not read as 0% false
+            # positives, even when alias-less papers were counted genuine without a call.
             fp_rate_pct = None
 
     return {
