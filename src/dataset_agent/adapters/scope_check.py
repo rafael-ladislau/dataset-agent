@@ -87,6 +87,40 @@ def name_denotes_data(name: str) -> bool:
     return carries_data_noun(name) or any(w in _STRONG_DATA_WORDS for w in _words(name))
 
 
+def _acronym_tokens(term: str) -> list[str]:
+    """Tokens written as an acronym: two or more capitals, at most six characters."""
+    return [w for w in re.findall(r"[A-Za-z0-9]+", term or "")
+            if len(w) <= 6 and sum(c.isupper() for c in w) >= 2]
+
+
+def acronym_form(term: str) -> bool:
+    """The term carries an acronym ("AoU cohort", "data from the AOU")."""
+    return bool(_acronym_tokens(term))
+
+
+def _initials(name: str, *, joiners: bool) -> str:
+    words = re.findall(r"[A-Za-z0-9]+", name)
+    if not joiners:
+        words = [w for w in words if w.lower() not in {"of", "the", "and", "for", "in", "on"}]
+    return "".join(w[0] for w in words).casefold()
+
+
+def names_program(term: str, program_names: list[str]) -> str | None:
+    """The program name that *term* equals, contains or abbreviates, or None."""
+    key = " ".join((term or "").split()).casefold()
+    for p in program_names:
+        p = " ".join(p.split())
+        if not p:
+            continue
+        if key == p.casefold() or _phrase_in(p, term, plural_ok=False):
+            return p
+        inis = {_initials(p, joiners=True), _initials(p, joiners=False)}
+        if len(p.split()) >= 2 and any(a.casefold() in inis and len(a) >= 2
+                                       for a in _acronym_tokens(term)):
+            return p
+    return None
+
+
 def generated_data_phrases(program_names: list[str]) -> list[str]:
     """``<program> data``, ``<program> dataset`` and ``data from the <program>`` for each
     program name (alias candidates and data-term passages). A data phrase is a data

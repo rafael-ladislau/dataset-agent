@@ -35,6 +35,7 @@ from dataset_agent.adapters.query_heuristics import (
     is_acronym_suffix_form,
     is_short_acronym,
 )
+from dataset_agent.adapters.scope_check import acronym_form, carries_data_noun, names_program
 from dataset_agent.adapters.seed_mapping import QueryCandidate
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
 from dataset_agent.adapters.tools import EMIT_REFINEMENT_CANDIDATES
@@ -264,6 +265,7 @@ def refine_candidate(
     reference_count: int = 0,
     abstract_fp_aliases: set[str] | None = None,
     impact_fn: Callable[[str], int] | None = None,
+    program_names: list[str] | None = None,
 ) -> RefineResult:
     """Return the refined candidate plus a per-term diff with evidence and reasons.
 
@@ -271,6 +273,10 @@ def refine_candidate(
     exclude would remove). At most ``refine_max_exclude_checks`` excludes are checked per
     pass, most false-positive hits first; an exclude that removes nothing, or whose
     impact is unknown (budget reserve reached, Dimensions error), is rejected.
+
+    *program_names* (resource map): a new alias that equals, contains or abbreviates a
+    program name is gated like the program names in phase 1, unless it carries a data noun
+    and no acronym ("<program> cohort"); its next probe then decides.
     """
     abstract_fp = {a.lower() for a in (abstract_fp_aliases or set())}
     aliases = candidate.all_aliases()
@@ -537,6 +543,11 @@ def refine_candidate(
             reject("alias", t, "0 Dimensions hits")
             continue
         risky = c > 10 * max(1, reference_count)
+        prog = names_program(t, program_names or [])
+        gated = bool(prog) and not (carries_data_noun(t) and not acronym_form(t))
+        if gated and not risky:
+            risky = True
+            logger.info("refine: alias %r names the program %r: gated", t, prog)
         if risky and not flags:
             reject("alias", t, f"{c} Dimensions hits: risky and there are no flag terms")
             continue
@@ -546,7 +557,8 @@ def refine_candidate(
         diffs.append(TermDiff(
             kind="alias", term=t, action="add", status="verified",
             reason=f"mention form in {len(hits)} matching quote(s); {c} Dimensions hits"
-            + (" (risky: requires flags)" if risky else ""),
+            + (" (names the program: gated)" if gated else " (risky: requires flags)" if risky
+               else ""),
             stats={"dimensions_count": c, "matching_papers": len(hits)}, evidence=_quotes(hits, t)))
 
     # Flags inside an alias that became flag-gated in this round (a new risky alias).

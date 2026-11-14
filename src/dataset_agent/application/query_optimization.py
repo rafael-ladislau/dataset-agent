@@ -99,6 +99,7 @@ from dataset_agent.adapters.query_heuristics import (
 )
 from dataset_agent.adapters.referent_check import check_referents, model_profile
 from dataset_agent.adapters.scope_check import (
+    acronym_form,
     carries_data_noun,
     check_scope,
     generated_data_phrases,
@@ -2360,7 +2361,7 @@ class QueryOptimizationUseCase:
         not a short acronym (acronym forms keep the acronym guards)."""
         programs = list(rmap.program_names)
         return [p for p in generated_data_phrases(programs)
-                if not is_short_acronym(phrase_program(p, programs) or "")]
+                if not acronym_form(phrase_program(p, programs) or "")]
 
     @classmethod
     def _apply_resource_map(cls, rmap, safe: list[str], risky: list[str], flag_terms: list[str],
@@ -2383,6 +2384,15 @@ class QueryOptimizationUseCase:
         moved = [a for a in safe if a.casefold() in prog]
         safe = [a for a in safe if a.casefold() not in prog]
         risky = [*risky, *moved, *programs]
+        # Acronym forms of the generated phrases ("data from the AOU") keep the acronym
+        # guards: they are gated, whatever their count said.
+        acr = {p.casefold() for p in generated_data_phrases(list(rmap.program_names))
+               if acronym_form(p)}
+        acr_safe = [a for a in safe if a.casefold() in acr]
+        if acr_safe:
+            safe = [a for a in safe if a.casefold() not in acr]
+            risky = [*risky, *acr_safe]
+            notes_parts.append(f"resource map: acronym data phrases gated {acr_safe}")
         phrases = {p.casefold() for p in cls._standalone_data_phrases(rmap)}
         freed = [a for a in risky if a.casefold() in phrases]
         if freed:
@@ -3061,6 +3071,8 @@ class QueryOptimizationUseCase:
                     abstract_fp_aliases={
                         str(h.get("matched_alias") or "") for h in (ev.get("fp_hits") or [])
                     },
+                    program_names=(list(self._resource_map.program_names)
+                                   if self._resource_map is not None else None),
                     impact_fn=lambda t, fc=current_for_clause: asyncio.run_coroutine_threadsafe(
                         self._exclude_impact(fc, t), loop
                     ).result(),
