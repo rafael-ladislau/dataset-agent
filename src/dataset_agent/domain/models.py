@@ -266,6 +266,9 @@ class ResourceMap(BaseModel):
     specific_data_names: list[str] = Field(default_factory=list)
     #: Which pages fed the map (URLs and search queries; "failed:" marks a failed fetch).
     page_sources: list[str] = Field(default_factory=list)
+    #: Data resource name -> where it was found: ``pages`` (home page and first searches),
+    #: ``discovery`` (data documentation pages), ``literature`` (passages of used papers).
+    name_sources: dict[str, str] = Field(default_factory=dict)
 
 
 class QueryOptimizationRecord(BaseModel):

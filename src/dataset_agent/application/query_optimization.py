@@ -2464,6 +2464,65 @@ class QueryOptimizationUseCase:
             logger.warning("resource map: failed: %s", exc)
             return None
 
+    async def _discover_from_literature(self, evidence: Evidence, cand: QueryCandidate,
+                                        notes_parts: list[str], iteration: int
+                                        ) -> QueryCandidate | None:
+        """Split datasets only: capitalised names that co-occur with the program name in
+        passages of papers judged "used" become data-name candidates. Each passes the map
+        checks (co-occurrence and a high program share of its own hits); a specific one
+        joins the safe group and every one joins the gate. Returns the new candidate, or
+        None when nothing was added."""
+        from dataset_agent.adapters.resource_map import (
+            check_data_names,
+            literature_candidates,
+            merge_names,
+        )
+
+        rmap = self._resource_map
+        s = self._settings
+        if rmap is None or not s.resource_map_discovery:
+            return None
+        passages = {
+            v.publication_id: [str(c.get("text") or "") for c in v.contexts
+                               if c.get("part") in ("title", "abstract", "body")]
+            for v in evidence.verdicts if v.used
+        }
+        cands = literature_candidates(passages, list(rmap.program_names),
+                                      list(rmap.data_resource_names),
+                                      min_papers=s.resource_map_literature_min_papers)
+        if not cands:
+            return None
+        runner = self._make_eval_runner(asyncio.get_running_loop())
+
+        def count(clause: str) -> int | None:
+            if not self._room(keep=int(s.refine_impact_budget_reserve)):
+                return None
+            try:
+                return parse_total_count(runner(build_for_clause_count_dsl(clause)))
+            except Exception as exc:
+                logger.warning("literature discovery: count failed: %s", exc)
+                return None
+
+        hits, alone = await asyncio.to_thread(
+            check_data_names, cands, list(rmap.program_names), count=count,
+            min_cooccurrence=s.resource_map_min_cooccurrence,
+            min_share=s.resource_map_specific_min_share)
+        added = merge_names(rmap, hits, alone, source="literature",
+                            specific_min_share=s.resource_map_specific_min_share,
+                            max_hits=s.optimize_flag_max_hits)
+        rejected = [c for c in cands if c not in added]
+        notes_parts.append(f"gate_iter{iteration}: literature discovery: candidates {cands}; "
+                           f"added {added}" + (f"; rejected {rejected}" if rejected else ""))
+        if not added:
+            return None
+        specific = [d for d in added if d in rmap.specific_data_names]
+        safe = dedupe_strings_ci_preserve_order([*cand.safe, *specific])
+        flags = dedupe_strings_ci_preserve_order(
+            [*cand.flag_terms, *[d for d in added if not is_short_acronym(d)]])
+        import dataclasses
+
+        return dataclasses.replace(cand, safe=safe, flag_terms=flags)
+
     async def _run_research(self, request: OptimizeRequest) -> DatasetRecord:
         req = ResearchRequest(
             dataset_name=request.dataset_name,
@@ -3048,6 +3107,13 @@ class QueryOptimizationUseCase:
                         f"gate_iter{iteration}: full-text precision={prec:.2f} "
                         f"(n_evaluated={metrics.n_evaluated})"
                     )
+                if iteration == 0 and iteration < max_iters - 1:
+                    found = await self._discover_from_literature(
+                        evidence, ft_candidate, notes_parts, iteration)
+                    if found is not None and candidate_clause(found) != current_for_clause:
+                        ft_candidate = found
+                        current_for_clause = candidate_clause(found)
+                        continue
                 if (
                     prec is not None
                     and metrics.n_evaluated >= min_ev

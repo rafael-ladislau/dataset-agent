@@ -41,7 +41,8 @@ def test_map_counts_work_inside_a_running_event_loop(monkeypatch, tmp_path):
     monkeypatch.setattr(rm, "gather_pages_with_sources", lambda *a, **k: (PAGES, ["p"]))
     dsl = Dsl()
     uc = DatasetResearchUseCase(Agent(), MagicMock(), MagicMock(),
-                                Settings(output_dir=str(tmp_path), resource_map_enabled=True),
+                                Settings(output_dir=str(tmp_path), resource_map_enabled=True,
+                                         resource_map_discovery=False),
                                 dsl_port=dsl)
 
     async def inside_loop():

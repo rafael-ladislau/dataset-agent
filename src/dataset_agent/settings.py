@@ -325,6 +325,12 @@ class Settings(BaseSettings):
     #: A data resource name is specific (it may stand alone as a safe alias, subject to its
     #: probe) when at least this share of its Dimensions hits also carry a program name.
     resource_map_specific_min_share: float = 0.5
+    #: For a split dataset only: look for more data resource names in the program's data
+    #: documentation (web) and in the passages of papers judged "used" (after the first
+    #: probe). Every candidate passes the same deterministic checks, then the probe.
+    resource_map_discovery: bool = True
+    #: Literature discovery: a name must appear in passages of at least this many used papers.
+    resource_map_literature_min_papers: int = 2
     #: Asks per paper in the scope check (thinking through the referent settings).
     scope_votes: int = Field(default=1, ge=1, le=9)
     referent_votes: int = Field(default=3, ge=1, le=9)
