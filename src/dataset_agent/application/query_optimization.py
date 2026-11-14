@@ -1160,6 +1160,7 @@ class QueryOptimizationUseCase:
                     developer=model.developer,
                     safe_share=s.ai_model_safe_min_context_share,
                     plain_word_max_hits=s.ai_model_plain_word_max_safe_hits,
+                    coined_min_share=s.ai_model_coined_min_title_share,
                 )
                 stats = {} if confirmation is None else {"title_confirmation": round(confirmation, 3)}
                 own = nm.casefold() in base_keys or nm.casefold() in given_keys

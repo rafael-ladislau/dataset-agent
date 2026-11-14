@@ -485,6 +485,37 @@ def test_coined_name_is_safe_without_flags(tmp_path, patched) -> None:
     assert out.ai_model_seed_count == 60
 
 
+def test_coined_family_name_with_a_partial_title_share_is_safe(tmp_path, patched) -> None:
+    """A versioned card: only 15% of the family name's hits cite the version paper. The
+    coined family name stays safe and searchable on its own, without flags."""
+    title = "FourCastNet 3: A geometric approach to probabilistic machine-learning weather forecasting"
+    patched.hub = HubEvidence(
+        hugging_face_id="nvidia/fourcastnet3", found=True, developer="NVIDIA", created_year=2025,
+        paper_titles=[title],
+    )
+    docs = (
+        [f"FourCastNet 3 beats GraphCast. Ref: {title}"] * 20
+        + ["We compare with FourCastNet and GraphCast."] * 110
+        + ["Unrelated GraphCast study."] * 100
+    )
+    llm = {
+        "description": "FourCastNet is NVIDIA's weather model.",
+        "names": [], "paper_titles": [], "context_terms": ["GraphCast"], "other_meanings": [],
+    }
+    out, _dsl, _agent = _run(
+        tmp_path, docs, llm,
+        OptimizeRequest(dataset_name="FourCastNet", entity_type="ai_model", hugging_face_id="nvidia/fourcastnet3"),
+        ai_model_plain_word_max_safe_hits=20_000,
+    )
+
+    assert out.success, out.errors
+    bare = _decision(out, "FourCastNet", "alias")
+    assert bare.decision == "safe" and bare.stats["title_confirmation"] == 0.154
+    assert out.ai_model_seed["model_name"] == "FourCastNet"
+    assert out.ai_model_seed["flag_terms"] == []
+    assert out.ai_model_seed_count == 130
+
+
 def test_short_acronym_name_is_never_safe(tmp_path, patched) -> None:
     patched.hub = HubEvidence()
     docs = ["GPT2 language model text generation"] * 30 + ["GPT2 troposphere mapping for GNSS"] * 70
@@ -557,7 +588,15 @@ def test_classify_model_name_rules() -> None:
     # Coined names need little confirmation; qualified phrases need a majority.
     assert _classify("GraphCast", 2_322, None) == "safe"
     assert _classify("GraphCast", 2_322, 0.3) == "safe"
-    assert _classify("GraphCast", 2_322, 0.2) == "gate"
+    # A coined name gates only below a small floor of citing hits: a partial title share
+    # is not evidence against it (less evidence must not be treated better).
+    assert _classify("GraphCast", 2_322, 0.2) == "safe"
+    assert _classify("FourCastNet", 2_865, 0.151) == "safe"
+    assert _classify("FourCastNet", 2_865, 0.04) == "gate"
+    assert "not enough to doubt it" in classify_model_name(
+        "FourCastNet", count=2_865, confirmation=0.151, developer="",
+        safe_share=0.5, plain_word_max_hits=20_000,
+    )[1]
     # Case does not make a word coined: Dimensions matches "GloVe" as "glove".
     assert _classify("ClimaX", 21_510, 0.01) == "gate"
     assert _classify("GloVe", 150_000, None) == "gate"
@@ -571,6 +610,7 @@ def test_classify_model_name_rules() -> None:
     assert _classify("Microsoft Aurora", 96, 0.3) == "safe"  # developer-qualified: half the bar
     assert _classify("Aurora (Microsoft)", 28, 0.21) == "unconfirmed"
     assert _classify("Aurora model", 888, 0.075) == "unconfirmed"
+    assert _classify("Aurora model", 888, 0.06) == "unconfirmed"
     assert _classify("Aurora AI", 718, 0.01) == "unconfirmed"
     # Without any paper title only developer- or type-qualified phrases are trusted.
     assert _classify("Microsoft Aurora", 96, None) == "safe"

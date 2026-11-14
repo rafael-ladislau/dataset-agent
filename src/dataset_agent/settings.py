@@ -310,6 +310,10 @@ class Settings(BaseSettings):
     ai_model_flag_min_anchor_hits: int = Field(default=5, ge=1)
     #: A name is a safe (ungated) alias only if this share of its hits carries context.
     ai_model_safe_min_context_share: float = Field(default=0.5, ge=0.0, le=1.0)
+    #: A coined name ("FourCastNet") is gated only when fewer than this share of its hits
+    #: cite the model's papers; a partial share above it is not evidence against the name
+    #: (a versioned card's papers are cited by only part of the family's literature).
+    ai_model_coined_min_title_share: float = Field(default=0.05, ge=0.0, le=1.0)
     #: A plain word ("Aurora") with more hits than this is never a safe alias.
     ai_model_plain_word_max_safe_hits: int = Field(default=20_000, ge=0)
     #: An exclude is kept only if it removes at most this share of the precise matches.

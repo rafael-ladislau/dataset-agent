@@ -331,6 +331,7 @@ def classify_model_name(
     developer: str,
     safe_share: float,
     plain_word_max_hits: int,
+    coined_min_share: float = 0.05,
 ) -> tuple[str, str]:
     """``(verdict, reason)`` for one counted name; verdict is ``safe``, ``gate`` or
     ``unconfirmed``.
@@ -339,7 +340,8 @@ def classify_model_name(
     paper titles (``None`` when no title is known, or when *has_titles* is set and the
     share could not be measured, which never counts in the name's favor). ``gate`` means the name may only be
     searched together with a context flag; ``unconfirmed`` means nothing shows the phrase
-    refers to this model."""
+    refers to this model. A coined name is gated only below *coined_min_share*: a
+    partial share is not evidence against it, since a name with no title at all is safe."""
     pct = f"{confirmation:.0%}" if confirmation is not None else "n/a"
     if is_short_acronym(name):
         return "gate", "short acronym: never searched on its own"
@@ -360,6 +362,12 @@ def classify_model_name(
             return "safe", "coined name"
         if confirmation >= safe_share / 2:
             return "safe", f"coined name; {pct} of its hits cite the model's papers"
+        if confirmation >= coined_min_share:
+            return (
+                "safe",
+                f"coined name; only {pct} of its hits cite the model's papers "
+                "(not enough to doubt it)",
+            )
         return (
             "gate" if single_word else "unconfirmed",
             f"only {pct} of its hits cite the model's papers",
