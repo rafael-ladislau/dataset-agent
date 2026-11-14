@@ -38,3 +38,16 @@ def test_recall_check_may_promote_a_data_phrase():
     assert any("data from the Example Program (not a proper name)" in r for r in rejected)
     eligible, _ = recall_candidates(cur, **kw, data_phrases=["data from the Example Program"])
     assert "data from the Example Program" in [c.term for c in eligible]
+
+
+def test_specific_data_names_stand_alone_and_the_gate_is_screened():
+    rmap = MAP.model_copy(update={
+        "data_resource_names": ["Example Workbench", "Data Browser", "DB"],
+        "specific_data_names": ["Example Workbench"],
+        "data_name_hits": {"Example Workbench": 100, "Data Browser": 900_000, "DB": 10}})
+    notes: list[str] = []
+    safe, risky, gate = QueryOptimizationUseCase._apply_resource_map(
+        rmap, [], ["Example Program"], [], notes, max_hits=500_000)
+    assert "Example Workbench" in safe and gate == ["Example Workbench"]
+    assert any("Data Browser (900000 Dimensions hits)" in n and "DB (bare short acronym)" in n
+               for n in notes)

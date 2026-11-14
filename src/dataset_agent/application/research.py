@@ -593,7 +593,7 @@ class DatasetResearchUseCase:
             build_for_clause_count_dsl,
             parse_total_count,
         )
-        from dataset_agent.adapters.resource_map import map_for_record
+        from dataset_agent.adapters.resource_map import map_for_record, map_options
 
         def count_where(clause: str, where: str) -> int | None:
             loop = asyncio.new_event_loop()
@@ -607,11 +607,8 @@ class DatasetResearchUseCase:
                 loop.close()
 
         try:
-            s = self._settings
             return map_for_record(self._agent, record, count=lambda c: count_where(c, ""),
-                                  min_cooccurrence=s.resource_map_min_cooccurrence,
-                                  count_where=count_where,
-                                  max_share_before=s.resource_map_max_share_before_release)
+                                  count_where=count_where, **map_options(self._settings))
         except Exception as exc:
             logger.warning("resource map: research step failed: %s", exc)
             return None

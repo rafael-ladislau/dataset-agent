@@ -322,6 +322,9 @@ class Settings(BaseSettings):
     #: The release year moves the window start only when at most this share of
     #: program-and-data papers comes before it.
     resource_map_max_share_before_release: float = 0.05
+    #: A data resource name is specific (it may stand alone as a safe alias, subject to its
+    #: probe) when at least this share of its Dimensions hits also carry a program name.
+    resource_map_specific_min_share: float = 0.5
     #: Asks per paper in the scope check (thinking through the referent settings).
     scope_votes: int = Field(default=1, ge=1, le=9)
     referent_votes: int = Field(default=3, ge=1, le=9)

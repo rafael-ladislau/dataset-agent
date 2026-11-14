@@ -21,7 +21,11 @@ from dataset_agent.adapters.dimensions_dsl import (
     build_for_clause_count_dsl,
     parse_total_count,
 )
-from dataset_agent.adapters.resource_map import gather_pages, map_for_record
+from dataset_agent.adapters.resource_map import (
+    gather_pages_with_sources,
+    map_for_record,
+    map_options,
+)
 from dataset_agent.domain.models import DatasetRecord
 
 
@@ -61,15 +65,16 @@ def main(out_path: str, paths: list[str]) -> None:
     for p in paths:
         rec = DatasetRecord.model_validate(json.loads(Path(p).read_text()))
         f = pages_dir / (hashlib.sha256(rec.main_dataset_name.encode()).hexdigest()[:12] + ".txt")
+        src = f.with_suffix(".sources.json")
         if f.exists():
             pages = f.read_text()
+            sources = json.loads(src.read_text()) if src.exists() else [f"saved: {f.name}"]
         else:
-            pages = gather_pages(rec.main_dataset_name, rec.home_url)
+            pages, sources = gather_pages_with_sources(rec.main_dataset_name, rec.home_url)
             f.write_text(pages)
-        m = map_for_record(agent, rec, count=count_where, pages=pages,
-                           min_cooccurrence=s.resource_map_min_cooccurrence,
-                           count_where=count_where,
-                           max_share_before=s.resource_map_max_share_before_release)
+            src.write_text(json.dumps(sources))
+        m = map_for_record(agent, rec, count=count_where, pages=pages, sources=sources,
+                           count_where=count_where, **map_options(s))
         out[rec.main_dataset_name] = m.model_dump() if m else None
         print(rec.main_dataset_name, "->", "map" if m else "no map", file=sys.stderr)
     Path(out_path).write_text(json.dumps(out, indent=1) + "\n")

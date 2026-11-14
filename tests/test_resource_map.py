@@ -65,7 +65,7 @@ def test_map_needs_dimensions_hits_with_the_program():
     m = build_map(_raw(), dataset_name="Example Program", pages=PAGES, count=count)
     assert m.data_resource_names == ["Example Workbench"] and m.cooccurrence == {"Example Workbench": 40}
     assert m.former_or_parent_names == ["Parent Cohort Program"] and m.first_release_year == 2020
-    assert len(count.calls) == 2
+    assert len(count.calls) == 3  # two co-occurrence counts, one count of the kept name alone
     assert build_map(_raw(), dataset_name="Example Program", pages=PAGES, count=_count({})) is None
 
 
@@ -150,3 +150,48 @@ def test_cooccurrence_leaves_out_program_names_inside_the_data_name():
                 data_resource_names_in_pages=[], former_or_parent_program_names=[])
     assert build_map(only, dataset_name="Example Program", pages=pages,
                      count=_count({"Workbench": 9})) is None
+
+
+def test_remainder_of_a_program_prefixed_data_name_is_kept_too():
+    from dataset_agent.adapters.resource_map import remainders
+
+    assert remainders(["Example Program Researcher Workbench", "Data Browser"],
+                      ["Example", "Example Program"]) == ["Researcher Workbench"]
+    raw = _raw(names=[{"name": "Example Program", "kind": "program"},
+                      {"name": "Example Program Researcher Workbench", "kind": "data_resource"}],
+               data_resource_names_in_pages=[], former_or_parent_program_names=[])
+    pages = PAGES + " Approved users log in to the Example Program Researcher Workbench."
+    m = build_map(raw, dataset_name="Example Program", pages=pages,
+                  count=_count({"Researcher Workbench": 30}))
+    # the full name contains every program name (not measurable); its remainder is kept
+    assert m.data_resource_names == ["Researcher Workbench"]
+    raw2 = _raw(names=[{"name": "Example Program", "kind": "program"},
+                       {"name": "Example Program Cohort", "kind": "program"},
+                       {"name": "Example Program Researcher Workbench", "kind": "data_resource"}],
+                data_resource_names_in_pages=[], former_or_parent_program_names=[])
+    m = build_map(raw2, dataset_name="Example Program", pages=pages,
+                  count=_count({"Researcher Workbench": 30}))
+    assert m.data_resource_names == ["Example Program Researcher Workbench", "Researcher Workbench"]
+
+
+def test_specific_names_need_a_high_program_share_and_a_proper_name():
+    from dataset_agent.adapters.resource_map import is_generic_data_name, specific_names
+
+    assert is_generic_data_name("Data Browser") and is_generic_data_name("Public Tier dataset")
+    assert not is_generic_data_name("Researcher Workbench")
+    hits = {"Researcher Workbench": 900, "Data Browser": 300, "Example Hub": 10}
+    alone = {"Researcher Workbench": 1200, "Data Browser": 40_000, "Example Hub": 100}
+    assert specific_names(hits, alone, min_share=0.5, max_hits=500_000) == ["Researcher Workbench"]
+    assert specific_names(hits, alone, min_share=0.5, max_hits=1000) == []
+
+
+def test_failed_home_page_falls_back_to_more_searches():
+    from dataset_agent.adapters.resource_map import gather_pages_with_sources
+
+    text, sources = gather_pages_with_sources("X", "http://h", search=lambda q: f"[{q}]",
+                                              fetch=lambda u: "")
+    assert sources[0] == "failed: http://h" and len(sources) == 6
+    assert "[X data portal researcher platform]" in text
+    text, sources = gather_pages_with_sources("X", "http://h", search=lambda q: f"[{q}]",
+                                              fetch=lambda u: "home")
+    assert sources[0] == "http://h" and len(sources) == 4

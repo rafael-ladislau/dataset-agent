@@ -2359,11 +2359,14 @@ class QueryOptimizationUseCase:
 
     @classmethod
     def _apply_resource_map(cls, rmap, safe: list[str], risky: list[str], flag_terms: list[str],
-                            notes_parts: list[str]) -> tuple[list[str], list[str], list[str]]:
+                            notes_parts: list[str], *, max_hits: int = 500_000
+                            ) -> tuple[list[str], list[str], list[str]]:
         """Program names go to the gated group; the gate is the data resource names, and
         organisation flags leave it. A generated data phrase is a data reference by
         construction: it is a safe candidate (validated by the probe like any alias) and is
-        never placed behind the gate. ``build_for_clause`` is unchanged."""
+        never placed behind the gate. A specific data resource name is a safe candidate too;
+        the gate keeps every data name that passes the flag screening (not a bare short
+        acronym, at most *max_hits* hits). ``build_for_clause`` is unchanged."""
         programs = sanitize_terms(list(rmap.program_names), "alias")
         prog = {p.casefold() for p in programs}
         moved = [a for a in safe if a.casefold() in prog]
@@ -2375,7 +2378,25 @@ class QueryOptimizationUseCase:
             risky = [a for a in risky if a.casefold() not in phrases]
             safe = [*safe, *freed]
             notes_parts.append(f"resource map: data phrases stand alone {freed}")
-        gate = sanitize_terms(list(rmap.data_resource_names), "flag term")
+        specific = [d for d in sanitize_terms(list(rmap.specific_data_names), "alias")
+                    if d.casefold() not in {a.casefold() for a in safe}]
+        if specific:
+            safe = [*safe, *specific]
+            risky = [a for a in risky if a.casefold() not in {d.casefold() for d in specific}]
+            notes_parts.append(f"resource map: specific data names stand alone {specific}")
+        gate, screened = [], []
+        for d in sanitize_terms(list(rmap.data_resource_names), "flag term"):
+            hits = rmap.data_name_hits.get(d)
+            if is_short_acronym(d):
+                screened.append(f"{d} (bare short acronym)")
+            elif hits is not None and hits > max_hits:
+                screened.append(f"{d} ({hits} Dimensions hits)")
+            else:
+                gate.append(d)
+        if screened:
+            notes_parts.append(f"resource map: data names dropped from the gate: {screened}")
+        if not gate:
+            gate = list(flag_terms)
         notes_parts.append(
             f"resource map: program names {programs} gated by data resource names {gate}; "
             f"flags {flag_terms} leave the gate"
@@ -2402,7 +2423,7 @@ class QueryOptimizationUseCase:
 
     async def _research_resource_map(self, rec: DatasetRecord):
         """Program versus data for a stored or fresh research record (counts are budgeted)."""
-        from dataset_agent.adapters.resource_map import map_for_record
+        from dataset_agent.adapters.resource_map import map_for_record, map_options
 
         runner = self._make_eval_runner(asyncio.get_running_loop())
 
@@ -2416,9 +2437,7 @@ class QueryOptimizationUseCase:
         try:
             return await asyncio.to_thread(
                 map_for_record, self._agent, rec, count=lambda c: count_where(c, ""),
-                min_cooccurrence=self._settings.resource_map_min_cooccurrence,
-                count_where=count_where,
-                max_share_before=self._settings.resource_map_max_share_before_release,
+                count_where=count_where, **map_options(self._settings),
             )
         except Exception as exc:
             logger.warning("resource map: failed: %s", exc)
@@ -2642,7 +2661,8 @@ class QueryOptimizationUseCase:
                         notes_parts.append(note)
             if rmap is not None:
                 safe, risky, flag_terms = self._apply_resource_map(
-                    rmap, safe, risky, flag_terms, notes_parts)
+                    rmap, safe, risky, flag_terms, notes_parts,
+                    max_hits=self._settings.optimize_flag_max_hits)
             risky = dedupe_strings_ci_preserve_order(risky)
             r_low = {r.lower() for r in risky}
             safe = dedupe_strings_ci_preserve_order([s for s in safe if s.lower() not in r_low])

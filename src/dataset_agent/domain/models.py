@@ -249,6 +249,12 @@ class ResourceMap(BaseModel):
     share_before_release: Optional[float] = None
     #: Data resource name -> Dimensions hits together with the program names.
     cooccurrence: dict[str, int] = Field(default_factory=dict)
+    #: Data resource name -> Dimensions hits on its own.
+    data_name_hits: dict[str, int] = Field(default_factory=dict)
+    #: Data resource names specific enough to stand alone (safe, subject to the probe).
+    specific_data_names: list[str] = Field(default_factory=list)
+    #: Which pages fed the map (URLs and search queries; "failed:" marks a failed fetch).
+    page_sources: list[str] = Field(default_factory=list)
 
 
 class QueryOptimizationRecord(BaseModel):
