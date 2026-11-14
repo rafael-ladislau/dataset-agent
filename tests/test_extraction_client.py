@@ -14,16 +14,17 @@ from dataset_agent.adapters.extraction_client import (
 
 
 class _Server:
-    def __init__(self, statuses, fail_analyze=False):
+    def __init__(self, statuses, fail_analyze=False, cleanup_body=None):
         self.calls: list[tuple[str, str, object]] = []
         self.statuses = list(statuses)
         self.fail_analyze = fail_analyze
+        self.cleanup_body = [] if cleanup_body is None else cleanup_body
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         body = json.loads(req.content) if req.content else None
         self.calls.append((req.method, req.url.path, body))
         p = req.url.path
-        if p == "/pipelines/start":
+        if p in ("/pipelines/start", "/ai-models/start"):
             return httpx.Response(202, json={"task_id": "T1"})
         if p == "/pipelines/T1/status":
             s = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
@@ -35,7 +36,7 @@ class _Server:
         if p == "/pipelines/T1/llm-results":
             return httpx.Response(200, json={"task_id": "T1", "probe": True, "publications": []})
         if p == "/pipelines/cleanup":
-            return httpx.Response(202, json=[])
+            return httpx.Response(202, json=self.cleanup_body)
         return httpx.Response(404)
 
 
@@ -119,7 +120,7 @@ class _PoolServer:
         body = json.loads(req.content) if req.content else None
         self.calls.append((req.method, req.url.path, body))
         p = req.url.path
-        if p == "/pipelines/start":
+        if p in ("/pipelines/start", "/ai-models/start"):
             return httpx.Response(202, json={"task_id": "T1"})
         if p == "/pipelines/T1/status":
             self.analyzed.update(pid for pid in self.done if self._queued(pid))
@@ -272,3 +273,96 @@ def test_start_search_stops_immediately_on_terminal_failure(status):
     status_calls = [c for c in srv.calls if c[1] == "/pipelines/T1/status"]
     assert len(status_calls) == 1
     assert [c for c in srv.calls if c[1] == "/pipelines/cleanup"] == [("POST", "/pipelines/cleanup", ["T1"])]
+
+
+# -- model probes (entity="ai_model") ----------------------------------------
+
+MODEL_SEED = {
+    "model_name": "PhaseNet", "model_family": "", "description": "Seismic phase picker.",
+    "hugging_face_id": "", "model_aliases": [], "flag_terms": [], "exclude_terms": [],
+    "years_range": {"start_year": 2018, "end_year": 2026}, "dimensions_limit": None,
+    "filter_us_affiliation": False,
+}
+
+
+def test_model_probe_starts_on_ai_models_route_with_probe_fields():
+    srv = _Server([{"status": "DONE"}])
+    assert _client(srv).start_search(MODEL_SEED, 150, entity="ai_model") == "T1"
+    method, path, body = srv.calls[0]
+    assert (method, path) == ("POST", "/ai-models/start")
+    assert body == {**MODEL_SEED, "probe": True, "probe_pull_cap": 150}
+    assert "seed_type" not in body
+    assert not any(c[1] == "/pipelines/start" for c in srv.calls)
+
+
+def test_dataset_probe_still_starts_on_pipelines_route():
+    srv = _Server([{"status": "DONE"}])
+    _client(srv).start_search({"main_dataset_name": "X"}, 300)
+    assert srv.calls[0][1] == "/pipelines/start"
+
+
+def test_unknown_entity_is_rejected():
+    srv = _Server([{"status": "DONE"}])
+    with pytest.raises(ValueError):
+        _client(srv).start_search(MODEL_SEED, 150, entity="model")
+    assert srv.calls == []
+
+
+def test_analyze_ids_sends_explicit_steps():
+    srv = _Server([{"status": "DONE"}])
+    _client(srv).analyze_ids("T1", ["p1"], steps={"validate_ai_models": True})
+    assert srv.calls[0][2] == {"fulltext_source": "open", "publication_ids": ["p1"],
+                               "steps": {"validate_ai_models": True}}
+
+
+def test_model_topup_routes_start_and_analyze_and_cleans_up_once():
+    srv = _PoolServer({f"p{i}": True for i in range(4)})
+    out = _client(srv).run_probe_topup(MODEL_SEED, target=2, batch_size=2, max_batches=3,
+                                       pull_cap=150, entity="ai_model")
+    assert srv.calls[0][1] == "/ai-models/start"
+    analyze = [c for c in srv.calls if c[1].endswith("/analyze")]
+    assert analyze and all(c[2]["steps"] == {"validate_ai_models": True} for c in analyze)
+    assert out.task_id == "T1" and out.stop_reason == "target_met"
+    assert [c[1] for c in srv.calls].count("/pipelines/cleanup") == 1
+
+
+def test_model_topup_cleans_up_once_on_failure():
+    srv = _PoolServer({f"p{i}": False for i in range(6)}, fail_analyze_on=1)
+    with pytest.raises(ExtractionError):
+        _client(srv).run_probe_topup(MODEL_SEED, target=2, batch_size=2, max_batches=3,
+                                     pull_cap=150, entity="ai_model")
+    assert [c[1] for c in srv.calls].count("/pipelines/cleanup") == 1
+
+
+OK_ITEM = {"dataset_id": "T1", "status": "queued", "seed_type": "ai_model", "probe": True,
+           "detail": "cleanup queued", "status_code": 202}
+ERR_ITEM = {"status": "error", "status_code": 400, "detail": "T1 is not a probe task"}
+
+
+def test_cleanup_true_when_every_item_is_queued():
+    srv = _Server([{"status": "DONE"}], cleanup_body=[OK_ITEM])
+    client = _client(srv)
+    assert client.cleanup("T1") is True
+    assert client.cleanup_log[-1] == {"task_id": "T1", "ok": True, "items": [OK_ITEM], "error": None}
+
+
+@pytest.mark.parametrize("body", [[ERR_ITEM], [OK_ITEM, ERR_ITEM], [{"status_code": 404, "detail": "x"}]])
+def test_cleanup_false_on_any_error_item(body):
+    srv = _Server([{"status": "DONE"}], cleanup_body=body)
+    client = _client(srv)
+    assert client.cleanup("T1") is False
+    assert client.cleanup_log[-1]["ok"] is False and client.cleanup_log[-1]["items"] == body
+
+
+def test_dataset_probe_cleanup_also_reads_the_body():
+    srv = _Server([{"status": "DONE"}], cleanup_body=[{**OK_ITEM, "seed_type": "dataset"}, ERR_ITEM])
+    assert _client(srv).cleanup("T1") is False
+
+
+def test_cleanup_http_error_is_false_and_logged():
+    def server(req):
+        return httpx.Response(500, json={"detail": "down"})
+
+    client = _client(server)
+    assert client.cleanup("T1") is False
+    assert client.cleanup_log[-1]["ok"] is False and "HTTP 500" in client.cleanup_log[-1]["error"]

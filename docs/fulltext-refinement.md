@@ -35,6 +35,18 @@ For each iteration the current candidate is mapped to an extraction seed and **p
    `probe_poll_timeout_seconds` applies to the search and to each batch.
 4. The final `llm-results` gives per-publication `is_used`, `is_mentioned` and
    `text_quote`. `POST /pipelines/cleanup` removes the probe task once, also on failure.
+   The cleanup answer (202) is a list with one item per task id; the agent treats the
+   cleanup as failed when the call fails or any item has `status: "error"` or a
+   `status_code` of 400 or more.
+
+**AI-model probes (model task v2).** `run_probe_topup(..., entity="ai_model")` posts the
+model seed plus `probe` and `probe_pull_cap` to `POST /ai-models/start` (unknown keys are
+rejected with 422, so `seed_type` is never sent) and analyzes with
+`steps={"validate_ai_models": true}`. Status, `llm-results` and cleanup use the same
+`/pipelines/...` routes. The `llm-results` body carries `seed_type: "ai_model"` and per
+publication `validated_ai_models` rows (`name`, `is_mentioned`, `is_used`, `text_quote`,
+`match_type`, `usage_type`); the shared example is
+`tests/fixtures/llm-results-model-task-v2.json`.
 
 When fewer than the target papers have full text, the iteration notes and the proposal
 say so (for example `18/30 papers with full text (pool_exhausted; 212 attempted in 8

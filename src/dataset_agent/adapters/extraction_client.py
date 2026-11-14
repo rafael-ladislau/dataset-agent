@@ -6,7 +6,12 @@ papers have full text (:meth:`ExtractionClient.run_probe_topup`) and runs only t
 dataset-validation LLM step. The per-publication verdicts are read back with
 :meth:`ExtractionClient.get_llm_results`. Probe tasks are removed with :meth:`cleanup`.
 
-Contract: see ``docs/fulltext-refinement.md`` (extraction probe contract v1).
+AI-model probes (``entity="ai_model"``) start on ``/ai-models/start`` and run only the
+AI-model validation step; status, ``llm-results`` and cleanup share the
+``/pipelines/...`` routes.
+
+Contract: see ``docs/fulltext-refinement.md`` (extraction probe contract v1; model
+task v2 in ``tests/fixtures/llm-results-model-task-v2.json``).
 """
 
 from __future__ import annotations
@@ -32,6 +37,31 @@ _BUDGET_EXHAUSTED = "budget_exhausted"
 STOP_TARGET_MET = "target_met"
 STOP_POOL_EXHAUSTED = "pool_exhausted"
 STOP_MAX_BATCHES = "max_batches"
+
+#: Probe entity -> (start route, default analyze steps).
+_ENTITY_ROUTES: dict[str, tuple[str, dict[str, bool]]] = {
+    "dataset": ("/pipelines/start", {"validate_datasets": True}),
+    "ai_model": ("/ai-models/start", {"validate_ai_models": True}),
+}
+
+
+def _entity_route(entity: str) -> tuple[str, dict[str, bool]]:
+    try:
+        return _ENTITY_ROUTES[entity]
+    except KeyError:
+        raise ValueError(f"unknown probe entity {entity!r}") from None
+
+
+def _cleanup_item_failed(item: Any) -> bool:
+    """A cleanup item reports an error (``status`` error or an HTTP error code)."""
+    if not isinstance(item, dict):
+        return True
+    if str(item.get("status") or "").lower() == "error":
+        return True
+    try:
+        return int(item.get("status_code") or 0) >= 400
+    except (TypeError, ValueError):
+        return True
 
 
 class ExtractionError(RuntimeError):
@@ -76,6 +106,8 @@ class TopupResult:
     stop_reason: str
     #: OpenAlex refused at least one file for budget; PMC / Europe PMC kept going.
     budget_exhausted: bool = False
+    #: The probe task's id (already cleaned up when the result is returned).
+    task_id: str = ""
 
 
 @dataclass
@@ -128,6 +160,8 @@ class ExtractionClient:
         self._poll_timeout = poll_timeout
         self._poll_interval = poll_interval
         self._poll_max_interval = poll_max_interval
+        #: One entry per :meth:`cleanup` call: task_id, ok, items (the 202 body), error.
+        self.cleanup_log: list[dict[str, Any]] = []
 
     @classmethod
     def for_target(cls, settings: Settings, target: str, **kw: Any) -> "ExtractionClient":
@@ -163,14 +197,18 @@ class ExtractionClient:
             return {}
 
     # -- probe lifecycle ---------------------------------------------------
-    def start_search(self, seed: dict[str, Any], pull_cap: int) -> str:
-        """Start a probe task and wait for its Dimensions search. Cleans up on failure."""
+    def start_search(self, seed: dict[str, Any], pull_cap: int, *, entity: str = "dataset") -> str:
+        """Start a probe task and wait for its Dimensions search. Cleans up on failure.
+
+        ``entity="ai_model"`` posts the seed to ``/ai-models/start`` (the body is the
+        seed plus the probe fields, nothing else is added)."""
+        route, _ = _entity_route(entity)
         body = dict(seed)
         body["probe"] = True
         body["probe_pull_cap"] = int(pull_cap)
-        task_id = self._request("POST", "/pipelines/start", json=body).get("task_id")
+        task_id = self._request("POST", route, json=body).get("task_id")
         if not task_id:
-            raise ExtractionError("POST /pipelines/start returned no task_id")
+            raise ExtractionError(f"POST {route} returned no task_id")
         try:
             self.poll_status(task_id, lambda s: s.search_done)
         except Exception:
@@ -178,15 +216,19 @@ class ExtractionClient:
             raise
         return task_id
 
-    def analyze_ids(self, task_id: str, publication_ids: list[str]) -> dict[str, Any]:
-        """Queue open full-text fetch + dataset validation for explicit publications."""
+    def analyze_ids(
+        self, task_id: str, publication_ids: list[str], *, steps: dict[str, bool] | None = None
+    ) -> dict[str, Any]:
+        """Queue open full-text fetch + validation for explicit publications.
+
+        *steps* defaults to dataset validation only."""
         return self._request(
             "POST",
             f"/pipelines/{task_id}/full-publications/analyze",
             json={
                 "fulltext_source": "open",
                 "publication_ids": list(publication_ids),
-                "steps": {"validate_datasets": True},
+                "steps": dict(steps) if steps else {"validate_datasets": True},
             },
         )
 
@@ -268,6 +310,8 @@ class ExtractionClient:
         batch_size: int,
         max_batches: int,
         pull_cap: int,
+        entity: str = "dataset",
+        steps: dict[str, bool] | None = None,
     ) -> TopupResult:
         """Probe until *target* papers have delivered full text, batch by batch.
 
@@ -277,8 +321,13 @@ class ExtractionClient:
         OpenAlex budget miss does not stop the loop (the free providers may still
         deliver) but is reported in ``budget_exhausted``. The probe task is always cleaned up,
         exactly once, also on failure.
+
+        *entity* picks the start route and the default analyze *steps*
+        (``dataset``: validate_datasets; ``ai_model``: validate_ai_models).
         """
-        task_id = self.start_search(seed, pull_cap)
+        _, default_steps = _entity_route(entity)
+        steps = dict(steps) if steps else default_steps
+        task_id = self.start_search(seed, pull_cap, entity=entity)
         try:
             results = self.get_llm_results(task_id)
             batches = 0
@@ -301,7 +350,7 @@ class ExtractionClient:
                     "probe %s batch %d: %d id(s), delivered so far %d/%d",
                     task_id, batches, len(batch), delivered, target,
                 )
-                self.analyze_ids(task_id, batch)
+                self.analyze_ids(task_id, batch, steps=steps)
                 results = self.wait_batch_done(task_id, batch)
             if batches:
                 # One heavier read at the end: snippets of the seed's terms in each
@@ -316,18 +365,36 @@ class ExtractionClient:
                 target=int(target),
                 stop_reason=stop,
                 budget_exhausted=any(_ft(p).get("reason") == _BUDGET_EXHAUSTED for p in pubs),
+                task_id=str(task_id),
             )
         finally:
             self.cleanup(task_id)
 
     def cleanup(self, task_id: str) -> bool:
-        """Delete a probe task's data. Never raises (best effort)."""
+        """Delete a probe task's data. Never raises (best effort).
+
+        Extraction answers 202 with one item per id; the result is False when the call
+        fails or any item reports an error (``status`` error or ``status_code`` >= 400).
+        Every call is recorded in :attr:`cleanup_log`."""
+        entry: dict[str, Any] = {"task_id": task_id, "ok": False, "items": [], "error": None}
+        self.cleanup_log.append(entry)
         try:
-            self._request("POST", "/pipelines/cleanup", json=[task_id])
-            return True
+            body = self._request("POST", "/pipelines/cleanup", json=[task_id])
         except ExtractionError as exc:
+            entry["error"] = str(exc)
             logger.warning("probe cleanup failed for %s: %s", task_id, exc)
             return False
+        items = body if isinstance(body, list) else []
+        entry["items"] = items
+        failed = [it for it in items if _cleanup_item_failed(it)]
+        if failed:
+            entry["error"] = "; ".join(
+                str(it.get("detail") if isinstance(it, dict) else it)[:200] for it in failed
+            )
+            logger.warning("probe cleanup reported errors for %s: %s", task_id, entry["error"])
+            return False
+        entry["ok"] = True
+        return True
 
     # -- real task ---------------------------------------------------------
     def submit(self, payload: dict[str, Any]) -> dict[str, Any]:
