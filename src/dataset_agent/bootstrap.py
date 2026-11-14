@@ -91,6 +91,9 @@ def build_optimize_use_case(
         agent=resolved,
         settings=settings,
         proposal_repo=JsonProposalRepository(settings.output_dir),
+        referent_agent=(
+            build_referent_agent(settings) if settings.referent_thinking_budget else None
+        ),
     )
 
 

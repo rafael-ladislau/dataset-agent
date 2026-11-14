@@ -316,6 +316,12 @@ class Settings(BaseSettings):
     #: question only (0 = off; needs the Anthropic API style). Every other LLM step
     #: keeps the main agent's settings.
     referent_votes: int = Field(default=3, ge=1, le=9)
+    #: S4: after the abstract rule, probe the shipped AI-model seed on full text; with at
+    #: least ai_model_fulltext_min_papers judged, corrected precision decides release both
+    #: ways at ai_model_fulltext_min_precision (one re-gate and re-probe below it).
+    ai_model_fulltext_enabled: bool = False
+    ai_model_fulltext_min_papers: int = Field(default=10, ge=1)
+    ai_model_fulltext_min_precision: float = Field(default=0.80, ge=0.0, le=1.0)
     referent_thinking_budget: int = Field(default=0, ge=0)
     referent_temperature: float | None = None
     referent_top_p: float | None = None

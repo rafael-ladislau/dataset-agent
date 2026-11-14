@@ -97,7 +97,7 @@ from dataset_agent.adapters.query_heuristics import (
     is_acronym_suffix_form,
     is_short_acronym,
 )
-from dataset_agent.adapters.referent_check import model_profile
+from dataset_agent.adapters.referent_check import check_referents, model_profile
 from dataset_agent.application.proposal_service import build_proposal, merge_diffs
 from dataset_agent.adapters.term_sanitizer import sanitize_term, sanitize_terms
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
@@ -338,6 +338,7 @@ class QueryOptimizationUseCase:
         settings: Settings,
         extraction_client: ExtractionClient | None = None,
         proposal_repo=None,
+        referent_agent: AgentPort | None = None,
     ) -> None:
         self._proposal_repo = proposal_repo
         self._dsl = dsl_port
@@ -345,6 +346,8 @@ class QueryOptimizationUseCase:
         self._agent = agent
         self._settings = settings
         self._extraction = extraction_client
+        #: Agent for the full-text referent question (None = the main agent).
+        self._referent_agent = referent_agent
         self._dims_calls = 0
         self._cap_extra = 0
 
@@ -2050,8 +2053,11 @@ class QueryOptimizationUseCase:
             )
         threshold = float(s.optimize_fp_threshold_pct)
         evaluated = "~gate" in (out.selected_variant or "")
+        ft = bool(s.ai_model_fulltext_enabled)
+        abstract_why = ""
         if not evaluated or out.fp_rate_pct is None or float(out.fp_rate_pct) > threshold:
-            # Never hand the pipeline a query the abstract check did not clear.
+            # Never hand the pipeline a query the abstract check did not clear (unless
+            # full text decides, below).
             if not evaluated:
                 why = "the abstract check did not run on the selected query"
             elif out.fp_rate_pct is None:
@@ -2064,11 +2070,31 @@ class QueryOptimizationUseCase:
             out.confidence = ConfidenceLevel.LOW
             if model.withhold_reasons:
                 why += "; " + "; ".join(model.withhold_reasons)
-            notes.append(f"seed withheld: {why}; review term_decisions before using this query")
+            if not ft:
+                notes.append(f"seed withheld: {why}; review term_decisions before using this query")
+                out.notes = " ".join(notes)
+                return out
+            abstract_why = why
+        else:
+            # Released: confidence from the Wilson upper bound of the abstract check.
+            out.confidence = ai_model_confidence(*(stats or (0, 0, 0, 0.0))[:2], released=True)
+        if not await self._attach_model_seed(request, model, out, notes):
             out.notes = " ".join(notes)
             return out
-        # Released: confidence from the Wilson upper bound of the abstract check.
-        out.confidence = ai_model_confidence(*(stats or (0, 0, 0, 0.0))[:2], released=True)
+        if ft:
+            await self._fulltext_release(request, model, out, notes, abstract_why)
+        out.notes = " ".join(notes)
+        return out
+
+    async def _attach_model_seed(
+        self, request: OptimizeRequest, model: _ModelRun, out: QueryOptimizationRecord,
+        notes: list[str],
+    ) -> bool:
+        """Build the extraction seed for the record's terms and count it next to the
+        selected query. False (with a note) when no seed can be built."""
+        safe, risky = list(out.aliases.safe), list(out.aliases.risky)
+        flags, excludes = list(out.flag_terms), list(out.exclusion_terms)
+        years_start, years_end = model.years
         candidate = QueryCandidate(
             main_dataset_name=model.name, safe=safe, risky=risky, flag_terms=flags,
             exclude_terms=excludes, description=model.context,
@@ -2080,8 +2106,7 @@ class QueryOptimizationUseCase:
             )
         except ValueError as exc:
             notes.append(f"seed not built: {exc}")
-            out.notes = " ".join(notes)
-            return out
+            return False
         seed_names = [seed["model_name"], *seed["model_aliases"]]
         out.ai_model_seed = seed
         out.ai_model_seed_clause = ai_model_seed_clause(
@@ -2108,8 +2133,156 @@ class QueryOptimizationUseCase:
                 f"seed: the seed finds {out.ai_model_seed_count} papers and the selected "
                 f"query {out.ai_model_query_count} ({years_start}-{years_end}); the counts differ"
             )
-        out.notes = " ".join(notes)
-        return out
+        return True
+
+    async def _probe_model_seed(
+        self, model: _ModelRun, seed: dict, *, max_batches: int | None = None
+    ) -> Evidence | None:
+        """Probe *seed* exactly on extraction full text (cleaned up by the client), then
+        run the referent check on the genuine papers. None when the probe failed."""
+        s = self._settings
+        client = self._get_extraction()
+        try:
+            top = await asyncio.to_thread(functools.partial(
+                client.run_probe_topup, seed, target=s.fulltext_target_delivered,
+                batch_size=s.fulltext_batch_size,
+                max_batches=max_batches or s.fulltext_max_batches,
+                pull_cap=s.probe_pull_cap, entity="ai_model",
+            ))
+        except ExtractionError as exc:
+            logger.warning("model full-text probe failed: %s", exc)
+            return None
+        ev = build_evidence(top.results, entity="ai_model")
+        ev.target, ev.batches = top.target, top.batches
+        ev.stop_reason, ev.budget_exhausted = top.stop_reason, top.budget_exhausted
+        await asyncio.to_thread(functools.partial(
+            check_referents, ev, agent=self._referent_agent or self._agent,
+            model_name=model.name, profile=model.context, anchor_titles=list(model.anchors),
+            votes=s.referent_votes,
+        ))
+        return ev
+
+    @staticmethod
+    def _ft_summary(ev: Evidence) -> str:
+        n, k = ev.n_evaluated, len(ev.genuine)
+        p = k / n if n else 0.0
+        lo, hi = wilson_interval(k, n)
+        return (
+            f"{k} of {n} genuine ({p:.2f}, Wilson 95% {lo:.2f}-{hi:.2f}; judge "
+            f"{(ev.raw_precision or 0):.2f} before {ev.n_referent_rejected} referent rejections)"
+        )
+
+    async def _measure_seed(
+        self, model: _ModelRun, out: QueryOptimizationRecord, notes: list[str], iteration: int
+    ) -> Evidence | None:
+        """Probe the record's seed, top it up once when borderline, and record it."""
+        s = self._settings
+        bar = s.ai_model_fulltext_min_precision
+        ev = await self._probe_model_seed(model, out.ai_model_seed)
+        if ev is not None and ev.n_evaluated:
+            p = ev.corrected_precision or 0.0
+            if (
+                abs(p - bar) <= 0.07 and ev.n_evaluated < s.fulltext_target_delivered
+                and ev.stop_reason != STOP_POOL_EXHAUSTED
+            ):
+                notes.append(f"full text borderline at {p:.2f} on {ev.n_evaluated}: topped up once")
+                ev = await self._probe_model_seed(
+                    model, out.ai_model_seed, max_batches=2 * s.fulltext_max_batches
+                ) or ev
+        if ev is None:
+            notes.append(f"full text probe {iteration + 1} failed; nothing measured")
+            return None
+        out.fulltext_iterations.append(
+            ev.metrics(iteration, out.for_clause or "", out.fp_rate_pct)
+        )
+        return ev
+
+    def _withhold(self, out: QueryOptimizationRecord, notes: list[str], why: str) -> None:
+        out.ai_model_seed = None
+        out.confidence = ConfidenceLevel.LOW
+        notes.append(f"seed withheld: {why}; review term_decisions before using this query")
+
+    def _ft_confidence(self, ev: Evidence) -> ConfidenceLevel:
+        """Full text decided: HIGH at >= 0.90 on a sample that reached its target,
+        otherwise MEDIUM."""
+        p = ev.corrected_precision or 0.0
+        full = ev.target is None or ev.n_delivered >= ev.target
+        return ConfidenceLevel.HIGH if p >= 0.90 and full else ConfidenceLevel.MEDIUM
+
+    async def _fulltext_release(
+        self, request: OptimizeRequest, model: _ModelRun, out: QueryOptimizationRecord,
+        notes: list[str], abstract_why: str,
+    ) -> None:
+        """S4: full text decides release both ways when enough papers were judged.
+
+        n >= ``ai_model_fulltext_min_papers`` and corrected precision >= the bar: release.
+        Below the bar: re-gate the own names once (measured, reserve or title flags),
+        probe again, release at the bar, else withhold. Fewer papers: the abstract rule
+        stands and full text is reported only."""
+        s = self._settings
+        need, bar = s.ai_model_fulltext_min_papers, s.ai_model_fulltext_min_precision
+        ev = await self._measure_seed(model, out, notes, 0)
+        if ev is None or ev.n_evaluated < need:
+            n = 0 if ev is None else ev.n_evaluated
+            notes.append(
+                f"full text not decisive: {n} papers judged (fewer than {need})"
+                + (f"; {self._ft_summary(ev)}" if ev is not None and n else "")
+            )
+            if abstract_why:
+                self._withhold(out, notes, abstract_why)
+            return
+        if (ev.corrected_precision or 0.0) >= bar:
+            notes.append(f"full text released the seed: {self._ft_summary(ev)}")
+            out.confidence = self._ft_confidence(ev)
+            return
+        first = self._ft_summary(ev)
+        if not await self._regate_after_fulltext(request, model, out, notes):
+            self._withhold(out, notes, f"full text measured {first}; no flag can gate the names")
+            return
+        notes.append(f"re-gated after full text measured {first}")
+        ev2 = await self._measure_seed(model, out, notes, 1)
+        if ev2 is not None and ev2.n_evaluated >= need and (ev2.corrected_precision or 0.0) >= bar:
+            notes.append(f"full text released the re-gated seed: {self._ft_summary(ev2)}")
+            out.confidence = self._ft_confidence(ev2)
+            return
+        self._withhold(
+            out, notes,
+            "full text measured "
+            + (self._ft_summary(ev2) if ev2 is not None and ev2.n_evaluated else first)
+            + " after one re-gate",
+        )
+
+    async def _regate_after_fulltext(
+        self, request: OptimizeRequest, model: _ModelRun, out: QueryOptimizationRecord,
+        notes: list[str],
+    ) -> bool:
+        """Gate the record's safe own names with the existing flags (else reserve flags,
+        measured once) plus the model's paper titles; rebuild the query and the seed."""
+        safe, risky = list(out.aliases.safe), list(out.aliases.risky)
+        flags, excludes = list(out.flag_terms), list(out.exclusion_terms)
+        own = [a for a in safe if a.casefold() in model.own_keys]
+        if not own:
+            return False
+        if not flags and not model.reserve_flags and not model.reserve_measured:
+            await self._measure_reserve_flags(model, own[0], safe, excludes)
+        not_x = f" NOT {_or_group(excludes)}" if excludes else ""
+        gate = await self._add_title_flags(model, own, flags or list(model.reserve_flags), not_x)
+        if not gate:
+            return False
+        safe = [a for a in safe if a not in own]
+        risky = dedupe_strings_ci_preserve_order(risky + own)
+        clause = build_for_clause(safe=safe, variant="V4", risky=risky, flag_terms=gate,
+                                  exclusion_terms=excludes)
+        model.remember(clause, safe, risky, gate, excludes)
+        out.for_clause, out.selected_variant = clause, f"{out.selected_variant}~ft"
+        out.aliases = QueryOptimizationAliases(safe=safe, risky=risky)
+        out.flag_terms = list(gate)
+        lo, hi = model.years
+        out.dsl_query = (
+            f'search publications in full_data for "{clause}" where year in [{lo}:{hi}] '
+            "return publications[id+title+doi+year+times_cited] sort by times_cited"
+        )
+        return await self._attach_model_seed(request, model, out, notes)
 
     async def _signal3_fp_rate_pct(
         self,
