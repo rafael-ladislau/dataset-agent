@@ -544,9 +544,23 @@ def refine_candidate(
         new_flags = kept_flags
         flags = list(candidate.flag_terms) + [t for t, _ in new_flags]
         if not flags:
-            # The removed flags were the only gate: a new risky alias cannot stay.
+            # The removed flags were the only gate: a new risky alias cannot stay. A safe
+            # alias demoted this round goes back to safe (its demotion needed a flag).
+            safe_now = {a.lower() for a in candidate.safe}
             for t in new_risky:
                 keep_risky.remove(t)
+                if t.lower() in safe_now:
+                    keep_safe.append(t)
+                    diffs = [
+                        d.model_copy(update={
+                            "action": "keep",
+                            "reason": "demotion undone: its only new flag was contained in it, "
+                                      "so no flag terms are left to gate it",
+                        })
+                        if d.kind == "alias" and d.action == "demote" and d.term == t else d
+                        for d in diffs
+                    ]
+                    continue
                 diffs = [d for d in diffs
                          if not (d.kind == "alias" and d.action == "add" and d.term == t)]
                 reject("alias", t, "risky and there are no flag terms")

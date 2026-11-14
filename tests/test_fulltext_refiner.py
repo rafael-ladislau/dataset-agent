@@ -886,3 +886,18 @@ def test_new_risky_alias_is_rejected_when_the_contained_flag_was_its_only_gate()
     assert r.candidate.risky == []
     assert not [d for d in r.diffs if d.kind == "alias" and d.action == "add"]
     assert "risky and there are no flag terms" in _rejected_note(r, "alias")
+
+
+def test_demoted_safe_alias_returns_to_safe_when_its_only_new_flag_was_contained():
+    pubs = ([pub(f"g{i}", 40 - i, True, "NHIS data and the Beta Survey Program") for i in range(3)]
+            + [pub(f"b{i}", 20 - i, False, "the Beta Survey Program sample") for i in range(4)])
+    out = {"exclude_terms": [], "flag_terms": ["Beta Survey"], "new_aliases": [], "reasoning": ""}
+    cand = QueryCandidate("X", safe=["NHIS", "Beta Survey Program"])
+    r = refine_candidate(cand, ev(pubs), settings=S, agent=FakeLLM(out), dataset_name="X",
+                         count_fn=lambda t: 5, reference_count=100)
+    assert sorted(r.candidate.safe) == ["Beta Survey Program", "NHIS"]
+    assert r.candidate.risky == [] and r.candidate.flag_terms == []
+    assert not [d for d in r.diffs if d.action == "demote"]
+    rej = [n for n in r.notes if n.startswith("rejected alias candidates")]
+    assert not any("Beta Survey Program" in n for n in rej)
+    assert "contained in a flag-gated alias" in _rejected_note(r, "flag")
