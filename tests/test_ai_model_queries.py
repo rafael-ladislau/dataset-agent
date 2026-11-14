@@ -1002,6 +1002,21 @@ def test_classify_model_name_rules() -> None:
     assert _classify("Aurora-0.25", 21, None) == "unconfirmed"
 
 
+@pytest.mark.parametrize(
+    ("share", "verdict", "reason_part"),
+    [
+        (0.05, "safe", "(not enough to doubt it)"),  # the coined floor is inclusive
+        (0.25, "safe", "coined name; 25% of its hits"),  # half the safe share is inclusive
+    ],
+)
+def test_coined_name_share_boundaries(share: float, verdict: str, reason_part: str) -> None:
+    got, reason = classify_model_name(
+        "FourCastNet", count=2_865, confirmation=share, developer="",
+        safe_share=0.5, plain_word_max_hits=20_000, coined_min_share=0.05,
+    )
+    assert got == verdict and reason_part in reason
+
+
 def test_assemble_candidates_screens_by_shape() -> None:
     hub = HubEvidence(hugging_face_id="microsoft/aurora", found=True, developer="Microsoft")
     llm = {
