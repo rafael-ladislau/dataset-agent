@@ -509,6 +509,47 @@ def test_top_cited_titles_of_a_safe_coined_name_are_checked_as_anchors(tmp_path,
     assert "where year in [2019:" in out.dsl_query
 
 
+@pytest.mark.parametrize(
+    ("model_name", "family", "joined"),
+    [
+        ("Pangu-Weather", None, "PanguWeather"),
+        ("Prithvi WxC", None, "PrithviWxC"),
+        ("Aurora", None, None),
+        ("GraphCast", None, None),
+        ("Prithvi-EO-2.0-600M", "Prithvi-EO", "PrithviEO"),
+    ],
+)
+def test_joined_spelling_of_a_multi_part_name(model_name, family, joined) -> None:
+    c = assemble_candidates(
+        model_name=model_name, family=family, given_aliases=[],
+        hub=HubEvidence(developer="Microsoft"), llm={},
+        max_names=14, max_context=12, max_excludes=8,
+    )
+    formers = [n for n, k in c.names if k == "former"]
+    assert formers == ([joined] if joined else [])
+    # Never a developer-qualified or "model" form.
+    names = {n for n, _k in c.names}
+    assert not names & {"MicrosoftAurora", "MicrosoftGraphCast", "PanguWeathermodel"}
+
+
+def test_joined_spelling_is_counted_like_any_name(tmp_path, patched) -> None:
+    patched.hub = HubEvidence()
+    docs = ["Pangu-Weather beats IFS."] * 20 + ["PanguWeather forecasts typhoons."] * 5
+    llm = {"description": "Pangu-Weather is Huawei's weather model.", "names": [],
+           "paper_titles": [], "context_terms": [], "other_meanings": []}
+    out, _dsl, _agent = _run(
+        tmp_path, docs, llm, OptimizeRequest(dataset_name="Pangu-Weather", entity_type="ai_model"),
+    )
+    assert out.success, out.errors
+    assert _decision(out, "PanguWeather", "alias").decision == "safe"
+    assert out.ai_model_seed_count == 25
+
+    out, _dsl, _agent = _run(
+        tmp_path, docs[:20], llm, OptimizeRequest(dataset_name="Pangu-Weather", entity_type="ai_model"),
+    )
+    assert _decision(out, "PanguWeather", "alias").reason == "0 Dimensions hits"
+
+
 def test_same_dimensions_search_is_one_candidate() -> None:
     c = assemble_candidates(
         model_name="PhaseNet", family=None, given_aliases=["PhaseNet+"], hub=HubEvidence(),

@@ -511,6 +511,21 @@ def _owner_acronyms(*owners: str) -> set[str]:
     }
 
 
+def _joined_form(name: str, developer: str) -> str | None:
+    """"PanguWeather" for "Pangu-Weather", "PrithviWxC" for "Prithvi WxC": Dimensions
+    treats a hyphen like a space, but a joined token is a different search. Only for a
+    name of two or more parts whose lettered parts all start with a capital; never for
+    a developer-qualified name."""
+    parts = [p for p in re.split(r"[\s-]+", (name or "").strip()) if p]
+    lettered = [p for p in parts if any(ch.isalpha() for ch in p)]
+    if len(parts) < 2 or not lettered or not all(p[0].isupper() for p in lettered):
+        return None
+    if developer and contains_word(name, developer):
+        return None
+    joined = "".join(parts)
+    return joined if is_distinctive(joined) else None
+
+
 def assemble_candidates(
     *,
     model_name: str,
@@ -541,6 +556,10 @@ def assemble_candidates(
     names: list[tuple[str, str]] = [(model_name, "family")]
     if fam.casefold() != model_name.casefold():
         names.append((fam, "family"))
+    for base in dedupe_strings_ci_preserve_order([model_name, fam]):
+        joined = _joined_form(base, out.developer)
+        if joined:
+            names.append((joined, "former"))
     names += [(a, "given") for a in given_aliases]
     for base in dedupe_strings_ci_preserve_order([model_name, fam]):
         if out.developer and not contains_word(base, out.developer):
