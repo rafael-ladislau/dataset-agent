@@ -287,6 +287,12 @@ class Settings(BaseSettings):
     ai_model_max_names: int = Field(default=14, ge=1, le=40)
     ai_model_max_context_terms: int = Field(default=12, ge=0, le=30)
     ai_model_max_exclude_terms: int = Field(default=8, ge=0, le=30)
+    #: Paper-title candidates per run (name-bearing first; the rest get a decision).
+    ai_model_max_paper_titles: int = Field(default=6, ge=0, le=20)
+    #: Name-bearing titles taken from the top-cited hits of a safe coined base name
+    #: (each passes the model-aware check before it anchors), and how many hits are read.
+    ai_model_top_cited_titles: int = Field(default=2, ge=0, le=10)
+    ai_model_top_cited_sample: int = Field(default=20, ge=0, le=200)
     #: Context terms mined from the abstracts of papers that certainly refer to the
     #: model (their paper titles or safe names), on top of the researched ones.
     ai_model_max_mined_context_terms: int = Field(default=15, ge=0, le=30)

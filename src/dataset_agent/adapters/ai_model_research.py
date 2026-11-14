@@ -520,6 +520,7 @@ def assemble_candidates(
     max_names: int,
     max_context: int,
     max_excludes: int,
+    max_titles: int = 6,
 ) -> ModelCandidates:
     """Merge deterministic and LLM candidates and screen them by shape only.
 
@@ -581,12 +582,23 @@ def assemble_candidates(
     out.hub_title_keys = {t.casefold() for t in sanitize_terms(hub.paper_titles, "paper title")}
     raw_titles = llm.get("paper_titles")
     titles += [t for t in (raw_titles if isinstance(raw_titles, list) else []) if isinstance(t, str)]
-    for title in sanitize_terms(dedupe_strings_ci_preserve_order(titles), "paper title"):
+    bases = dedupe_strings_ci_preserve_order([model_name, fam])
+    # Titles that name the model first, then the other card titles, then recalled ones.
+    ordered = sorted(
+        sanitize_terms(dedupe_strings_ci_preserve_order(titles), "paper title"),
+        key=lambda t: (
+            not any(contains_word(t, b) for b in bases),
+            t.casefold() not in out.hub_title_keys,
+        ),
+    )
+    for title in ordered:
         if title.casefold() in seen:
             continue
         if len(title.split()) < 4:
             out.rejected.append(("paper_title", title, "fewer than 4 words: not distinctive"))
-        elif len(out.paper_titles) < 4:
+        elif len(out.paper_titles) >= max_titles:
+            out.rejected.append(("paper_title", title, "over the title limit"))
+        else:
             seen.add(title.casefold())
             out.paper_titles.append(title)
 

@@ -18,6 +18,8 @@ from dataset_agent.adapters.ai_model_research import (
     classify_model_name,
     contains_word,
     fetch_hub_evidence,
+    is_distinctive,
+    is_plain_word,
     mine_context_terms,
     model_terms_prompt,
 )
@@ -93,7 +95,7 @@ from dataset_agent.adapters.query_heuristics import (
     is_short_acronym,
 )
 from dataset_agent.application.proposal_service import build_proposal, merge_diffs
-from dataset_agent.adapters.term_sanitizer import sanitize_terms
+from dataset_agent.adapters.term_sanitizer import sanitize_term, sanitize_terms
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
 from dataset_agent.domain.models import (
     AliasCountEntry,
@@ -861,6 +863,82 @@ class QueryOptimizationUseCase:
             )
         return True, f"removes {hit} of {model.reference_count} precise matches ({loss:.1%})", stats
 
+    async def _model_title_check(
+        self, model: _ModelRun, title: str, bases: list[str]
+    ) -> tuple[bool, str, int | None]:
+        """A title not cited on the model card anchors only when it names a coined base
+        name of the model, has Dimensions hits, and the model-aware mention check (the
+        title as the snippet, the model description as context) calls it this model."""
+        unverified = "not cited on the model card: an unverified title cannot be an anchor"
+        base = next((b for b in bases if contains_word(title, b)), None)
+        if base is None:
+            return False, unverified, None
+        c = await self._clause_count(_or_group([title]))
+        if not c:
+            return False, "0 Dimensions hits" if c == 0 else "not measured", c
+        if not model.context:
+            return False, f"{unverified} (no model description to check it against)", c
+        genuine = await asyncio.to_thread(
+            classify_alias_mention, self._agent, dataset_name=model.name, alias=base,
+            snippet=title, entity_context=model.context,
+        )
+        if genuine is None:
+            return False, f"{unverified} (the model-aware check failed)", c
+        if not genuine:
+            return False, (
+                f"names {base!r}, but the model-aware check reads it as another meaning"
+            ), c
+        return True, f"names the coined name {base!r}; the model-aware check confirms it", c
+
+    async def _top_cited_titles(
+        self, model: _ModelRun, bases: list[str], decided: set[str]
+    ) -> list[tuple[str, str, int | None]]:
+        """Name-bearing titles among the top-cited hits of each safe coined base name,
+        passed through ``_model_title_check``: ``(title, reason, count)`` per anchor."""
+        s = self._settings
+        cap, sample = int(s.ai_model_top_cited_titles), int(s.ai_model_top_cited_sample)
+        out: list[tuple[str, str, int | None]] = []
+        for base in bases:
+            if cap <= 0 or sample <= 0 or len(out) >= cap or not self._budget_left():
+                break
+            try:
+                result = await self._counted_execute(build_search_publications_paged_dsl(
+                    _or_group([base]), limit=sample, fields="title+year",
+                ))
+                total = parse_total_count(result)
+            except DimensionsDslError as exc:
+                if not is_dsl_syntax_error(exc):
+                    raise
+                continue
+            verdict, _r = classify_model_name(
+                base, count=total, confirmation=None, developer=model.developer,
+                safe_share=s.ai_model_safe_min_context_share,
+                plain_word_max_hits=s.ai_model_plain_word_max_safe_hits,
+                coined_min_share=s.ai_model_coined_min_title_share,
+            )
+            if verdict != "safe":
+                continue
+            judged = 0
+            for pub in publications_from_result(result):
+                title = sanitize_term(publication_title(pub))
+                if (
+                    not title or title.casefold() in decided or len(title.split()) < 4
+                    or not contains_word(title, base)
+                ):
+                    continue
+                decided.add(title.casefold())
+                ok, reason, c = await self._model_title_check(model, title, [base])
+                judged += 1
+                reason = f"top-cited hit of {base!r}; {reason}"
+                if ok:
+                    out.append((title, reason, c))
+                    model.decide(title, "paper_title", "anchor", reason, c)
+                else:
+                    model.decide(title, "paper_title", "rejected", reason, c)
+                if len(out) >= cap or judged >= 2 * cap:
+                    break
+        return out
+
     async def _mine_model_context(
         self, model: _ModelRun, model_names: list[str]
     ) -> list[tuple[str, int]]:
@@ -1065,6 +1143,7 @@ class QueryOptimizationUseCase:
             max_names=s.ai_model_max_names,
             max_context=s.ai_model_max_context_terms,
             max_excludes=s.ai_model_max_exclude_terms,
+            max_titles=s.ai_model_max_paper_titles,
         )
         model.description = cands.description
         model.developer = cands.developer
@@ -1089,16 +1168,25 @@ class QueryOptimizationUseCase:
         try:
             # 1. Paper titles: anchors for everything measured below.
             titles: list[str] = []
+            # Coined base names: only a title naming one of them can anchor off the card.
+            coined_bases = [
+                b for b in dedupe_strings_ci_preserve_order([name, family])
+                if is_distinctive(b) and not is_plain_word(b) and not is_short_acronym(b)
+            ]
             for title in cands.paper_titles:
                 from_hub = title.casefold() in cands.hub_title_keys
                 if not from_hub:
-                    # A title the LLM recalls proves nothing: "Aurora kinase inhibitors
-                    # in cancer therapy" also names "Aurora". Only titles cited on the
-                    # model card (or linked from it) anchor the measurements.
-                    model.decide(
-                        title, "paper_title", "rejected",
-                        "not cited on the model card: an unverified title cannot be an anchor",
-                    )
+                    # A title the LLM recalls proves little: "Aurora kinase inhibitors
+                    # in cancer therapy" also names "Aurora". Off the model card, only a
+                    # title naming a coined name that the model-aware check confirms
+                    # anchors the measurements.
+                    ok, reason, c = await self._model_title_check(model, title, coined_bases)
+                    if ok:
+                        titles.append(title)
+                        model.decide(title, "paper_title", "anchor",
+                                     f"not cited on the model card; {reason}", c)
+                    else:
+                        model.decide(title, "paper_title", "rejected", reason, c)
                     continue
                 c = await self._clause_count(q(title))
                 if not c:
@@ -1133,6 +1221,11 @@ class QueryOptimizationUseCase:
                     )
                 titles.append(title)
                 model.decide(title, "paper_title", "anchor", reason, c)
+            decided = {t.casefold() for t in cands.paper_titles} | {
+                d.term.casefold() for d in model.decisions if d.kind == "paper_title"
+            }
+            for title, _reason, _c in await self._top_cited_titles(model, coined_bases, decided):
+                titles.append(title)
             title_group = q(*titles) if titles else ""
 
             # 2. Names: count, then classify by shape and by title confirmation.

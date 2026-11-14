@@ -69,8 +69,17 @@ class CorpusDSL:
         hits = [d for d in self.docs if _matches(clause, d)]
         return SimpleNamespace(
             count_total=len(hits),
-            publications=[{"title": d[:40], "abstract": d} for d in hits[:200]],
+            publications=[_pub(d) for d in hits[:200]],
         )
+
+
+def _pub(doc: str) -> dict:
+    """A document "Title || body y2018" has a real title and a year; others do not."""
+    pub: dict = {"title": doc.split(" || ")[0] if " || " in doc else doc[:40], "abstract": doc}
+    year = re.search(r"\by(\d{4})\b", doc)
+    if year:
+        pub["year"] = int(year.group(1))
+    return pub
 
 
 PRECISE = (
@@ -164,10 +173,16 @@ def patched(monkeypatch: pytest.MonkeyPatch):
     return state
 
 
-def _run(tmp_path, docs, llm, request: OptimizeRequest, **settings_over):
+def _run(tmp_path, docs, llm, request: OptimizeRequest, *, judge=None, **settings_over):
+    """*judge(prompt) -> bool* answers the model-aware mention check (title anchors)."""
     dsl = CorpusDSL(docs)
     agent = MagicMock()
     agent.get_structured.return_value = llm
+    if judge is not None:
+        agent.get_structured.side_effect = lambda prompt, _tool: (
+            {"is_genuine_dataset_reference": judge(prompt)}
+            if prompt.startswith("AI model:") else llm
+        )
     uc = QueryOptimizationUseCase(
         dsl_port=dsl, research=MagicMock(), agent=agent, settings=_settings(tmp_path, **settings_over)
     )
@@ -429,6 +444,90 @@ def test_recalled_namesake_title_cannot_anchor_another_meaning(tmp_path, patched
     assert out.for_clause is None and out.ai_model_seed is None
     assert _decision(out, "AURKA", "flag").reason.startswith("cannot be verified")
     assert _decision(out, "Aurora", "alias").decision == "rejected"
+
+
+PHASENET_TITLE = "PhaseNet: A Deep-Neural-Network-Based Seismic Arrival Time Picking Method"
+VIDEO_TITLE = "PhaseNet for Video Frame Interpolation"
+PHASENET_LLM = {
+    "description": "PhaseNet is a deep neural network that picks seismic P and S arrival times.",
+    "names": [], "paper_titles": [VIDEO_TITLE, PHASENET_TITLE], "context_terms": [],
+    "other_meanings": [],
+}
+
+
+def _seismic_judge(prompt: str) -> bool:
+    return "Seismic" in prompt.split("Abstract snippet:", 1)[1]
+
+
+def test_recalled_title_naming_a_coined_model_anchors_after_the_model_check(tmp_path, patched) -> None:
+    """Empty card: the recalled title that names the coined model anchors once the
+    model-aware check accepts it; a namesake title that names it too does not."""
+    patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, developer="")
+    docs = (
+        [f"{PHASENET_TITLE} || PhaseNet picks P and S waves y2019"] * 20
+        + ["We pick arrivals with PhaseNet. Ref: " + PHASENET_TITLE] * 30
+        + [f"{VIDEO_TITLE} || PhaseNet interpolates video frames y2021"] * 5
+        + ["Arrival picking with PhaseNet on DAS data."] * 10
+    )
+    out, _dsl, agent = _run(
+        tmp_path, docs, PHASENET_LLM,
+        OptimizeRequest(dataset_name="PhaseNet", entity_type="ai_model", hugging_face_id="x/phasenet"),
+        judge=_seismic_judge,
+    )
+
+    assert out.success, out.errors
+    anchor = _decision(out, PHASENET_TITLE, "paper_title")
+    assert anchor.decision == "anchor" and anchor.count == 50
+    assert "model-aware check" in anchor.reason
+    video = _decision(out, VIDEO_TITLE, "paper_title")
+    assert video.decision == "rejected" and "another meaning" in video.reason
+    judged = [c.args[0] for c in agent.get_structured.call_args_list if c.args[0].startswith("AI model:")]
+    assert judged and all("seismic P and S arrival times" in p for p in judged)
+    assert _decision(out, "PhaseNet", "alias").stats["title_confirmation"] == 0.769
+
+
+def test_top_cited_titles_of_a_safe_coined_name_are_checked_as_anchors(tmp_path, patched) -> None:
+    """No title anywhere: the top-cited hits of the coined name offer name-bearing titles,
+    each passed through the same model-aware check (at most two admitted)."""
+    patched.hub = HubEvidence()
+    docs = (
+        [f"{PHASENET_TITLE} || PhaseNet picks P and S waves y2019"] * 20
+        + [f"{VIDEO_TITLE} || PhaseNet interpolates video frames y2021"] * 5
+        + ["We pick arrivals with PhaseNet. Ref: " + PHASENET_TITLE] * 30
+    )
+    llm = dict(PHASENET_LLM, paper_titles=[])
+    out, _dsl, _agent = _run(
+        tmp_path, docs, llm, OptimizeRequest(dataset_name="PhaseNet", entity_type="ai_model"),
+        judge=_seismic_judge,
+    )
+
+    assert out.success, out.errors
+    anchor = _decision(out, PHASENET_TITLE, "paper_title")
+    assert anchor.decision == "anchor" and "top-cited" in anchor.reason
+    assert _decision(out, VIDEO_TITLE, "paper_title").decision == "rejected"
+
+
+def test_assemble_candidates_orders_and_caps_titles() -> None:
+    hub = HubEvidence(paper_titles=["A Geometric Approach to Weather Forecasting", "FourCastNet 3: A Geometric Approach"])
+    llm = {"paper_titles": [
+        "Spherical Fourier Neural Operators for Weather", "FourCastNet: A Global Data-driven Weather Model",
+        "Adaptive Fourier Neural Operators for Mixing", "Fourth Recalled Title Without Model",
+        "Fifth Recalled Title Without Model",
+    ]}
+    c = assemble_candidates(
+        model_name="FourCastNet", family=None, given_aliases=[], hub=hub, llm=llm,
+        max_names=14, max_context=12, max_excludes=8,
+    )
+    assert c.paper_titles == [
+        "FourCastNet 3: A Geometric Approach",
+        "FourCastNet: A Global Data-driven Weather Model",
+        "A Geometric Approach to Weather Forecasting",
+        "Spherical Fourier Neural Operators for Weather",
+        "Adaptive Fourier Neural Operators for Mixing",
+        "Fourth Recalled Title Without Model",
+    ]
+    reasons = {t: r for k, t, r in c.rejected if k == "paper_title"}
+    assert reasons == {"Fifth Recalled Title Without Model": "over the title limit"}
 
 
 def test_flag_inside_a_gated_name_is_rejected(tmp_path, patched) -> None:
