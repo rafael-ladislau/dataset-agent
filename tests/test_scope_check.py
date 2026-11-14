@@ -1,0 +1,118 @@
+"""Scope check on genuine dataset papers (no network: a fake judge)."""
+
+from __future__ import annotations
+
+from dataset_agent.adapters.fulltext_evidence import build_evidence
+from dataset_agent.adapters.scope_check import (
+    check_scope,
+    program_owned_data_names,
+    scope_passages,
+)
+
+PROGRAM = ["Example Program", "Example Research Program"]
+DATA = ["Example Program Workbench", "Controlled Tier", "Curated Data Repository"]
+
+
+class FakeJudge:
+    def __init__(self, answers=None, default="data"):
+        self.answers = list(answers or [])
+        self.default = default
+        self.prompts: list[str] = []
+
+    def get_structured(self, prompt, _tool):
+        self.prompts.append(prompt)
+        a = self.answers.pop(0) if self.answers else self.default
+        if isinstance(a, Exception):
+            raise a
+        return {"scope": a}
+
+
+def _c(part, text, term="Example Program"):
+    return {"term": term, "role": "alias", "part": part, "text": text}
+
+
+def _pub(pid, *, verdict="mentioned", contexts=None):
+    return {
+        "publication_id": pid, "doi": None, "title": f"Title {pid}", "citation_count": 1,
+        "fulltext": {"status": "delivered", "source": "pmc", "reason": None},
+        "analyzed": True,
+        "validated_datasets": [{"is_mentioned": verdict != "not_mentioned",
+                                "is_used": verdict == "used", "text_quote": "judge quote"}],
+        "term_contexts": contexts if contexts is not None else [_c("body", "Example Program aims")],
+    }
+
+
+def _ev(*pubs, seed_type="dataset"):
+    return build_evidence({"task_id": "T", "seed_type": seed_type, "publications": list(pubs)})
+
+
+def _check(ev, judge, **kw):
+    return check_scope(ev, agent=judge, dataset_name="Example", description="A cohort.",
+                       program_names=PROGRAM, data_names=DATA, **kw)
+
+
+def test_program_owned_names_carry_the_program_phrase():
+    assert program_owned_data_names(PROGRAM, DATA) == ["Example Program Workbench"]
+
+
+def test_owned_data_name_outside_references_decides_data_without_a_call():
+    ev = _ev(_pub("a", contexts=[_c("body", "analyses ran on the Example Program Workbench")]))
+    judge = FakeJudge()
+    res = _check(ev, judge)
+    assert judge.prompts == [] and res.n_data_by_name == 1
+    assert ev.verdicts[0].scope == "data" and ev.verdicts[0].genuine
+
+
+def test_owned_name_only_in_the_reference_list_goes_to_the_question():
+    ev = _ev(_pub("a", contexts=[_c("references", "Example Program Workbench. 2023."),
+                                 _c("body", "The Example Program will enrol people.")]))
+    judge = FakeJudge(["program_only"])
+    res = _check(ev, judge)
+    assert res.calls == 1 and res.n_program_only == 1
+    v = ev.verdicts[0]
+    assert v.scope == "program_only" and v.verdict == "not_mentioned"
+    assert v.overridden_from == "mentioned" and not v.genuine
+    assert "Example Program Workbench. 2023." not in judge.prompts[0]
+
+
+def test_used_papers_are_data_and_never_asked():
+    ev = _ev(_pub("u", verdict="used"), _pub("n", verdict="not_mentioned"))
+    judge = FakeJudge()
+    res = _check(ev, judge)
+    assert judge.prompts == [] and res.n_checked == 0
+    assert ev.verdicts[0].scope == "data" and ev.verdicts[1].scope is None
+
+
+def test_failed_or_unclear_answers_keep_the_paper():
+    ev = _ev(_pub("a"), _pub("b"))
+    res = _check(ev, FakeJudge([RuntimeError("down"), "unclear"]))
+    assert res.failed_calls == 1 and res.n_unclear == 2
+    assert all(v.genuine and v.scope == "unclear" for v in ev.verdicts)
+
+
+def test_passages_put_data_terms_first_and_skip_references():
+    ctx = [_c("body", "The Example Program goals."), _c("references", "Controlled Tier ref"),
+           _c("abstract", "data from the Controlled Tier"), _c("body", "More program talk."),
+           _c("body", "Fourth passage.")]
+    ev = _ev(_pub("a", contexts=ctx))
+    assert scope_passages(ev.verdicts[0], DATA) == [
+        "data from the Controlled Tier", "The Example Program goals.", "More program talk."]
+
+
+def test_prompt_carries_names_rule_and_quote():
+    ev = _ev(_pub("a"))
+    judge = FakeJudge(["data"])
+    _check(ev, judge)
+    p = judge.prompts[0]
+    assert "Program names: Example Program, Example Research Program." in p
+    assert "Controlled Tier" in p and "'judge quote'" in p and "PROGRAM_ONLY" in p
+
+
+def test_no_map_or_ai_models_never_enter():
+    ev = _ev(_pub("a"))
+    judge = FakeJudge()
+    assert check_scope(ev, agent=judge, dataset_name="E", description="", program_names=PROGRAM,
+                       data_names=[]).n_checked == 0
+    ev2 = build_evidence({"task_id": "T", "seed_type": "ai_model", "publications": []})
+    assert _check(ev2, judge).n_checked == 0
+    assert judge.prompts == [] and ev.verdicts[0].scope is None
