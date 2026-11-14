@@ -343,7 +343,11 @@ def classify_model_name(
     searched together with a context flag; ``unconfirmed`` means nothing shows the phrase
     refers to this model. A coined name is gated only below *coined_min_share*: a
     partial share is not evidence against it, since a name with no title at all is safe."""
-    pct = f"{confirmation:.0%}" if confirmation is not None else "n/a"
+    # One decimal below 10%: "4.9%" and "5.0%" sit on either side of the coined floor.
+    pct = (
+        "n/a" if confirmation is None
+        else f"{confirmation:.1%}" if confirmation < 0.1 else f"{confirmation:.0%}"
+    )
     if is_short_acronym(name):
         return "gate", "short acronym: never searched on its own"
     single_word = " " not in name.strip() and name.strip().isalpha()

@@ -224,8 +224,12 @@ class TermDecision(BaseModel):
     """Why one candidate term was kept or rejected (AI-model runs)."""
 
     term: str
-    kind: Literal["alias", "paper_title", "flag", "exclude"]
-    decision: Literal["safe", "gated", "flag", "context", "exclude", "anchor", "rejected"]
+    #: ``abstract_fp``: one paper the abstract check judged another meaning (``stats``
+    #: holds publication_id, year, title, matched_alias and iteration).
+    kind: Literal["alias", "paper_title", "flag", "exclude", "abstract_fp"]
+    decision: Literal[
+        "safe", "gated", "flag", "context", "exclude", "anchor", "rejected", "false_positive"
+    ]
     count: Optional[int] = Field(default=None, ge=0, description="Dimensions full-data hits")
     reason: str = ""
     stats: dict[str, Any] = Field(default_factory=dict)
@@ -292,6 +296,10 @@ class QueryOptimizationRecord(BaseModel):
             "AI models: hits of the selected `for_clause` inside the year window of "
             "`dsl_query`, next to `ai_model_seed_count`"
         ),
+    )
+    ai_model_judge_context: Optional[str] = Field(
+        default=None,
+        description="AI models: the model description given to the abstract-check judge",
     )
     ai_model_query_count_all_years: Optional[int] = Field(
         default=None, ge=0, description="AI models: all-years hits of the selected `for_clause`"

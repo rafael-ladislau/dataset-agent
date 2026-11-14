@@ -1808,6 +1808,7 @@ class QueryOptimizationUseCase:
         )
         out.entity_type = "ai_model"
         out.term_decisions = model.decisions
+        out.ai_model_judge_context = model.context or None
         if not out.success or not out.for_clause:
             return out
         return await self._finish_ai_model(request, model, out)
@@ -2424,6 +2425,20 @@ class QueryOptimizationUseCase:
                     )
                 break
 
+            if model is not None:
+                # Every rejected abstract is kept, so a LOW verdict can be read by title.
+                for h in ev.get("fp_hits") or []:
+                    if not isinstance(h, dict):
+                        continue
+                    alias = str(h.get("matched_alias") or "")
+                    title = str(h.get("title") or "")
+                    model.decide(
+                        title or alias, "abstract_fp", "false_positive",
+                        f"abstract check gate_iter{iteration}: {alias!r} read as another meaning",
+                        publication_id=str(h.get("publication_id") or ""),
+                        year=h.get("year"), title=title, matched_alias=alias,
+                        iteration=iteration,
+                    )
             fp_unknown = ev.get("fp_rate_pct") is None
             fp_rate = float(ev.get("fp_rate_pct") or 0.0)
             fp_shown: float | None = None if fp_unknown else fp_rate

@@ -409,6 +409,38 @@ def test_abstract_false_positives_demote_a_safe_name(tmp_path, patched) -> None:
     assert patched.eval.calls[0]["entity_context"].startswith("Aurora is Microsoft's")
 
 
+def test_each_abstract_false_positive_is_recorded(tmp_path, patched) -> None:
+    fp = {"fp_rate_pct": 8.0, "fp_count": 1, "fp_hits": [{
+        "publication_id": "pub.1", "year": 2021, "title": "Aurora kinase in tumors",
+        "matched_alias": "Aurora", "snippet": "Aurora kinase A",
+    }]}
+    patched.eval = _fake_eval([fp])
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request())
+
+    rows = [d for d in out.term_decisions if d.kind == "abstract_fp"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.term == "Aurora kinase in tumors" and row.decision == "false_positive"
+    assert row.stats == {"publication_id": "pub.1", "year": 2021, "title": "Aurora kinase in tumors",
+                         "matched_alias": "Aurora", "iteration": 0}
+    assert out.ai_model_judge_context == patched.eval.calls[0]["entity_context"]
+    assert out.ai_model_judge_context.startswith("Aurora is Microsoft's")
+
+
+def test_evaluator_false_positive_hits_carry_title_and_year(tmp_path) -> None:
+    from dataset_agent.adapters import literature
+
+    dsl = CorpusDSL(["Aurora Kinase Review || Aurora kinase in tumors y2021"])
+    agent = MagicMock()
+    agent.get_structured.return_value = {"is_genuine_dataset_reference": False}
+    out = literature.evaluate_for_clause_sync(
+        '\\"Aurora\\"', ["Aurora"], "Aurora", _settings(tmp_path), agent=agent, dsl_runner=dsl.run,
+        entity_context="Microsoft's atmosphere model.",
+    )
+    assert out["fp_hits"][0]["title"] == "Aurora Kinase Review"
+    assert out["fp_hits"][0]["year"] == 2021
+
+
 def test_selected_clause_and_terms_stay_consistent_when_refinement_loses(tmp_path, patched) -> None:
     """Iteration 1 is worse than iteration 0: the record reports iteration 0's terms."""
     fp0 = {
@@ -1298,6 +1330,24 @@ def test_classify_model_name_rules() -> None:
     ],
 )
 def test_coined_name_share_boundaries(share: float, verdict: str, reason_part: str) -> None:
+    got, reason = classify_model_name(
+        "FourCastNet", count=2_865, confirmation=share, developer="",
+        safe_share=0.5, plain_word_max_hits=20_000, coined_min_share=0.05,
+    )
+    assert got == verdict and reason_part in reason
+
+
+@pytest.mark.parametrize(
+    ("share", "verdict", "reason_part"),
+    [
+        (0.049, "gate", "only 4.9% of its hits"),
+        (0.05, "safe", "only 5.0% of its hits"),
+        (0.25, "safe", "coined name; 25% of its hits"),
+    ],
+)
+def test_coined_name_share_boundaries_show_one_decimal_below_ten_percent(
+    share: float, verdict: str, reason_part: str
+) -> None:
     got, reason = classify_model_name(
         "FourCastNet", count=2_865, confirmation=share, developer="",
         safe_share=0.5, plain_word_max_hits=20_000, coined_min_share=0.05,

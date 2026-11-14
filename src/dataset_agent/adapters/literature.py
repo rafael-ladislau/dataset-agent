@@ -1136,6 +1136,8 @@ def evaluate_for_clause_sync(
             fp_hits.append(
                 {
                     "publication_id": str(pub.get("id") or ""),
+                    "year": pub.get("year"),
+                    "title": title,
                     "matched_alias": matched_alias,
                     "snippet": snippet,
                 }
