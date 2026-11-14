@@ -65,6 +65,16 @@ class IterationMetrics(BaseModel):
     not_run_rate: Optional[float] = Field(
         default=None, description="AI models: not run / genuine (0-1); None for datasets"
     )
+    raw_fulltext_precision: Optional[float] = Field(
+        default=None,
+        description="AI models: judge precision before the referent check (an upper bound)",
+    )
+    referent_rejected_count: Optional[int] = Field(
+        default=None, description="AI models: genuine papers the referent check turned down"
+    )
+    referent_unclear_count: Optional[int] = Field(
+        default=None, description="AI models: papers the referent check could not decide"
+    )
     cited_only_unknown_count: Optional[int] = Field(
         default=None,
         description="AI models: genuine papers whose name location is unknown; None for datasets",

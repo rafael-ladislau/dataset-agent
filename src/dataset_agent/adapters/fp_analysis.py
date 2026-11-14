@@ -176,6 +176,7 @@ def classify_alias_mention(
     snippet: str,
     title: str = "",
     entity_context: str = "",
+    passage_label: str = "Abstract snippet",
 ) -> bool | None:
     """LLM: whether the alias mention in *snippet* refers to the dataset (True) or an FP (False).
     ``None`` when the call failed: the mention is unclassified, neither genuine nor a false
@@ -183,12 +184,13 @@ def classify_alias_mention(
 
     With *entity_context* the target is an AI model: the text describes it (developer,
     domain) and the question is whether the mention is that model or another meaning of
-    the same word."""
+    the same word. *passage_label* names the text shown (the full-text referent check
+    passes ``Passage``)."""
     if entity_context:
         prompt = f"""AI model: {dataset_name!r}. {entity_context}
 Name matched: {alias!r}.
 Publication title: {title!r}
-Abstract snippet: {snippet!r}
+{passage_label}: {snippet!r}
 
 Does this mention refer to this AI model (or a version of it), or is it a false positive:
 another meaning of the same word, another product, or another field?

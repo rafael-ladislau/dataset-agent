@@ -80,6 +80,9 @@ class PubVerdict:
     #: AI models only: the deciding row's raw ``is_mentioned`` / ``is_used`` flags.
     is_mentioned: bool | None = None
     is_used: bool | None = None
+    #: AI models only, set by the referent check: ``anchor`` | ``confirmed`` |
+    #: ``rejected`` | ``unclear``; None when not checked.
+    referent: str | None = None
 
     @property
     def genuine(self) -> bool:
@@ -141,6 +144,26 @@ class Evidence:
     n_incoherent: int = 0
     #: AI models: delivered, analyzed papers whose rows hold no judgement at all.
     n_no_verdict: int = 0
+
+    @property
+    def n_referent_rejected(self) -> int:
+        return sum(1 for v in self.verdicts if v.referent == "rejected")
+
+    @property
+    def n_referent_unclear(self) -> int:
+        return sum(1 for v in self.verdicts if v.referent == "unclear")
+
+    @property
+    def raw_precision(self) -> float | None:
+        """Judge precision before the referent check (an upper bound)."""
+        n = self.n_evaluated
+        return (len(self.genuine) + self.n_referent_rejected) / n if n else None
+
+    @property
+    def corrected_precision(self) -> float | None:
+        """Precision after the referent check (equal to raw when it did not run)."""
+        n = self.n_evaluated
+        return len(self.genuine) / n if n else None
 
     @property
     def n_cited_only(self) -> int | None:
@@ -214,6 +237,13 @@ class Evidence:
             not_run_count=not_run,
             not_run_rate=(not_run / matched) if not_run is not None and matched else None,
             cited_only_unknown_count=self.n_cited_only_unknown,
+            raw_fulltext_precision=self.raw_precision if self.entity == "ai_model" else None,
+            referent_rejected_count=(
+                self.n_referent_rejected if self.entity == "ai_model" else None
+            ),
+            referent_unclear_count=(
+                self.n_referent_unclear if self.entity == "ai_model" else None
+            ),
             paper_details=(
                 [
                     {
