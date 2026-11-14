@@ -52,3 +52,13 @@ def test_program_only_papers_are_not_genuine_and_get_their_own_share():
     assert m.raw_fulltext_precision == pytest.approx(4 / 5)
     assert m.program_only_count == 2 and m.program_only_rate == pytest.approx(2 / 5)
     assert m.scope_unclear_count == 1
+
+
+def test_served_mention_scope_is_read_as_the_validator_scope():
+    p = _pub("a")
+    p["validated_datasets"][0]["mention_scope"] = "program_only"
+    q = _pub("b")
+    ev = build_evidence({"task_id": "T", "publications": [p, q]})
+    assert ev.verdicts[0].validator_scope == "program_only"
+    assert ev.verdicts[1].validator_scope is None
+    assert ev.verdicts[0].genuine and ev.verdicts[0].scope is None  # a label only

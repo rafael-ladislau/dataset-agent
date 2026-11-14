@@ -327,6 +327,14 @@ class _ModelRun:
         self.states[clause] = (list(safe), list(risky), list(flags), list(excludes))
 
 
+def resource_map_description(description: str, rmap) -> str:
+    """*description* plus the program and data resource names of a resource map."""
+    if rmap is None:
+        return description
+    return (f"{description} Program names: {', '.join(rmap.program_names)}. "
+            f"Data resource names: {', '.join(rmap.data_resource_names)}.").strip()
+
+
 class QueryOptimizationUseCase:
     """Runs Phase 1–4: alias counts + risk → variant probes → light FP proxy → selection."""
 
@@ -2457,6 +2465,9 @@ class QueryOptimizationUseCase:
             desc_for_signal3 = (rec.description or "")[:2000]
             if self._settings.resource_map_enabled and rec.resource_map is None:
                 rec.resource_map = await self._research_resource_map(rec)
+            # The seed description (read by the full-text validator) names the program
+            # and its data resources when research split them.
+            desc_for_signal3 = resource_map_description(desc_for_signal3, rec.resource_map)
             self._resource_map = rec.resource_map
             self._dataset_description = rec.description or ""
             if rec.resource_map is not None and rec.resource_map.first_release_year:

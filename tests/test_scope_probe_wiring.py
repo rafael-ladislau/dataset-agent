@@ -122,3 +122,12 @@ def test_with_a_map_program_names_are_gated_by_the_data_names(tmp_path, monkeypa
     assert "National Agency" not in out.for_clause
     assert out.resource_map is not None and out.scope_check_calls == 0
     assert "resource map: program" in out.notes
+
+
+def test_seed_description_names_the_program_and_data_resources():
+    from dataset_agent.application.query_optimization import resource_map_description
+
+    text = resource_map_description("A cohort.", MAP)
+    assert text == ("A cohort. Program names: Example Program. "
+                    "Data resource names: Example Workbench.")
+    assert resource_map_description("A cohort.", None) == "A cohort."

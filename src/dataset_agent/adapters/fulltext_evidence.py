@@ -88,6 +88,9 @@ class PubVerdict:
     #: ``program_only`` paper is turned to ``not_mentioned`` (``overridden_from`` keeps
     #: the judge's verdict), so it is not genuine for precision.
     scope: str | None = None
+    #: Datasets: the full-text validator's own ``mention_scope`` label when served
+    #: (``data`` | ``program_only`` | ``not_applicable``); a label only, never decisive.
+    validator_scope: str | None = None
 
     @property
     def genuine(self) -> bool:
@@ -492,9 +495,17 @@ def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evi
                 contexts=contexts,
                 categories=[c for c in (p.get("category_for") or []) if isinstance(c, str)],
                 overridden_from=overridden_from,
+                validator_scope=_served_scope(p),
             )
         )
     return ev
+
+
+def _served_scope(pub: dict[str, Any]) -> str | None:
+    for e in pub.get("validated_datasets") or []:
+        if isinstance(e, dict) and e.get("mention_scope") in ("data", "program_only", "not_applicable"):
+            return e["mention_scope"]
+    return None
 
 
 def _tokens(text: str) -> list[str]:
