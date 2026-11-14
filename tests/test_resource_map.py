@@ -111,3 +111,17 @@ def test_map_for_record_asks_with_the_research_names_and_pages():
     assert pages == ("<http://h>\n[X data access researchers]\n"
                      "[X history formerly known as launched by initiative]\n"
                      "[X first data release to researchers year]")
+
+
+def test_release_year_is_confirmed_by_counts():
+    from dataset_agent.adapters.resource_map import confirm_release_year
+
+    def where(before):
+        return lambda clause, w: before if w else 100
+
+    assert confirm_release_year(2020, ["P"], ["D"], count=where(3), max_share_before=0.05) == (2020, 0.03)
+    assert confirm_release_year(2022, ["P"], ["D"], count=where(20), max_share_before=0.05) == (None, 0.2)
+    m = build_map(_raw(), dataset_name="Example Program", pages=PAGES,
+                  count=_count({"Example Workbench": 40}), count_where=where(30))
+    assert m.proposed_release_year == 2020 and m.first_release_year is None
+    assert m.share_before_release == 0.3

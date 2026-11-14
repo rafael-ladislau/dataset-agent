@@ -319,6 +319,9 @@ class Settings(BaseSettings):
     #: off by default (the owner decides). The scope check runs only with a map.
     resource_map_enabled: bool = False
     resource_map_min_cooccurrence: int = 1
+    #: The release year moves the window start only when at most this share of
+    #: program-and-data papers comes before it.
+    resource_map_max_share_before_release: float = 0.05
     referent_votes: int = Field(default=3, ge=1, le=9)
     #: S4: after the abstract rule, probe the shipped AI-model seed on full text; with at
     #: least ai_model_fulltext_min_papers judged, corrected precision decides release both

@@ -102,8 +102,10 @@ center or commons), classify it data_resource, not program.
 Also give: data_resource_names_in_pages (names of this program's data access platform,
 repository, tiers or data browser exactly as written in the pages); former_or_parent_program_names
 (earlier names or the parent initiative of the program, exactly as written in the pages);
-first_data_release_year (the year the program's data was first released to researchers,
-or null) with first_data_release_quote (the sentence from the pages that says so).
+first_data_release_year (the earliest year ANY of the program's data was made available
+to researchers: any data type, including a beta, a demonstration release or a public data
+browser; null if the pages do not say) with first_data_release_quote (the sentence from the
+pages that says so).
 
 Use emit_resource_map exactly once."""
 
@@ -167,9 +169,33 @@ def release_year(raw: dict, pages: str, *, lo: int = 1950, hi: int = 2100) -> in
     return year if head and _in_pages(head, pages) else None
 
 
+def data_clause(programs: list[str], data_names: list[str]) -> str:
+    """Any program name AND any data resource name."""
+    return (f"({' OR '.join(_quoted(p) for p in programs)}) AND "
+            f"({' OR '.join(_quoted(d) for d in data_names)})")
+
+
+def confirm_release_year(year: int | None, programs: list[str], data_names: list[str], *,
+                         count: Callable[[str, str], int | None], max_share_before: float
+                         ) -> tuple[int | None, float | None]:
+    """Keep *year* only when few program-and-data papers come before it. *count* takes a
+    clause and a ``where`` filter. Returns (year or None, share of hits before it)."""
+    if year is None:
+        return None, None
+    clause = data_clause(programs, data_names)
+    total, before = count(clause, ""), count(clause, f"year < {year}")
+    if not total or before is None:
+        return None, None
+    share = before / total
+    return (year if share <= max_share_before else None), share
+
+
 def build_map(raw: dict, *, dataset_name: str, pages: str,
-              count: Callable[[str], int | None], min_cooccurrence: int = 1) -> ResourceMap | None:
-    """Apply the deterministic split rule; *count* returns Dimensions hits of a clause."""
+              count: Callable[[str], int | None], min_cooccurrence: int = 1,
+              count_where: Callable[[str, str], int | None] | None = None,
+              max_share_before: float = 0.05) -> ResourceMap | None:
+    """Apply the deterministic split rule; *count* returns Dimensions hits of a clause and
+    *count_where* (optional) the hits under a ``where`` filter, to confirm the release year."""
     cand = candidates(raw, dataset_name=dataset_name, pages=pages)
     if cand is None:
         return None
@@ -183,9 +209,15 @@ def build_map(raw: dict, *, dataset_name: str, pages: str,
         return None
     former = [n for n in (raw.get("former_or_parent_program_names") or [])
               if isinstance(n, str) and n.strip() in programs]
+    proposed = release_year(raw, pages)
+    year, share = (proposed, None)
+    if count_where is not None:
+        year, share = confirm_release_year(proposed, programs, list(hits), count=count_where,
+                                           max_share_before=max_share_before)
     return ResourceMap(program_names=programs, data_resource_names=list(hits),
-                       former_or_parent_names=former,
-                       first_release_year=release_year(raw, pages), cooccurrence=hits)
+                       former_or_parent_names=former, first_release_year=year,
+                       proposed_release_year=proposed, share_before_release=share,
+                       cooccurrence=hits)
 
 
 def gather_pages(dataset_name: str, home_url: str | None, *, search=None, fetch=None) -> str:
@@ -207,7 +239,9 @@ def gather_pages(dataset_name: str, home_url: str | None, *, search=None, fetch=
 
 
 def map_for_record(agent, record, *, count: Callable[[str], int | None],
-                   min_cooccurrence: int = 1, pages: str | None = None) -> ResourceMap | None:
+                   min_cooccurrence: int = 1, pages: str | None = None,
+                   count_where: Callable[[str, str], int | None] | None = None,
+                   max_share_before: float = 0.05) -> ResourceMap | None:
     """Research the resource map of a DatasetRecord (pages fetched unless given)."""
     name = record.main_dataset_name
     pages = gather_pages(name, record.home_url) if pages is None else pages
@@ -215,6 +249,7 @@ def map_for_record(agent, record, *, count: Callable[[str], int | None],
     raw = propose(agent, dataset_name=name, description=record.description, names=names,
                   pages=pages)
     m = build_map(raw, dataset_name=name, pages=pages, count=count,
-                  min_cooccurrence=min_cooccurrence)
+                  min_cooccurrence=min_cooccurrence, count_where=count_where,
+                  max_share_before=max_share_before)
     logger.info("resource map for %r: %s", name, m.model_dump() if m else "none")
     return m

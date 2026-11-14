@@ -2333,17 +2333,19 @@ class QueryOptimizationUseCase:
 
         runner = self._make_eval_runner(asyncio.get_running_loop())
 
-        def count(clause: str) -> int | None:
+        def count_where(clause: str, where: str) -> int | None:
             try:
-                return parse_total_count(runner(build_for_clause_count_dsl(clause)))
+                return parse_total_count(runner(build_for_clause_count_dsl(clause, where=where)))
             except Exception as exc:
                 logger.warning("resource map: count failed: %s", exc)
                 return None
 
         try:
             return await asyncio.to_thread(
-                map_for_record, self._agent, rec, count=count,
+                map_for_record, self._agent, rec, count=lambda c: count_where(c, ""),
                 min_cooccurrence=self._settings.resource_map_min_cooccurrence,
+                count_where=count_where,
+                max_share_before=self._settings.resource_map_max_share_before_release,
             )
         except Exception as exc:
             logger.warning("resource map: failed: %s", exc)

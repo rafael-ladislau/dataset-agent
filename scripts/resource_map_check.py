@@ -53,8 +53,8 @@ def main(out_path: str, paths: list[str]) -> None:
 
     loop = asyncio.new_event_loop()
 
-    def count(clause: str) -> int | None:
-        dsl_text = build_for_clause_count_dsl(clause)
+    def count_where(clause: str, where: str = "") -> int | None:
+        dsl_text = build_for_clause_count_dsl(clause, where=where)
         return parse_total_count(loop.run_until_complete(dsl.execute_dsl(dsl_text)))
 
     out = {}
@@ -66,8 +66,10 @@ def main(out_path: str, paths: list[str]) -> None:
         else:
             pages = gather_pages(rec.main_dataset_name, rec.home_url)
             f.write_text(pages)
-        m = map_for_record(agent, rec, count=count, pages=pages,
-                           min_cooccurrence=s.resource_map_min_cooccurrence)
+        m = map_for_record(agent, rec, count=count_where, pages=pages,
+                           min_cooccurrence=s.resource_map_min_cooccurrence,
+                           count_where=count_where,
+                           max_share_before=s.resource_map_max_share_before_release)
         out[rec.main_dataset_name] = m.model_dump() if m else None
         print(rec.main_dataset_name, "->", "map" if m else "no map", file=sys.stderr)
     Path(out_path).write_text(json.dumps(out, indent=1) + "\n")

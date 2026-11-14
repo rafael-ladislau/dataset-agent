@@ -330,8 +330,12 @@ class ResourceMap(BaseModel):
     program_names: list[str] = Field(default_factory=list)
     data_resource_names: list[str] = Field(default_factory=list)
     former_or_parent_names: list[str] = Field(default_factory=list)
-    #: Year the data was first released (found by research with a quote), else None.
+    #: Year the data was first released: found by research with a quote and confirmed by
+    #: counts (few program-and-data papers before it); else None.
     first_release_year: Optional[int] = None
+    #: The year research proposed, and the share of program-and-data hits before it.
+    proposed_release_year: Optional[int] = None
+    share_before_release: Optional[float] = None
     #: Data resource name -> Dimensions hits together with the program names.
     cooccurrence: dict[str, int] = Field(default_factory=dict)
 
