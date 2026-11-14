@@ -153,3 +153,48 @@ def test_metrics_store_a_verdict_per_evaluated_paper():
         ("a", "used"), ("b", "mentioned"), ("c", "mentioned"), ("d", "not_mentioned"), ("h", "used"),
     ]
     assert [p for p, _v in m.papers] == [v.publication_id for v in build_evidence(RESULTS).verdicts]
+
+
+def _refpub(pid, contexts, used=False):
+    p = _pub(pid, 1, vd=_vd(used, quote="Precision Medicine Initiative Cohort Program"))
+    p["term_contexts"] = contexts
+    return p
+
+
+def _c(part, role="alias", term="Precision Medicine Initiative Cohort"):
+    return {"term": term, "role": role, "part": part, "text": f"... {term} ..."}
+
+
+def test_references_only_alias_is_not_mentioned():
+    ev = build_evidence({"publications": [_refpub("r", [_c("references"), _c("references")], used=True)]})
+    v = ev.verdicts[0]
+    assert v.verdict == "not_mentioned" and not v.genuine
+    assert v.overridden_from == "used"
+    assert ev.metrics(0, "q", None).fulltext_precision == 0.0
+
+
+def test_body_hit_plus_references_hit_keeps_the_verdict():
+    ev = build_evidence({"publications": [_refpub("r", [_c("references"), _c("body")])]})
+    assert ev.verdicts[0].verdict == "mentioned" and ev.verdicts[0].overridden_from is None
+
+
+def test_flag_outside_references_keeps_the_verdict():
+    ctx = [_c("references"), _c("acknowledgement", role="flag", term="All of Us Research Program")]
+    ev = build_evidence({"publications": [_refpub("r", ctx)]})
+    assert ev.verdicts[0].verdict == "mentioned"
+
+
+def test_flag_only_in_references_still_applies_the_rule():
+    ctx = [_c("references"), _c("references", role="flag", term="All of Us Research Program")]
+    ev = build_evidence({"publications": [_refpub("r", ctx)]})
+    assert ev.verdicts[0].verdict == "not_mentioned"
+
+
+def test_no_contexts_keeps_the_verdict():
+    ev = build_evidence({"publications": [_refpub("r", [])]})
+    assert ev.verdicts[0].verdict == "mentioned"
+
+
+def test_flag_contexts_only_keep_the_verdict():
+    ev = build_evidence({"publications": [_refpub("r", [_c("references", role="flag")])]})
+    assert ev.verdicts[0].verdict == "mentioned"

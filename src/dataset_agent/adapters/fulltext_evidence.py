@@ -9,7 +9,10 @@ dataset is a correct match even when it does not use it):
 * publications without delivered full text, not analyzed, or with no verdict at
   all are excluded from the full-text metrics (they only lower OA coverage);
 * a term is attributed to a paper when it appears in the paper's evidence quote,
-  title or full-text snippets of the query's terms (``term_contexts``).
+  title or full-text snippets of the query's terms (``term_contexts``);
+* a dataset name found only in the paper's reference list is not a mention: when every
+  non-flag snippet is in ``references`` and no flag snippet lies outside it, the
+  verdict is ``not_mentioned`` whatever the validator said (see _references_only).
 """
 
 from __future__ import annotations
@@ -43,6 +46,8 @@ class PubVerdict:
     contexts: list[dict] = field(default_factory=list)
     #: Dimensions field-of-research names.
     categories: list[str] = field(default_factory=list)
+    #: The validator's verdict when a deterministic rule replaced it, else None.
+    overridden_from: str | None = None
 
     @property
     def genuine(self) -> bool:
@@ -150,6 +155,16 @@ def _verdict_for(pub: dict[str, Any]) -> tuple[str, str] | None:
     return ("not_mentioned", str(entries[0].get("text_quote") or ""))
 
 
+def _references_only(contexts: list[dict]) -> bool:
+    """True when the paper names the dataset only in its reference list: at least one
+    non-flag snippet, all non-flag snippets in ``references``, and no flag snippet
+    outside ``references``. A cited title is not a mention."""
+    names = [c for c in contexts if c.get("role") != "flag"]
+    if not names or any(c.get("part") != "references" for c in names):
+        return False
+    return all(c.get("part") == "references" for c in contexts if c.get("role") == "flag")
+
+
 def build_evidence(results: dict[str, Any]) -> Evidence:
     """Build :class:`Evidence` from a ``GET /pipelines/{id}/llm-results`` body.
 
@@ -170,6 +185,10 @@ def build_evidence(results: dict[str, Any]) -> Evidence:
         v = _verdict_for(p)
         if v is None:
             continue
+        contexts = [c for c in (p.get("term_contexts") or []) if isinstance(c, dict)]
+        overridden_from = None
+        if v[0] != "not_mentioned" and _references_only(contexts):
+            overridden_from, v = v[0], ("not_mentioned", v[1])
         ev.verdicts.append(
             PubVerdict(
                 publication_id=str(p.get("publication_id") or ""),
@@ -178,8 +197,9 @@ def build_evidence(results: dict[str, Any]) -> Evidence:
                 citation_count=int(p.get("citation_count") or 0),
                 verdict=v[0],
                 quote=v[1],
-                contexts=[c for c in (p.get("term_contexts") or []) if isinstance(c, dict)],
+                contexts=contexts,
                 categories=[c for c in (p.get("category_for") or []) if isinstance(c, str)],
+                overridden_from=overridden_from,
             )
         )
     return ev
