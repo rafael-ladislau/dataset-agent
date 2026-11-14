@@ -511,19 +511,54 @@ def _owner_acronyms(*owners: str) -> set[str]:
     }
 
 
+_VERSION_PART = re.compile(r"[vV]?\d+")
+_DOTTED_VERSION_PART = re.compile(r"[vV]?\d+(?:\.\d+)+")
+
+
 def _joined_form(name: str, developer: str) -> str | None:
-    """"PanguWeather" for "Pangu-Weather", "PrithviWxC" for "Prithvi WxC": Dimensions
-    treats a hyphen like a space, but a joined token is a different search. Only for a
-    name of two or more parts whose lettered parts all start with a capital; never for
-    a developer-qualified name."""
+    """"PanguWeather" for "Pangu-Weather", "PrithviWxC" for "Prithvi WxC",
+    "FourCastNetv2" for "FourCastNet v2": Dimensions treats a hyphen like a space, but a
+    joined token is a different search. Only for a name of two or more parts whose
+    lettered parts all start with a capital (a trailing version such as "v2" is exempt);
+    never for a dotted version ("X-2.0") or a developer-qualified name."""
     parts = [p for p in re.split(r"[\s-]+", (name or "").strip()) if p]
-    lettered = [p for p in parts if any(ch.isalpha() for ch in p)]
+    if len(parts) >= 2 and _DOTTED_VERSION_PART.fullmatch(parts[-1]):
+        return None
+    head = parts[:-1] if len(parts) >= 2 and _VERSION_PART.fullmatch(parts[-1]) else parts
+    lettered = [p for p in head if any(ch.isalpha() for ch in p)]
     if len(parts) < 2 or not lettered or not all(p[0].isupper() for p in lettered):
         return None
     if developer and contains_word(name, developer):
         return None
     joined = "".join(parts)
     return joined if is_distinctive(joined) else None
+
+
+def _versioned_base(name: str, bases: list[str]) -> bool:
+    """*name* is a coined base name followed by a version ("FourCastNet 3",
+    "FourCastNet v2")."""
+    m = re.fullmatch(r"(.+?)[\s-]+([vV]?\d+)", (name or "").strip())
+    return bool(m) and any(
+        is_distinctive(b) and m.group(1).casefold() == b.casefold() for b in bases
+    )
+
+
+def mine_joined_versions(texts: list[str], bases: list[str]) -> list[str]:
+    """Tokens of *texts* that are a coined base name joined to a version ("FourCastNetv2",
+    "FourCastNet3"), first spelling seen, in order. Hyphenated forms ("FourCastNet-3")
+    are the base name's own search in Dimensions and are not returned."""
+    keys = [
+        re.sub(r"\W", "", b.casefold()) for b in bases if is_distinctive(b)
+    ]
+    found: dict[str, str] = {}
+    for text in texts:
+        for token in re.findall(r"(?<![\w.-])\w+(?![\w-]|\.\d)", text or ""):
+            folded = token.casefold()
+            if folded not in found and any(
+                re.fullmatch(rf"{re.escape(k)}v?\d+", folded) for k in keys if k
+            ):
+                found[folded] = token
+    return list(found.values())
 
 
 def assemble_candidates(
@@ -577,6 +612,16 @@ def assemble_candidates(
     seen: set[str] = set()
     #: Dimensions folds punctuation: "PhaseNet+" and "PhaseNet" are one search.
     searched: dict[str, str] = {}
+    # Every own name written "<coined base> <version>" also has a joined spelling.
+    own_bases = dedupe_strings_ci_preserve_order([model_name, fam])
+    with_joined: list[tuple[str, str]] = []
+    for raw, kind in names:
+        with_joined.append((raw, kind))
+        if kind != "former" and _versioned_base(raw, own_bases):
+            joined = _joined_form(raw, out.developer)
+            if joined:
+                with_joined.append((joined, "former"))
+    names = with_joined
     for raw, kind in names:
         name = sanitize_term(raw)
         if not name:

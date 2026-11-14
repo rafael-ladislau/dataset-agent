@@ -580,6 +580,66 @@ def test_joined_spelling_of_a_multi_part_name(model_name, family, joined) -> Non
     assert not names & {"MicrosoftAurora", "MicrosoftGraphCast", "PanguWeathermodel"}
 
 
+@pytest.mark.parametrize(
+    ("name", "joined"),
+    [
+        ("FourCastNet 3", "FourCastNet3"),
+        ("FourCastNet v2", "FourCastNetv2"),
+        ("FourCastNet V4", "FourCastNetV4"),
+        ("FourCastNet-2.0", None),
+    ],
+)
+def test_joined_form_of_a_versioned_coined_name(name: str, joined: str | None) -> None:
+    assert amr._joined_form(name, "NVIDIA") == joined
+
+
+def test_every_versioned_own_alias_gets_its_joined_form() -> None:
+    c = assemble_candidates(
+        model_name="FourCastNet", family=None, given_aliases=["FourCastNet V4"],
+        hub=HubEvidence(developer="NVIDIA"),
+        llm={"names": [{"name": "FourCastNet 3", "kind": "version"},
+                       {"name": "FourCastNet v2", "kind": "version"},
+                       {"name": "FourCastNet-2.0", "kind": "version"},
+                       {"name": "GraphCast 2", "kind": "version"}]},
+        max_names=20, max_context=12, max_excludes=8,
+    )
+    names = [n for n, _k in c.names]
+    assert {"FourCastNet3", "FourCastNetv2", "FourCastNetV4"} <= set(names)
+    assert "FourCastNet2.0" not in names and "GraphCast2" not in names
+
+
+def test_mine_joined_versions_from_pulled_texts() -> None:
+    texts = [
+        "FourCastNetv2 and FourCastNet3 beat FourCastNet; FourCastNet-3 is the same.",
+        "fourcastnetv2 again, FourCastNetXL, FourCastNet2.0 and FourCastNets.",
+    ]
+    assert amr.mine_joined_versions(texts, ["FourCastNet"]) == ["FourCastNetv2", "FourCastNet3"]
+
+
+def test_joined_version_forms_are_counted_and_classified(tmp_path, patched) -> None:
+    """'FourCastNet 3' (an LLM name) gives FourCastNet3, which has no hits and gets a
+    decision row; FourCastNetv2, mined from the top-cited pull, adds its papers."""
+    patched.hub = HubEvidence()
+    docs = (
+        ["We compare FourCastNet with FourCastNetv2 on ERA5."] * 10
+        + ["FourCastNetv2 forecasts cyclones."] * 4
+        + ["We run FourCastNet for heat waves."] * 30
+    )
+    llm = {"description": "FourCastNet is NVIDIA's weather model.",
+           "names": [{"name": "FourCastNet 3", "kind": "version"}],
+           "paper_titles": [], "context_terms": [], "other_meanings": []}
+    out, _dsl, _agent = _run(
+        tmp_path, docs, llm, OptimizeRequest(dataset_name="FourCastNet", entity_type="ai_model"),
+    )
+
+    assert out.success, out.errors
+    assert _decision(out, "FourCastNet3", "alias").reason == "0 Dimensions hits"
+    v2 = _decision(out, "FourCastNetv2", "alias")
+    assert v2.decision == "safe" and v2.count == 14
+    assert out.ai_model_seed["model_aliases"] == ["FourCastNetv2"]
+    assert out.ai_model_seed_count == 44
+
+
 def test_joined_spelling_is_counted_like_any_name(tmp_path, patched) -> None:
     patched.hub = HubEvidence()
     docs = ["Pangu-Weather beats IFS."] * 20 + ["PanguWeather forecasts typhoons."] * 5

@@ -21,6 +21,7 @@ from dataset_agent.adapters.ai_model_research import (
     is_distinctive,
     is_plain_word,
     mine_context_terms,
+    mine_joined_versions,
     model_terms_prompt,
 )
 from dataset_agent.adapters.dimensions_dsl import (
@@ -250,6 +251,8 @@ class _ModelRun:
     reserve_flags: list[str] = dataclasses.field(default_factory=list)
     #: Reserve flags were measured (up front or at re-gate time); never twice.
     reserve_measured: bool = False
+    #: Titles and abstracts already pulled (top-cited hits), mined for joined versions.
+    pulled_texts: list[str] = dataclasses.field(default_factory=list)
     #: Context-flag candidates of the run, kept for a measurement at re-gate time.
     context_terms: list[str] = dataclasses.field(default_factory=list)
     #: Why the seed must be withheld when the abstract check fails (names kept unsafe).
@@ -959,6 +962,9 @@ class QueryOptimizationUseCase:
                 continue
             judged = 0
             pubs = publications_from_result(result)
+            model.pulled_texts.extend(
+                f"{publication_title(p) or ''} {p.get('abstract') or ''}" for p in pubs
+            )
             years: dict[str, int] = {}
             for pub in pubs:
                 # Dimensions folds punctuation: "Arrival Time" and "arrival-time" are one key.
@@ -1547,6 +1553,24 @@ class QueryOptimizationUseCase:
             }
             for title, _reason, _c in await self._top_cited_titles(model, coined_bases, decided):
                 titles.append(title)
+            # Joined version spellings ("FourCastNetv2") seen in the texts pulled above:
+            # candidates like any name, within the name limit.
+            searched = {_stem_text(n) for n, _k in cands.names} | {
+                _stem_text(t) for k, t, _r in cands.rejected if k == "alias"
+            }
+            mined_names: list[str] = []
+            for tok in mine_joined_versions(model.pulled_texts, coined_bases):
+                if _stem_text(tok) in searched:
+                    continue
+                searched.add(_stem_text(tok))
+                if len(cands.names) >= s.ai_model_max_names:
+                    model.decide(tok, "alias", "rejected",
+                                 "joined version found in pulled abstracts; over the candidate limit")
+                    continue
+                cands.names.append((tok, "version"))
+                mined_names.append(tok)
+            if mined_names:
+                notes_parts.append(f"model research: joined versions found in abstracts {mined_names}")
             model.anchors = list(titles)
             title_group = q(*titles) if titles else ""
 
