@@ -611,13 +611,13 @@ def test_same_dimensions_search_is_one_candidate() -> None:
     assert "Phase-Net" in names  # a hyphen splits the token: another search
 
 
-def _phasenet_regate_docs(*, flag_in_namesakes: bool = False) -> list[str]:
+def _phasenet_regate_docs(*, flag_in_namesakes: bool = False, namesakes: int = 200) -> list[str]:
     namesake = "PhaseNet video interpolation of frames" + (" with GaMMA" if flag_in_namesakes else "")
     return (
         [f"{PHASENET_TITLE} || PhaseNet picks P and S waves on STEAD with GaMMA y2019"] * 2
         + [f"{PHASENET_TITLE} || PhaseNet picks P and S waves on STEAD y2019"] * 18
         + ["We pick arrivals with PhaseNet on STEAD. Ref: " + PHASENET_TITLE] * 30
-        + [namesake] * 200
+        + [namesake] * namesakes
         + ["The STEAD benchmark of seismograms."] * 10
     )
 
@@ -745,6 +745,76 @@ def test_coined_name_without_a_passing_reserve_flag_is_kept_and_the_seed_withhel
     assert "seed withheld" in out.notes
     assert "'PhaseNet' kept: no measured flag can gate it (GaMMA 1%)" in out.notes
     assert "dropped" not in out.notes
+
+
+#: 42% title share (50 of 119 hits quote the paper): the name is not weak, so no flag
+#: is measured up front; the abstract check finds 3 false positives and 9 genuine.
+WELL_ANCHORED_FP = {
+    "fp_rate_pct": 25.0, "fp_count": 3, "genuine_by_alias": {"PhaseNet": 9},
+    "fp_hits": [{"matched_alias": "PhaseNet", "snippet": "PhaseNet video interpolation"}] * 3,
+}
+
+
+def test_well_anchored_own_name_is_regated_with_flags_measured_at_regate_time(tmp_path, patched) -> None:
+    patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
+    patched.eval = _fake_eval([WELL_ANCHORED_FP])
+    out, _dsl, _agent = _phasenet_run(tmp_path, _phasenet_regate_docs(namesakes=69), ["STEAD"])
+
+    assert out.success, out.errors
+    assert _decision(out, "PhaseNet", "alias").stats["title_confirmation"] == 0.42
+    stead = _decision(out, "STEAD", "flag")
+    assert stead.decision == "flag" and stead.stats["anchor_precision"] == 1.0
+    assert out.aliases.risky == ["PhaseNet"] and out.flag_terms == ["STEAD"]
+    assert out.selected_variant == "V4~gate1"
+    assert "'PhaseNet' flag-gated with reserve flags ['STEAD']" in out.notes
+    assert out.ai_model_seed is not None and out.ai_model_seed["flag_terms"] == ["STEAD"]
+    assert not any(d.reason.startswith("not needed") for d in out.term_decisions if d.kind == "flag")
+
+
+def test_well_anchored_own_name_without_a_passing_flag_is_withheld_naming_the_flags(
+    tmp_path, patched
+) -> None:
+    patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
+    patched.eval = _fake_eval([WELL_ANCHORED_FP, WELL_ANCHORED_FP])
+    out, _dsl, _agent = _phasenet_run(
+        tmp_path, _phasenet_regate_docs(flag_in_namesakes=True, namesakes=69), ["GaMMA"],
+    )
+
+    assert out.success, out.errors
+    assert out.aliases.safe == ["PhaseNet"] and out.ai_model_seed is None
+    assert _decision(out, "GaMMA", "flag").decision == "rejected"
+    assert "'PhaseNet' kept: no measured flag can gate it (GaMMA 3%)" in out.notes
+    assert "seed withheld" in out.notes
+    assert not any(d.reason.startswith("not needed") for d in out.term_decisions if d.kind == "flag")
+
+
+def test_one_false_positive_never_regates_an_own_name(tmp_path, patched) -> None:
+    patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
+    one = dict(WELL_ANCHORED_FP, fp_count=1, fp_hits=WELL_ANCHORED_FP["fp_hits"][:1])
+    patched.eval = _fake_eval([one, one])
+    out, _dsl, _agent = _phasenet_run(tmp_path, _phasenet_regate_docs(namesakes=69), ["STEAD"])
+
+    assert out.aliases.safe == ["PhaseNet"] and out.aliases.risky == []
+    assert "flag-gated" not in out.notes and "kept: no measured flag" not in out.notes
+
+
+def test_regate_that_reuses_the_existing_flags_gets_one_more_check(tmp_path, patched) -> None:
+    """An own alias re-gated with the flags the bare name already has changes the
+    gated names but not the flags; it is still checked once more."""
+    fp = {"fp_rate_pct": 20.0, "fp_count": 2,
+          "fp_hits": [{"matched_alias": "Microsoft Aurora", "snippet": "Microsoft Aurora 3D tool"}] * 2}
+    patched.eval = _fake_eval([fp])
+    out, _dsl, _agent = _run(
+        tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request(dataset_names=["Microsoft Aurora"]),
+        optimize_max_iterations=1,
+    )
+
+    assert out.success, out.errors
+    assert len(patched.eval.calls) == 2
+    assert "re-gated in the last iteration" in out.notes
+    assert out.selected_variant == "V4~gate1"
+    assert out.aliases.risky == ["Aurora", "Microsoft Aurora"]
+    assert out.flag_terms == ["GraphCast", "Pangu-Weather"]
 
 
 def test_coined_name_with_clean_abstracts_keeps_reserve_flags_out_of_the_query(tmp_path, patched) -> None:
@@ -994,6 +1064,31 @@ def test_dataset_runs_do_not_take_the_model_path(tmp_path, patched) -> None:
     assert out.success and out.entity_type == "dataset"
     assert out.term_decisions == [] and out.ai_model_seed is None
     agent.get_structured.assert_not_called()
+
+
+def test_dataset_runs_never_evaluate_more_than_the_iteration_limit(tmp_path, patched) -> None:
+    """The extra abstract check after a last-iteration re-gate is for AI models only: a
+    dataset run that keeps refining stops at optimize_max_iterations evaluations."""
+    bad = {"fp_rate_pct": 90.0, "fp_count": 9,
+           "fp_hits": [{"matched_alias": "MLDA", "snippet": "MLDA noise"}] * 9}
+    for limit in (1, 2, 3):
+        patched.eval = _fake_eval([bad] * 10)
+        fresh = itertools.count()
+        agent = MagicMock()
+        agent.get_structured.side_effect = lambda *_a, **_k: {"exclude_terms": [f"noise {next(fresh)}"]}
+        uc = QueryOptimizationUseCase(
+            dsl_port=CorpusDSL(["My Long Dataset Alpha", "MLDA Alpha survey"] * 5),
+            research=MagicMock(), agent=agent,
+            settings=_settings(tmp_path, optimize_max_iterations=limit),
+        )
+        out = asyncio.run(uc._select_and_finish(
+            OptimizeRequest(dataset_name="My Long Dataset Alpha"), rec=None,
+            safe=["My Long Dataset Alpha"], risky=["MLDA"], flag_terms=["Alpha survey"],
+            exclude_terms=[], alias_entries=[], notes_parts=[], c_full=0,
+            desc_for_signal3="", run_id="r", t0=0.0,
+        ))
+        assert out.selected_variant is not None
+        assert len(patched.eval.calls) == limit
 
 
 # --------------------------------------------------------------------------- pure rules
