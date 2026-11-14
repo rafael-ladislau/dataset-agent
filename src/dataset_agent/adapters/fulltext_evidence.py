@@ -324,6 +324,19 @@ class Evidence:
         )
 
 
+def _deciding_row(pub: dict[str, Any]) -> dict | None:
+    """The validated-dataset row the verdict rests on: the first used row, else the first
+    mentioned row, else the first row; None when there are no rows."""
+    entries = [e for e in (pub.get("validated_datasets") or []) if isinstance(e, dict)]
+    if not entries:
+        return None
+    used = [e for e in entries if e.get("is_used") is True]
+    if used:
+        return used[0]
+    mentioned = [e for e in entries if e.get("is_mentioned") is True]
+    return mentioned[0] if mentioned else entries[0]
+
+
 def _verdict_for(pub: dict[str, Any]) -> tuple[str, str] | None:
     """Collapse a publication's validated datasets into (verdict, quote); None = no verdict."""
     entries = [e for e in (pub.get("validated_datasets") or []) if isinstance(e, dict)]
@@ -332,13 +345,10 @@ def _verdict_for(pub: dict[str, Any]) -> tuple[str, str] | None:
         return ("not_mentioned", "")
     if all(e.get("is_used") is None and e.get("is_mentioned") is None for e in entries):
         return None
-    used = [e for e in entries if e.get("is_used") is True]
-    if used:
-        return ("used", str(used[0].get("text_quote") or ""))
-    mentioned = [e for e in entries if e.get("is_mentioned") is True]
-    if mentioned:
-        return ("mentioned", str(mentioned[0].get("text_quote") or ""))
-    return ("not_mentioned", str(entries[0].get("text_quote") or ""))
+    row = _deciding_row(pub)
+    verdict = ("used" if row.get("is_used") is True
+               else "mentioned" if row.get("is_mentioned") is True else "not_mentioned")
+    return (verdict, str(row.get("text_quote") or ""))
 
 
 _ERROR_MATCH_TYPES = frozenset({"validation_error", "processing_error"})
@@ -529,10 +539,11 @@ def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evi
 
 
 def _served_scope(pub: dict[str, Any]) -> str | None:
-    for e in pub.get("validated_datasets") or []:
-        if isinstance(e, dict) and e.get("mention_scope") in ("data", "program_only", "not_applicable"):
-            return e["mention_scope"]
-    return None
+    """The validator's ``mention_scope`` on the row the verdict rests on (the dataset being
+    optimised), never another dataset's row."""
+    row = _deciding_row(pub)
+    val = row.get("mention_scope") if row else None
+    return val if val in ("data", "program_only", "not_applicable") else None
 
 
 def _tokens(text: str) -> list[str]:

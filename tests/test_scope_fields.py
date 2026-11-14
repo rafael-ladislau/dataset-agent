@@ -88,3 +88,20 @@ def test_raw_precision_adds_back_references_only_drops_and_details_carry_terms()
     d = {p["id"]: p for p in m.paper_details}
     assert d["p1"]["scope"] == "program_only" and d["p2"]["references_only"]
     assert d["p0"]["terms"] == ["All of Us"]
+
+
+def test_served_scope_is_read_from_the_deciding_row_only():
+    p = _pub("a")
+    p["validated_datasets"] = [
+        {"name": "Other", "is_mentioned": False, "is_used": False, "mention_scope": "program_only"},
+        {"name": "All of Us", "is_mentioned": True, "is_used": True, "text_quote": "q",
+         "mention_scope": "data"},
+    ]
+    q = _pub("b")
+    q["validated_datasets"] = [
+        {"name": "All of Us", "is_mentioned": True, "is_used": False, "text_quote": "q"},
+        {"name": "Other", "is_mentioned": False, "is_used": False, "mention_scope": "program_only"},
+    ]
+    ev = build_evidence({"task_id": "T", "publications": [p, q]})
+    assert ev.verdicts[0].validator_scope == "data" and ev.verdicts[0].verdict == "used"
+    assert ev.verdicts[1].validator_scope is None
