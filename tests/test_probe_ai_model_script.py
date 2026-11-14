@@ -14,7 +14,7 @@ from dataset_agent.settings import Settings
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "probe_ai_model_seed.py"
-FIXTURE = ROOT / "tests" / "fixtures" / "llm-results-model-task-v2.json"
+FIXTURE = ROOT / "tests" / "fixtures" / "llm-results-model-task-v2.1.json"
 spec = importlib.util.spec_from_file_location("probe_ai_model_seed", SCRIPT)
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
@@ -81,7 +81,8 @@ def test_summarize_fixture():
     first = out["papers"][0]
     assert first == {"publication_id": "pub.1001", "title": "Aftershock detection with deep phase picking",
                      "verdict": "used", "usage_type": "inference", "match_type": "llm_validation",
-                     "cited_only": False, "text_quote": "We picked P and S ar…"}
+                     "cited_only": False, "mention_location": "text", "matched_name": "PhaseNet",
+                     "text_quote": "We picked P and S ar…"}
     assert out["papers"][1]["cited_only"] is True
 
 

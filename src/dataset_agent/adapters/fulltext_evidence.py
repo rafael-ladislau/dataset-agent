@@ -14,14 +14,16 @@ dataset is a correct match even when it does not use it):
   non-flag snippet is in ``references`` and no flag snippet lies outside it, the
   verdict is ``not_mentioned`` whatever the validator said (see _references_only).
 
-AI models (body ``seed_type == "ai_model"``, model task v2) read ``validated_ai_models``
-rows instead, with these differences (owner decision: a model name found only in the
-reference list IS a mention):
+AI models (body ``seed_type == "ai_model"``, model task v2 / v2.1) read
+``validated_ai_models`` rows instead, with these differences (owner decision: a model name
+found only in the reference list IS a mention):
 
 * no references-only override: ``overridden_from`` stays None;
-* a row with ``usage_type == "cited"`` is a mention; such papers, and genuine papers
-  whose only name snippets are in ``references`` when no ``usage_type`` is served (flag
-  snippets ignored), are counted as *cited only* (``PubVerdict.cited_only``);
+* a row with ``usage_type == "cited"`` is a mention;
+* *cited only* (``PubVerdict.cited_only``, genuine papers only): the served
+  ``mention_location`` (v2.1) decides when it is ``text`` or ``references_only``; when it
+  is missing or ``unknown``, a served ``usage_type`` decides (``cited``), else the papers
+  whose only name snippets are in ``references`` (flag snippets ignored);
 * an empty row list, or only ``validation_error`` / ``processing_error`` rows, is no
   verdict (never ``not_mentioned``): the validator emits one row per seed.
 """
@@ -64,6 +66,10 @@ class PubVerdict:
     match_type: str | None = None
     #: AI models only: a genuine paper that names the model only in its reference list.
     cited_only: bool = False
+    #: AI models only (contract v2.1): ``text`` | ``references_only`` | ``unknown`` as
+    #: served, and the model name or alias the verdict rests on. None when not served.
+    mention_location: str | None = None
+    matched_name: str | None = None
 
     @property
     def genuine(self) -> bool:
@@ -165,6 +171,21 @@ class Evidence:
             papers=[(v.publication_id, v.verdict) for v in self.verdicts],
             cited_only_count=cited,
             cited_rate=(cited / n) if cited is not None and n else None,
+            paper_details=(
+                [
+                    {
+                        "id": v.publication_id,
+                        "title": v.title,
+                        "verdict": v.verdict,
+                        "location": v.mention_location,
+                        "cited_only": v.cited_only,
+                        "matched_name": v.matched_name,
+                    }
+                    for v in self.verdicts
+                ]
+                if self.entity == "ai_model"
+                else None
+            ),
         )
 
 
@@ -194,6 +215,15 @@ class _ModelVerdict:
     quote: str
     usage_type: str | None
     match_type: str | None
+    mention_location: str | None = None
+    matched_name: str | None = None
+
+
+_LOCATIONS = ("text", "references_only")
+
+
+def _text_or_none(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 def _model_rows(pub: dict[str, Any]) -> list[dict]:
@@ -218,7 +248,8 @@ def _model_verdict_for(pub: dict[str, Any]) -> _ModelVerdict | None:
 
     def mk(verdict: str, r: dict) -> _ModelVerdict:
         return _ModelVerdict(verdict, str(r.get("text_quote") or ""), r.get("usage_type"),
-                             r.get("match_type"))
+                             r.get("match_type"), _text_or_none(r.get("mention_location")),
+                             _text_or_none(r.get("matched_name")))
 
     for r in rows:
         if r.get("is_used") is True and r.get("usage_type") != "cited":
@@ -290,10 +321,13 @@ def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evi
                 if rows and all(_is_error_row(r) for r in rows):
                     ev.n_error_rows += 1
                 continue
-            cited_only = mv.verdict != "not_mentioned" and (
-                mv.usage_type == "cited" if mv.usage_type
-                else _model_names_in_references_only(contexts)
-            )
+            if mv.mention_location in _LOCATIONS:
+                cited_only_rule = mv.mention_location == "references_only"
+            elif mv.usage_type:
+                cited_only_rule = mv.usage_type == "cited"
+            else:
+                cited_only_rule = _model_names_in_references_only(contexts)
+            cited_only = mv.verdict != "not_mentioned" and cited_only_rule
             ev.verdicts.append(
                 PubVerdict(
                     publication_id=str(p.get("publication_id") or ""),
@@ -307,6 +341,8 @@ def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evi
                     usage_type=mv.usage_type,
                     match_type=mv.match_type,
                     cited_only=cited_only,
+                    mention_location=mv.mention_location,
+                    matched_name=mv.matched_name,
                 )
             )
             continue

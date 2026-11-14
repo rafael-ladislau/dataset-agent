@@ -1,17 +1,20 @@
-"""Shared contract fixture 'llm-results model task v2' (copied unchanged from extraction)."""
+"""Shared contract fixture 'llm-results model task v2.1' (copied unchanged from extraction).
+
+v2.1 = v2 plus ``mention_location`` and ``matched_name`` on every AI-model row."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-FIXTURE = Path(__file__).resolve().parent / "fixtures" / "llm-results-model-task-v2.json"
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "llm-results-model-task-v2.1.json"
 
 PUB_KEYS = {
     "publication_id", "doi", "title", "citation_count", "fulltext", "analyzed",
     "validation_failed", "validated_ai_models", "category_for", "term_contexts",
 }
 ROW_KEYS = {"name", "is_mentioned", "is_used", "text_quote", "match_type", "usage_type"}
+V21_ROW_KEYS = ROW_KEYS | {"mention_location", "matched_name"}
 
 
 def load_model_task_v2() -> dict:
@@ -27,6 +30,6 @@ def test_model_task_v2_fixture_shape():
         assert "validated_datasets" not in p
         assert set(p["fulltext"]) == {"status", "source", "reason"}
         for row in p["validated_ai_models"]:
-            assert set(row) == ROW_KEYS
+            assert set(row) == V21_ROW_KEYS
         for c in p["term_contexts"]:
             assert set(c) == {"term", "role", "part", "text", "match"}

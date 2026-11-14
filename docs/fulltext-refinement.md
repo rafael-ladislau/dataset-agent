@@ -39,20 +39,24 @@ For each iteration the current candidate is mapped to an extraction seed and **p
    cleanup as failed when the call fails or any item has `status: "error"` or a
    `status_code` of 400 or more.
 
-**AI-model probes (model task v2).** `run_probe_topup(..., entity="ai_model")` posts the
+**AI-model probes (model task v2.1).** `run_probe_topup(..., entity="ai_model")` posts the
 model seed plus `probe` and `probe_pull_cap` to `POST /ai-models/start` (unknown keys are
 rejected with 422, so `seed_type` is never sent) and analyzes with
 `steps={"validate_ai_models": true}`. Status, `llm-results` and cleanup use the same
 `/pipelines/...` routes. The `llm-results` body carries `seed_type: "ai_model"` and per
 publication `validated_ai_models` rows (`name`, `is_mentioned`, `is_used`, `text_quote`,
-`match_type`, `usage_type`); the shared example is
-`tests/fixtures/llm-results-model-task-v2.json`. `build_evidence` reads these rows when
+`match_type`, `usage_type`, and since v2.1 `mention_location` and `matched_name`); the
+shared example is `tests/fixtures/llm-results-model-task-v2.1.json`. `build_evidence` reads these rows when
 `seed_type` is `ai_model`: an empty list or only `validation_error` / `processing_error`
 rows is no verdict; `usage_type: "cited"` is a mention. The references-only override below
 does not apply to models (a model name found only in the reference list is a mention);
 such papers are counted as `cited_only_count` / `cited_rate` in the iteration metrics
-(null for datasets). Without a served `usage_type`, a genuine model paper whose name
-snippets are all in `references` is counted as cited only; flag snippets are ignored.
+(null for datasets). A served `mention_location` of `text` or `references_only` decides
+cited only; when it is missing or `unknown`, a served `usage_type` decides (`cited`), and
+without one a genuine model paper whose name snippets are all in `references` is counted
+as cited only; flag snippets are ignored. Model iteration metrics also carry
+`paper_details`: one entry per evaluated paper with `id`, `title`, `verdict`, `location`,
+`cited_only` and `matched_name` (null for datasets).
 
 When fewer than the target papers have full text, the iteration notes and the proposal
 say so (for example `18/30 papers with full text (pool_exhausted; 212 attempted in 8

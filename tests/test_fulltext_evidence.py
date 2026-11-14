@@ -206,16 +206,18 @@ def test_flag_contexts_only_keep_the_verdict():
 
 
 # -- AI-model verdicts (seed_type "ai_model", model task v2) -------------------
-FIXTURE = Path(__file__).resolve().parent / "fixtures" / "llm-results-model-task-v2.json"
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "llm-results-model-task-v2.1.json"
 
 
 def load_model_task_v2() -> dict:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
-def _mrow(used=False, mentioned=True, quote="", match_type="llm_validation", usage_type=None):
+def _mrow(used=False, mentioned=True, quote="", match_type="llm_validation", usage_type=None,
+          **v21):
+    """A model task v2 row; ``v21`` adds v2.1 fields (mention_location, matched_name)."""
     return {"name": "PhaseNet", "is_mentioned": mentioned, "is_used": used, "text_quote": quote,
-            "match_type": match_type, "usage_type": usage_type}
+            "match_type": match_type, "usage_type": usage_type, **v21}
 
 
 def _mpub(pid, rows, contexts=None, cites=1, validation_failed=False):
@@ -248,6 +250,14 @@ def test_contract_fixture_model_evidence():
     m = ev.metrics(0, "q", None)
     assert m.fulltext_precision == 1.0 and m.used_rate == 0.5
     assert m.cited_only_count == 1 and m.cited_rate == 0.5
+    assert (used.mention_location, used.matched_name) == ("text", "PhaseNet")
+    assert m.paper_details == [
+        {"id": "pub.1001", "title": "Aftershock detection with deep phase picking",
+         "verdict": "used", "location": "text", "cited_only": False, "matched_name": "PhaseNet"},
+        {"id": "pub.1002", "title": "A review of seismic arrival picking",
+         "verdict": "mentioned", "location": "references_only", "cited_only": True,
+         "matched_name": "PhaseNet"},
+    ]
 
 
 def test_model_references_only_paper_stays_genuine_and_counts_as_cited_only():
@@ -265,6 +275,7 @@ def test_same_paper_as_dataset_is_still_overridden():
     assert ev.verdicts[0].overridden_from == "used" and ev.verdicts[0].cited_only is False
     m = ev.metrics(0, "q", None)
     assert ev.n_cited_only is None and m.cited_only_count is None and m.cited_rate is None
+    assert m.paper_details is None
 
 
 def test_model_cited_only_fallback_ignores_flag_contexts():
@@ -333,3 +344,42 @@ def test_explicit_model_entity_without_seed_type_reads_model_rows():
     body = _model_body(_mpub("r", [_mrow()]))
     del body["seed_type"]
     assert build_evidence(body, entity="ai_model").verdicts[0].verdict == "mentioned"
+
+
+
+# -- model task v2.1: served mention_location ---------------------------------
+def test_served_mention_location_decides_cited_only_before_usage_type():
+    # The validator located the name in the body although it labelled the use "cited".
+    body_hit = _mrow(usage_type="cited", mention_location="text", matched_name="Phase-Net")
+    ev = build_evidence(_model_body(_mpub("r", [body_hit], [_c("references", term="PhaseNet")])))
+    v = ev.verdicts[0]
+    assert v.verdict == "mentioned" and v.cited_only is False
+    assert (v.mention_location, v.matched_name) == ("text", "Phase-Net")
+
+
+def test_served_references_only_location_is_cited_only_before_contexts():
+    row = _mrow(used=True, usage_type="inference", mention_location="references_only")
+    ev = build_evidence(_model_body(_mpub("r", [row], [_c("body", term="PhaseNet")])))
+    assert ev.verdicts[0].cited_only is True
+
+
+@pytest.mark.parametrize("location", ["unknown", None])
+def test_unknown_or_missing_location_falls_back_to_usage_type_and_contexts(location):
+    ctx = [_c("references", term="PhaseNet")]
+    ev = build_evidence(_model_body(_mpub("r", [_mrow(mention_location=location)], ctx)))
+    v = ev.verdicts[0]
+    assert v.cited_only is True and v.mention_location == location
+
+
+def test_not_mentioned_model_paper_is_never_cited_only():
+    row = _mrow(mentioned=False, mention_location="references_only")
+    ev = build_evidence(_model_body(_mpub("r", [row])))
+    assert ev.verdicts[0].cited_only is False
+
+
+def test_v2_rows_without_location_give_paper_details_with_nulls():
+    ev = build_evidence(_model_body(_mpub("r", [_mrow(used=True, usage_type="inference")])))
+    assert ev.metrics(0, "q", None).paper_details == [
+        {"id": "r", "title": "T r", "verdict": "used", "location": None, "cited_only": False,
+         "matched_name": None},
+    ]

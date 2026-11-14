@@ -125,6 +125,8 @@ def summarize(ev: Evidence, *, quote_chars: int = 200) -> dict[str, Any]:
                 "usage_type": v.usage_type,
                 "match_type": v.match_type,
                 "cited_only": v.cited_only,
+                "mention_location": v.mention_location,
+                "matched_name": v.matched_name,
                 "text_quote": _truncate(v.quote, quote_chars),
             }
             for v in ev.verdicts

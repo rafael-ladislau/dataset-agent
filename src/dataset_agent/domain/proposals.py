@@ -57,6 +57,11 @@ class IterationMetrics(BaseModel):
     cited_rate: Optional[float] = Field(
         default=None, description="AI models: cited only / evaluated (0-1); None for datasets"
     )
+    paper_details: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        description="AI models: one entry per evaluated paper (id, title, verdict, location, "
+        "cited_only, matched_name); None for datasets",
+    )
     error: Optional[str] = None
 
 

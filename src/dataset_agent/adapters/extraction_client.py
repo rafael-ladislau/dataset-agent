@@ -11,7 +11,7 @@ AI-model validation step; status, ``llm-results`` and cleanup share the
 ``/pipelines/...`` routes.
 
 Contract: see ``docs/fulltext-refinement.md`` (extraction probe contract v1; model
-task v2 in ``tests/fixtures/llm-results-model-task-v2.json``).
+task v2.1 in ``tests/fixtures/llm-results-model-task-v2.1.json``).
 """
 
 from __future__ import annotations

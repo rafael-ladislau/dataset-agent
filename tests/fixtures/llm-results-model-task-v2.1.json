@@ -18,7 +18,9 @@
           "is_used": true,
           "text_quote": "We picked P and S arrivals with PhaseNet.",
           "match_type": "llm_validation",
-          "usage_type": "inference"
+          "usage_type": "inference",
+          "mention_location": "text",
+          "matched_name": "PhaseNet"
         }
       ],
       "category_for": ["Earth Sciences"],
@@ -47,7 +49,9 @@
           "is_used": false,
           "text_quote": "PhaseNet: a deep-neural-network-based seismic arrival time picking method",
           "match_type": "llm_validation",
-          "usage_type": "cited"
+          "usage_type": "cited",
+          "mention_location": "references_only",
+          "matched_name": "PhaseNet"
         }
       ],
       "category_for": ["Earth Sciences"],
@@ -76,7 +80,9 @@
           "is_used": false,
           "text_quote": null,
           "match_type": "validation_error",
-          "usage_type": null
+          "usage_type": null,
+          "mention_location": null,
+          "matched_name": null
         }
       ],
       "category_for": [],
