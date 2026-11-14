@@ -505,6 +505,51 @@ def test_top_cited_titles_of_a_safe_coined_name_are_checked_as_anchors(tmp_path,
     anchor = _decision(out, PHASENET_TITLE, "paper_title")
     assert anchor.decision == "anchor" and "top-cited" in anchor.reason
     assert _decision(out, VIDEO_TITLE, "paper_title").decision == "rejected"
+    # The anchor's year opens the window; the namesake's later year does not matter.
+    assert "where year in [2019:" in out.dsl_query
+
+
+def test_year_window_starts_at_the_first_name_bearing_anchor(tmp_path, patched) -> None:
+    """A re-uploaded card (2022) must not cut the model's own 2018 paper from the seed."""
+    patched.hub = HubEvidence(
+        hugging_face_id="x/phasenet", found=True, created_year=2022, paper_titles=[PHASENET_TITLE],
+    )
+    docs = (
+        [f"{PHASENET_TITLE} || PhaseNet picks P and S waves y2018"] * 3
+        + ["We pick arrivals with PhaseNet. Ref: " + PHASENET_TITLE] * 30
+    )
+    llm = dict(PHASENET_LLM, paper_titles=[])
+    out, _dsl, _agent = _run(
+        tmp_path, docs, llm,
+        OptimizeRequest(dataset_name="PhaseNet", entity_type="ai_model", hugging_face_id="x/phasenet",
+                        years_end=2026),
+        ai_model_top_cited_titles=0,
+    )
+
+    assert out.success, out.errors
+    assert "where year in [2018:2026]" in out.dsl_query
+    assert out.ai_model_seed["years_range"] == {"start_year": 2018, "end_year": 2026}
+
+
+def test_year_window_ignores_anchors_that_do_not_name_the_model(tmp_path, patched) -> None:
+    card_title = "A Deep Network for Seismic Arrival Picking"
+    patched.hub = HubEvidence(
+        hugging_face_id="x/phasenet", found=True, created_year=2023, paper_titles=[card_title],
+    )
+    docs = (
+        [f"{card_title} || We pick with PhaseNet y2021"] * 10
+        + ["We pick arrivals with PhaseNet."] * 10
+    )
+    llm = dict(PHASENET_LLM, paper_titles=[])
+    out, dsl, _agent = _run(
+        tmp_path, docs, llm,
+        OptimizeRequest(dataset_name="PhaseNet", entity_type="ai_model", hugging_face_id="x/phasenet"),
+        ai_model_top_cited_titles=0,
+    )
+
+    assert out.success, out.errors
+    assert _decision(out, card_title, "paper_title").decision == "anchor"
+    assert "where year in [2023:" in out.dsl_query
 
 
 def test_assemble_candidates_orders_and_caps_titles() -> None:

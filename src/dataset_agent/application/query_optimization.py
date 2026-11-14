@@ -233,6 +233,10 @@ class _ModelRun:
     reference_clause: str = ""
     reference_count: int = 0
     decisions: list[TermDecision] = dataclasses.field(default_factory=list)
+    #: Anchor paper titles, and the first publication year of those already known
+    #: (from the top-cited pull).
+    anchors: list[str] = dataclasses.field(default_factory=list)
+    anchor_years: dict[str, int] = dataclasses.field(default_factory=dict)
     #: for clause -> (safe, risky, flags, excludes) it was built from.
     states: dict[str, tuple[list[str], list[str], list[str], list[str]]] = dataclasses.field(
         default_factory=dict
@@ -919,7 +923,13 @@ class QueryOptimizationUseCase:
             if verdict != "safe":
                 continue
             judged = 0
-            for pub in publications_from_result(result):
+            pubs = publications_from_result(result)
+            years: dict[str, int] = {}
+            for pub in pubs:
+                t, y = (publication_title(pub) or "").casefold(), pub.get("year")
+                if t and isinstance(y, int):
+                    years[t] = min(y, years.get(t, y))
+            for pub in pubs:
                 title = sanitize_term(publication_title(pub))
                 if (
                     not title or title.casefold() in decided or len(title.split()) < 4
@@ -932,12 +942,42 @@ class QueryOptimizationUseCase:
                 reason = f"top-cited hit of {base!r}; {reason}"
                 if ok:
                     out.append((title, reason, c))
+                    if title.casefold() in years:
+                        model.anchor_years[title.casefold()] = years[title.casefold()]
                     model.decide(title, "paper_title", "anchor", reason, c)
                 else:
                     model.decide(title, "paper_title", "rejected", reason, c)
                 if len(out) >= cap or judged >= 2 * cap:
                     break
         return out
+
+    async def _first_anchor_year(self, model: _ModelRun) -> int | None:
+        """Earliest publication year of the anchors whose title names the model (the
+        top-cited pull's year, else one title_only lookup per title). Anchors that do
+        not name the model never move the window."""
+        years: list[int] = []
+        for title in model.anchors:
+            if not (contains_word(title, model.name) or contains_word(title, model.family)):
+                continue
+            known = model.anchor_years.get(title.casefold())
+            if known is None and self._budget_left():
+                try:
+                    result = await self._counted_execute(build_search_publications_paged_dsl(
+                        _or_group([title]), search_in="title_only", limit=20,
+                        fields="title+year",
+                    ))
+                except DimensionsDslError as exc:
+                    if not is_dsl_syntax_error(exc):
+                        raise
+                    continue
+                found = [
+                    p["year"] for p in publications_from_result(result)
+                    if isinstance(p.get("year"), int)
+                ]
+                known = min(found) if found else None
+            if known is not None:
+                years.append(known)
+        return min(years) if years else None
 
     async def _mine_model_context(
         self, model: _ModelRun, model_names: list[str]
@@ -1226,6 +1266,7 @@ class QueryOptimizationUseCase:
             }
             for title, _reason, _c in await self._top_cited_titles(model, coined_bases, decided):
                 titles.append(title)
+            model.anchors = list(titles)
             title_group = q(*titles) if titles else ""
 
             # 2. Names: count, then classify by shape and by title confirmation.
@@ -1486,6 +1527,15 @@ class QueryOptimizationUseCase:
 
         years_end = request.years_end or max(s.default_years_end, time.gmtime().tm_year)
         known = [y for y in [model.hub.created_year, *model.hub.paper_years] if y]
+        if not request.years_start:
+            # A versioned or re-uploaded card must not cut the model's own first papers.
+            try:
+                first = await self._first_anchor_year(model)
+            except DimensionsDslError as exc:
+                logger.warning("model research: anchor year lookup failed: %s", exc)
+                first = None
+            if first:
+                known.append(first)
         years_start = request.years_start or (min(known) if known else s.default_years_start)
         years_start = min(years_start, years_end)
         out.dsl_query = (
