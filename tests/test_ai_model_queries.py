@@ -295,7 +295,11 @@ def test_aurora_seed_for_extraction(tmp_path, patched) -> None:
     assert out.ai_model_seed == {
         "model_name": "Aurora",
         "model_family": "Aurora",
-        "description": "Aurora is Microsoft's foundation model of the atmosphere.",
+        # The one model profile: description, developer, anchor title and first year.
+        "description": (
+            "Aurora is Microsoft's foundation model of the atmosphere. Developer: Microsoft. "
+            "Model paper: 'A Foundation Model for the Earth System' (2024)."
+        ),
         "hugging_face_id": "microsoft/aurora",
         "model_aliases": ["Microsoft Aurora", "Aurora foundation model"],
         # The safe names travel as flags too: (S or R) and (F or S) == S or (R and F).
@@ -1889,3 +1893,25 @@ def test_model_window_ends_next_year_unless_given(tmp_path, patched) -> None:
     out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request(),
                              ai_model_window_next_year=False)
     assert f":{nxt}]" not in out.dsl_query
+
+
+def test_one_profile_for_the_abstract_judge_and_the_seed(tmp_path, patched) -> None:
+    """Description, anchor title and first year: the same string reaches the abstract
+    judge, the record's judge context and the seed description."""
+    patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
+    out, _dsl, _agent = _phasenet_run(tmp_path, _phasenet_regate_docs(), ["STEAD"])
+    profile = f"{PHASENET_LLM['description']} Model paper: {PHASENET_TITLE!r} (2019)."
+    assert out.ai_model_judge_context == profile
+    assert out.ai_model_seed["description"] == profile
+    assert patched.eval.calls[0]["entity_context"] == profile
+
+
+def test_profile_without_an_anchor_is_the_description(tmp_path, patched) -> None:
+    patched.hub = HubEvidence()
+    docs = ["We run FourCastNet for heat waves."] * 30
+    llm = {"description": "FourCastNet is NVIDIA's weather model.", "names": [],
+           "paper_titles": [], "context_terms": [], "other_meanings": []}
+    out, _dsl, _agent = _run(tmp_path, docs, llm,
+                             OptimizeRequest(dataset_name="FourCastNet", entity_type="ai_model"))
+    assert out.ai_model_judge_context == "FourCastNet is NVIDIA's weather model."
+    assert out.ai_model_seed["description"] == "FourCastNet is NVIDIA's weather model."

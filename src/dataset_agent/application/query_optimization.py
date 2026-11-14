@@ -97,6 +97,7 @@ from dataset_agent.adapters.query_heuristics import (
     is_acronym_suffix_form,
     is_short_acronym,
 )
+from dataset_agent.adapters.referent_check import model_profile
 from dataset_agent.application.proposal_service import build_proposal, merge_diffs
 from dataset_agent.adapters.term_sanitizer import sanitize_term, sanitize_terms
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
@@ -300,8 +301,20 @@ class _ModelRun:
 
     @property
     def context(self) -> str:
+        """The model profile: description (and developer), plus the first anchor title
+        naming the model (else the first anchor) and its first year. The same string is
+        given to the abstract judge, the referent question and the seed description."""
         dev = f" Developer: {self.developer}." if self.developer else ""
-        return f"{(self.description or '').strip()[:400]}{dev}".strip()
+        base = f"{(self.description or '').strip()[:400]}{dev}".strip()
+        if not self.anchors:
+            return base
+        anchor = next(
+            (t for t in self.anchors
+             if contains_word(t, self.name) or contains_word(t, self.family)),
+            self.anchors[0],
+        )
+        year = self.anchor_years.get(_stem_text(anchor)) or (self.years[0] if self.years else None)
+        return model_profile(base, [(anchor, year)])
 
     def decide(self, term: str, kind: str, decision: str, reason: str,
                count: int | None = None, **stats) -> None:
@@ -2058,7 +2071,7 @@ class QueryOptimizationUseCase:
         out.confidence = ai_model_confidence(*(stats or (0, 0, 0, 0.0))[:2], released=True)
         candidate = QueryCandidate(
             main_dataset_name=model.name, safe=safe, risky=risky, flag_terms=flags,
-            exclude_terms=excludes, description=model.description,
+            exclude_terms=excludes, description=model.context,
         )
         try:
             seed = candidate_to_ai_model_seed(
