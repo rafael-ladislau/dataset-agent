@@ -39,7 +39,11 @@ from collections.abc import Callable
 import httpx
 
 from dataset_agent.adapters.fulltext_evidence import _phrase_in
-from dataset_agent.adapters.scope_check import name_denotes_data
+from dataset_agent.adapters.scope_check import (
+    DATA_LIST_NOUNS,
+    PROGRAM_LIST_NOUNS,
+    name_denotes_data,
+)
 from dataset_agent.domain.models import ResourceMap
 
 logger = logging.getLogger(__name__)
@@ -108,6 +112,8 @@ Classify each name:
 - other: anything else.
 If the catalog entry's own name already denotes the data (a survey, a database, a data
 center or commons), classify it data_resource, not program.
+Noun test (the same one the paper-level check uses): a name whose head noun is one of
+{DATA_LIST_NOUNS} is data_resource; one of {PROGRAM_LIST_NOUNS} is program.
 
 Also give: data_resource_names_in_pages (names of this program's data access platform,
 repository, tiers or data browser exactly as written in the pages); former_or_parent_program_names

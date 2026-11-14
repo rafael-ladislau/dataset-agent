@@ -98,7 +98,12 @@ from dataset_agent.adapters.query_heuristics import (
     is_short_acronym,
 )
 from dataset_agent.adapters.referent_check import check_referents, model_profile
-from dataset_agent.adapters.scope_check import check_scope, generated_data_phrases, phrase_program
+from dataset_agent.adapters.scope_check import (
+    carries_data_noun,
+    check_scope,
+    generated_data_phrases,
+    phrase_program,
+)
 from dataset_agent.application.proposal_service import build_proposal, merge_diffs
 from dataset_agent.adapters.term_sanitizer import sanitize_term, sanitize_terms
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
@@ -2367,7 +2372,13 @@ class QueryOptimizationUseCase:
         never placed behind the gate. A specific data resource name is a safe candidate too;
         the gate keeps every data name that passes the flag screening (not a bare short
         acronym, at most *max_hits* hits). ``build_for_clause`` is unchanged."""
-        programs = sanitize_terms(list(rmap.program_names), "alias")
+        # Noun test: a name whose head is a data noun ("<program> Cohort") is a data
+        # reference; it keeps its phase-1 routing and the probe decides.
+        programs = [p for p in sanitize_terms(list(rmap.program_names), "alias")
+                    if not carries_data_noun(p)]
+        kept_by_noun = [p for p in rmap.program_names if carries_data_noun(p)]
+        if kept_by_noun:
+            notes_parts.append(f"resource map: data-noun names not gated {kept_by_noun}")
         prog = {p.casefold() for p in programs}
         moved = [a for a in safe if a.casefold() in prog]
         safe = [a for a in safe if a.casefold() not in prog]

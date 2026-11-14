@@ -50,6 +50,9 @@ EMIT_SCOPE_CLASSIFICATION = {
 }
 
 
+#: Noun test, shared by the resource-map prompt and the scope question.
+DATA_LIST_NOUNS = "biobanks, cohorts, datasets, repositories or resources"
+PROGRAM_LIST_NOUNS = "initiatives, programs, efforts or projects"
 #: Head nouns that make a name (or a list entry) a data reference.
 DATA_NOUNS = frozenset({
     "data", "dataset", "datasets", "database", "databases", "databank", "commons", "survey",
@@ -92,7 +95,7 @@ def generated_data_phrases(program_names: list[str]) -> list[str]:
     out: list[str] = []
     for p in program_names:
         p = " ".join(p.split())
-        if p:
+        if p and not carries_data_noun(p):  # "X Cohort" already names data
             out += [f"{p} data", f"{p} dataset", f"data from the {p}"]
     return list(dict.fromkeys(out))
 
@@ -163,8 +166,8 @@ It is PROGRAM_ONLY when it discusses only the program: its goals, history or ren
 recruitment targets, the program's own plans to collect data, ethics, consent, policy or
 funding, a definition quoted from it, or when it names the program as an example in a
 list of initiatives, programs, efforts or projects.
-Noun test for lists: biobanks, cohorts, datasets, repositories or resources mean DATA;
-initiatives, programs, efforts or projects mean PROGRAM_ONLY.
+Noun test for lists: {DATA_LIST_NOUNS} mean DATA;
+{PROGRAM_LIST_NOUNS} mean PROGRAM_ONLY.
 Answer unclear only when the passages do not let you decide.
 
 Use emit_scope_classification exactly once; scope is data, program_only or unclear."""
