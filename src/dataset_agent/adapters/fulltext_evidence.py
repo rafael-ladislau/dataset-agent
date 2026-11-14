@@ -83,6 +83,11 @@ class PubVerdict:
     #: AI models only, set by the referent check: ``anchor`` | ``confirmed`` |
     #: ``rejected`` | ``unclear``; None when not checked.
     referent: str | None = None
+    #: Datasets only, set by the scope check when the resource map split a program from
+    #: its data: ``data`` | ``program_only`` | ``unclear``; None when not checked. A
+    #: ``program_only`` paper is turned to ``not_mentioned`` (``overridden_from`` keeps
+    #: the judge's verdict), so it is not genuine for precision.
+    scope: str | None = None
 
     @property
     def genuine(self) -> bool:
@@ -154,10 +159,29 @@ class Evidence:
         return sum(1 for v in self.verdicts if v.referent == "unclear")
 
     @property
+    def scope_checked(self) -> bool:
+        return any(v.scope is not None for v in self.verdicts)
+
+    @property
+    def n_program_only(self) -> int | None:
+        """Papers the scope check found to discuss only the program; None when it did not run."""
+        if not self.scope_checked:
+            return None
+        return sum(1 for v in self.verdicts if v.scope == "program_only")
+
+    @property
+    def n_scope_unclear(self) -> int | None:
+        """Papers the scope check could not decide (kept genuine); None when it did not run."""
+        if not self.scope_checked:
+            return None
+        return sum(1 for v in self.verdicts if v.scope == "unclear")
+
+    @property
     def raw_precision(self) -> float | None:
-        """Judge precision before the referent check (an upper bound)."""
+        """Judge precision before the referent and scope checks (an upper bound)."""
         n = self.n_evaluated
-        return (len(self.genuine) + self.n_referent_rejected) / n if n else None
+        extra = self.n_referent_rejected + (self.n_program_only or 0)
+        return (len(self.genuine) + extra) / n if n else None
 
     @property
     def corrected_precision(self) -> float | None:
@@ -237,7 +261,14 @@ class Evidence:
             not_run_count=not_run,
             not_run_rate=(not_run / matched) if not_run is not None and matched else None,
             cited_only_unknown_count=self.n_cited_only_unknown,
-            raw_fulltext_precision=self.raw_precision if self.entity == "ai_model" else None,
+            raw_fulltext_precision=(
+                self.raw_precision if self.entity == "ai_model" or self.scope_checked else None
+            ),
+            program_only_count=self.n_program_only,
+            program_only_rate=(
+                self.n_program_only / n if self.n_program_only is not None and n else None
+            ),
+            scope_unclear_count=self.n_scope_unclear,
             referent_rejected_count=(
                 self.n_referent_rejected if self.entity == "ai_model" else None
             ),

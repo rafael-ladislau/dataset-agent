@@ -67,13 +67,24 @@ class IterationMetrics(BaseModel):
     )
     raw_fulltext_precision: Optional[float] = Field(
         default=None,
-        description="AI models: judge precision before the referent check (an upper bound)",
+        description="Judge precision before the referent check (AI models) or the scope check (datasets with a program map); an upper bound",
     )
     referent_rejected_count: Optional[int] = Field(
         default=None, description="AI models: genuine papers the referent check turned down"
     )
     referent_unclear_count: Optional[int] = Field(
         default=None, description="AI models: papers the referent check could not decide"
+    )
+    program_only_count: Optional[int] = Field(
+        default=None,
+        description="Datasets with a program separate from its data: papers that discuss only "
+        "the program (not genuine); None when the scope check did not run",
+    )
+    program_only_rate: Optional[float] = Field(
+        default=None, description="program-only papers / papers evaluated (0-1); None when not run"
+    )
+    scope_unclear_count: Optional[int] = Field(
+        default=None, description="papers the scope check could not decide (kept); None when not run"
     )
     cited_only_unknown_count: Optional[int] = Field(
         default=None,
