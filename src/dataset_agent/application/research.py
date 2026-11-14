@@ -583,4 +583,32 @@ class DatasetResearchUseCase:
             record.dataset_names = dedupe_strings_ci_preserve_order(record.dataset_names)
         record.dataset_names = sanitize_terms(record.dataset_names, "dataset name")
         record.flag_terms = sanitize_terms(record.flag_terms, "flag term")
+        if self._settings.resource_map_enabled and self._dsl_port is not None:
+            record.resource_map = self._resource_map(record)
         return record
+
+    def _resource_map(self, record: DatasetRecord):
+        """Program versus data (``adapters.resource_map``); None when nothing splits."""
+        from dataset_agent.adapters.dimensions_dsl import (
+            build_for_clause_count_dsl,
+            parse_total_count,
+        )
+        from dataset_agent.adapters.resource_map import map_for_record
+
+        def count(clause: str) -> int | None:
+            loop = asyncio.new_event_loop()
+            try:
+                return parse_total_count(loop.run_until_complete(
+                    self._dsl_port.execute_dsl(build_for_clause_count_dsl(clause))))
+            except Exception as exc:
+                logger.warning("resource map: count failed: %s", exc)
+                return None
+            finally:
+                loop.close()
+
+        try:
+            return map_for_record(self._agent, record, count=count,
+                                  min_cooccurrence=self._settings.resource_map_min_cooccurrence)
+        except Exception as exc:
+            logger.warning("resource map: research step failed: %s", exc)
+            return None

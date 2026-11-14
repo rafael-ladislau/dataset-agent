@@ -315,6 +315,10 @@ class Settings(BaseSettings):
     #: Full-text referent check (AI models): votes per paper, and thinking for that
     #: question only (0 = off; needs the Anthropic API style). Every other LLM step
     #: keeps the main agent's settings.
+    #: Resource map (program versus data): one LLM step plus a deterministic split rule;
+    #: off by default (the owner decides). The scope check runs only with a map.
+    resource_map_enabled: bool = False
+    resource_map_min_cooccurrence: int = 1
     referent_votes: int = Field(default=3, ge=1, le=9)
     #: S4: after the abstract rule, probe the shipped AI-model seed on full text; with at
     #: least ai_model_fulltext_min_papers judged, corrected precision decides release both

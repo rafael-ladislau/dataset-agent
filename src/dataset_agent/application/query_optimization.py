@@ -350,6 +350,7 @@ class QueryOptimizationUseCase:
         self._referent_agent = referent_agent
         self._dims_calls = 0
         self._cap_extra = 0
+        self._resource_map = None
 
     def _call_cap(self) -> int:
         """Dimensions call cap of the current run (0 = unlimited)."""
@@ -2326,6 +2327,28 @@ class QueryOptimizationUseCase:
             "return publications[id+title+doi+year+times_cited] sort by times_cited"
         )
 
+    async def _research_resource_map(self, rec: DatasetRecord):
+        """Program versus data for a stored or fresh research record (counts are budgeted)."""
+        from dataset_agent.adapters.resource_map import map_for_record
+
+        runner = self._make_eval_runner(asyncio.get_running_loop())
+
+        def count(clause: str) -> int | None:
+            try:
+                return parse_total_count(runner(build_for_clause_count_dsl(clause)))
+            except Exception as exc:
+                logger.warning("resource map: count failed: %s", exc)
+                return None
+
+        try:
+            return await asyncio.to_thread(
+                map_for_record, self._agent, rec, count=count,
+                min_cooccurrence=self._settings.resource_map_min_cooccurrence,
+            )
+        except Exception as exc:
+            logger.warning("resource map: failed: %s", exc)
+            return None
+
     async def _run_research(self, request: OptimizeRequest) -> DatasetRecord:
         req = ResearchRequest(
             dataset_name=request.dataset_name,
@@ -2359,6 +2382,7 @@ class QueryOptimizationUseCase:
         )
 
         self._cap_extra = 0
+        self._resource_map = None
         if request.entity_type == "ai_model":
             return await self._execute_ai_model(request, notes_parts, run_id, t0)
 
@@ -2380,6 +2404,15 @@ class QueryOptimizationUseCase:
                     notes="Provide dataset_names + flag_terms to skip research.",
                 )
             desc_for_signal3 = (rec.description or "")[:2000]
+            if self._settings.resource_map_enabled and rec.resource_map is None:
+                rec.resource_map = await self._research_resource_map(rec)
+            self._resource_map = rec.resource_map
+            if rec.resource_map is not None:
+                notes_parts.append(
+                    "resource map: program "
+                    f"{rec.resource_map.program_names} separate from data "
+                    f"{rec.resource_map.data_resource_names}"
+                )
             aliases = dedupe_strings_ci_preserve_order(list(rec.dataset_names))
             flag_terms = dedupe_strings_ci_preserve_order(list(rec.flag_terms))
             exclude_terms = dedupe_strings_ci_preserve_order(

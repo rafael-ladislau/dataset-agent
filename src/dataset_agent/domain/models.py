@@ -324,6 +324,18 @@ class QueryOptimizationRecord(BaseModel):
     notes: str = ""
 
 
+class ResourceMap(BaseModel):
+    """A program separate from its data (research step; see ``adapters.resource_map``)."""
+
+    program_names: list[str] = Field(default_factory=list)
+    data_resource_names: list[str] = Field(default_factory=list)
+    former_or_parent_names: list[str] = Field(default_factory=list)
+    #: Year the data was first released (found by research with a quote), else None.
+    first_release_year: Optional[int] = None
+    #: Data resource name -> Dimensions hits together with the program names.
+    cooccurrence: dict[str, int] = Field(default_factory=dict)
+
+
 class DatasetRecord(BaseModel):
     """Canonical JSON record (LOGICA_DO_PROJETO.md)."""
 
@@ -358,6 +370,10 @@ class DatasetRecord(BaseModel):
         description="Collision domains from web disambiguation → candidate exclude terms",
     )
     query_optimization: Optional[QueryOptimizationRecord] = None
+    resource_map: Optional[ResourceMap] = Field(
+        default=None,
+        description="Set only when research found a program separate from its data",
+    )
     retry_validation: Optional[ValidationRequest] = Field(
         default=None,
         description="Suggested POST /validate body for a follow-up run (set by /validate only)",
