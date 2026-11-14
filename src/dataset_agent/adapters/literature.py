@@ -1168,6 +1168,9 @@ def evaluate_for_clause_sync(
         "unclassified_count": unclassified,
         "failed_count": failed_count,
         "attempted_count": attempted_count,
+        # Judged by the LLM (genuine or false positive); the rest of genuine_count was
+        # counted genuine without a judgement (no alias found in title or abstract).
+        "judged_count": attempted_count - failed_count,
         "matched_count": matched_count,
         "total_pubs": len(pubs),
         "coverage_pct": coverage,

@@ -6,6 +6,7 @@ import asyncio
 import dataclasses
 import functools
 import logging
+import math
 import re
 import time
 import uuid
@@ -216,6 +217,25 @@ def _fp_rate_and_noise_terms(
     return pct, dedupe_strings_ci_preserve_order(noise_terms)
 
 
+def wilson_interval(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Wilson score interval of *k*/*n*; (0, 1) when *n* is 0."""
+    if n <= 0:
+        return (0.0, 1.0)
+    p = k / n
+    denom = 1 + z * z / n
+    centre = p + z * z / (2 * n)
+    spread = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+    return (max(0.0, (centre - spread) / denom), min(1.0, (centre + spread) / denom))
+
+
+def ai_model_confidence(k: int, n: int, *, released: bool) -> ConfidenceLevel:
+    """AI models: HIGH when the Wilson upper bound of the abstract false-positive rate is
+    at most 10%, MEDIUM for any other released seed, LOW only when withheld."""
+    if not released:
+        return ConfidenceLevel.LOW
+    return ConfidenceLevel.HIGH if wilson_interval(k, n)[1] <= 0.10 else ConfidenceLevel.MEDIUM
+
+
 @dataclasses.dataclass
 class _ModelRun:
     """State of one AI-model run shared between term measurement and query selection."""
@@ -263,6 +283,11 @@ class _ModelRun:
     context_terms: list[str] = dataclasses.field(default_factory=list)
     #: Why the seed must be withheld when the abstract check fails (names kept unsafe).
     withhold_reasons: list[str] = dataclasses.field(default_factory=list)
+    #: for clause -> (fp k, judged n, counted without judgement, coverage %) of its
+    #: abstract check.
+    abstract_stats: dict[str, tuple[int, int, int, float]] = dataclasses.field(
+        default_factory=dict
+    )
     #: for clause -> (safe, risky, flags, excludes) it was built from.
     states: dict[str, tuple[list[str], list[str], list[str], list[str]]] = dataclasses.field(
         default_factory=dict
@@ -1989,6 +2014,18 @@ class QueryOptimizationUseCase:
         )
 
         notes = [out.notes] if out.notes else []
+        stats = model.abstract_stats.get(out.for_clause or "")
+        if stats is not None:
+            fp_k, judged, unjudged, coverage = stats
+            lo, hi = wilson_interval(fp_k, judged)
+            out.abstract_fp_count, out.abstract_n_judged = fp_k, judged
+            out.abstract_n_counted_without_judgement = unjudged
+            out.abstract_fp_wilson_95 = [round(lo, 4), round(hi, 4)]
+            out.abstract_coverage_pct = round(coverage, 1)
+            notes.append(
+                f"abstract check: {fp_k} of {judged} false positives (Wilson 95% "
+                f"{lo:.1%}-{hi:.1%}), coverage {coverage:.1f}%"
+            )
         threshold = float(s.optimize_fp_threshold_pct)
         evaluated = "~gate" in (out.selected_variant or "")
         if not evaluated or out.fp_rate_pct is None or float(out.fp_rate_pct) > threshold:
@@ -2008,6 +2045,8 @@ class QueryOptimizationUseCase:
             notes.append(f"seed withheld: {why}; review term_decisions before using this query")
             out.notes = " ".join(notes)
             return out
+        # Released: confidence from the Wilson upper bound of the abstract check.
+        out.confidence = ai_model_confidence(*(stats or (0, 0, 0, 0.0))[:2], released=True)
         candidate = QueryCandidate(
             main_dataset_name=model.name, safe=safe, risky=risky, flag_terms=flags,
             exclude_terms=excludes, description=model.description,
@@ -2550,6 +2589,14 @@ class QueryOptimizationUseCase:
                 break
 
             if model is not None:
+                fp_k = int(ev.get("fp_count") or 0)
+                judged = ev.get("judged_count")
+                genuine_all = int(ev.get("genuine_count") or 0)
+                judged = int(judged) if isinstance(judged, int) else genuine_all + fp_k
+                model.abstract_stats[current_for_clause] = (
+                    fp_k, judged, max(0, genuine_all - (judged - fp_k)),
+                    float(ev.get("coverage_pct") or 0.0),
+                )
                 # Every rejected abstract is kept, so a LOW verdict can be read by title.
                 for h in ev.get("fp_hits") or []:
                     if not isinstance(h, dict):

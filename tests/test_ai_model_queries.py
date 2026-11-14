@@ -1808,3 +1808,36 @@ def test_cli_optimize_model_builds_an_ai_model_request(monkeypatch: pytest.Monke
     assert req.dataset_names == ["Aurora-0.25"] and req.flag_terms == ["GraphCast"]
     assert req.years_start == 2024
     assert '"entity_type": "ai_model"' in result.output
+
+
+# --------------------------------------------------------------------------- abstract measure
+
+
+@pytest.mark.parametrize(
+    ("k", "n", "released", "level"),
+    [(0, 12, True, "medium"), (1, 12, True, "medium"), (0, 40, True, "high"),
+     (0, 34, True, "medium"), (2, 12, False, "low"), (0, 0, True, "medium")],
+)
+def test_ai_model_confidence_follows_the_wilson_upper_bound(k, n, released, level) -> None:
+    assert qopt_mod.ai_model_confidence(k, n, released=released).value == level
+
+
+def test_model_record_reports_the_abstract_measure(tmp_path, patched) -> None:
+    patched.eval = _fake_eval([{"fp_count": 1, "genuine_count": 13, "judged_count": 12,
+                                "fp_rate_pct": 100 / 12, "coverage_pct": 9.0}])
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request())
+
+    assert out.success, out.errors
+    assert (out.abstract_fp_count, out.abstract_n_judged) == (1, 12)
+    assert out.abstract_n_counted_without_judgement == 2
+    assert out.abstract_coverage_pct == 9.0
+    lo, hi = out.abstract_fp_wilson_95
+    assert round(lo, 3) == 0.015 and round(hi, 3) == 0.354
+    assert out.confidence.value == "medium"
+    assert "abstract check: 1 of 12 false positives (Wilson 95% 1.5%-35.4%), coverage 9.0%" in out.notes
+
+
+def test_model_reads_high_only_on_many_clean_abstracts(tmp_path, patched) -> None:
+    patched.eval = _fake_eval([{"fp_count": 0, "genuine_count": 40, "judged_count": 40}])
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request())
+    assert out.confidence.value == "high" and out.abstract_n_judged == 40

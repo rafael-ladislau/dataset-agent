@@ -284,6 +284,23 @@ class QueryOptimizationRecord(BaseModel):
             "seed finds what the selected query finds."
         ),
     )
+    abstract_fp_count: Optional[int] = Field(
+        default=None, ge=0, description="AI models: abstracts judged another meaning (k)"
+    )
+    abstract_n_judged: Optional[int] = Field(
+        default=None, ge=0, description="AI models: abstracts the LLM judged (n)"
+    )
+    abstract_n_counted_without_judgement: Optional[int] = Field(
+        default=None, ge=0,
+        description="AI models: papers counted genuine with no alias in title or abstract",
+    )
+    abstract_fp_wilson_95: Optional[list[float]] = Field(
+        default=None, description="AI models: Wilson 95% interval of k / n (0-1)"
+    )
+    abstract_coverage_pct: Optional[float] = Field(
+        default=None,
+        description="AI models: share of the pulled papers that name the model in title or abstract",
+    )
     ai_model_seed_clause: Optional[str] = Field(
         default=None, description="AI models: the `for` clause the extraction pipeline builds from the seed"
     )
