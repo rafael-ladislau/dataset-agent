@@ -283,10 +283,18 @@ class QueryOptimizationRecord(BaseModel):
     ai_model_seed_clause: Optional[str] = Field(
         default=None, description="AI models: the `for` clause the extraction pipeline builds from the seed"
     )
-    ai_model_seed_count: Optional[int] = Field(default=None, ge=0)
+    ai_model_seed_count: Optional[int] = Field(
+        default=None, ge=0, description="AI models: hits of the seed clause inside the year window"
+    )
     ai_model_query_count: Optional[int] = Field(
         default=None, ge=0,
-        description="AI models: all-years hits of the selected `for_clause`, next to `ai_model_seed_count`",
+        description=(
+            "AI models: hits of the selected `for_clause` inside the year window of "
+            "`dsl_query`, next to `ai_model_seed_count`"
+        ),
+    )
+    ai_model_query_count_all_years: Optional[int] = Field(
+        default=None, ge=0, description="AI models: all-years hits of the selected `for_clause`"
     )
     notes: str = ""
 

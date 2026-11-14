@@ -60,14 +60,26 @@ def _matches(clause: str, doc: str) -> bool:
 
 
 class CorpusDSL:
+    """A ``where year in [a:b]`` filter applies to documents with a year ("y2018");
+    documents without one match any window."""
+
     def __init__(self, docs: list[str]) -> None:
         self.docs = docs
         self.clauses: list[str] = []
+        self.dsls: list[str] = []
 
     async def execute_dsl(self, dsl: str) -> SimpleNamespace:
+        self.dsls.append(dsl)
+        return self.run(dsl)
+
+    def run(self, dsl: str) -> SimpleNamespace:
         clause = re.search(r'for "(.*)" (?:where .*?)?return ', dsl).group(1)
         self.clauses.append(clause.replace("\\", ""))
         hits = [d for d in self.docs if _matches(clause, d)]
+        window = re.search(r"where year in \[(\d{4}):(\d{4})\]", dsl)
+        if window:
+            lo, hi = int(window.group(1)), int(window.group(2))
+            hits = [d for d in hits if not (y := _pub(d).get("year")) or lo <= y <= hi]
         return SimpleNamespace(
             count_total=len(hits),
             publications=[_pub(d) for d in hits[:200]],
@@ -939,6 +951,59 @@ def test_year_window_ignores_anchors_that_do_not_name_the_model(tmp_path, patche
     assert out.success, out.errors
     assert _decision(out, card_title, "paper_title").decision == "anchor"
     assert "where year in [2023:" in out.dsl_query
+
+
+BIOCLIP_TITLE = "BioCLIP: A Vision Foundation Model for the Tree of Life"
+
+
+def test_abstract_sample_and_counts_stay_inside_the_shipped_window(tmp_path, patched, monkeypatch) -> None:
+    """An old, highly cited namesake outside the year window is never sampled by the
+    abstract check, and the recorded counts are those of the windowed query; the
+    all-years count is kept next to them."""
+    from dataset_agent.adapters import literature
+
+    monkeypatch.setattr(qopt_mod, "evaluate_for_clause_sync", literature.evaluate_for_clause_sync)
+    patched.hub = HubEvidence(
+        hugging_face_id="imageomics/bioclip", found=True, created_year=2023,
+        paper_titles=[BIOCLIP_TITLE],
+    )
+    docs = (
+        ["BioCLIP bio clipping of film reels in archives y2015"] * 30
+        + [f"{BIOCLIP_TITLE} || BioCLIP classifies species y2024"] * 10
+        + [f"We use BioCLIP for species. Ref: {BIOCLIP_TITLE} y2024"] * 20
+    )
+    llm = {"description": "BioCLIP is a vision model for the tree of life.", "names": [],
+           "paper_titles": [], "context_terms": [], "other_meanings": []}
+    out, dsl, _agent = _run(
+        tmp_path, docs, llm,
+        OptimizeRequest(dataset_name="BioCLIP", entity_type="ai_model",
+                        hugging_face_id="imageomics/bioclip", years_end=2026),
+        judge=lambda prompt: "species" in prompt, ai_model_top_cited_titles=0,
+    )
+
+    assert out.success, out.errors
+    assert "where year in [2023:2026]" in out.dsl_query
+    pulls = [d for d in dsl.dsls if "abstract+reference_ids" in d]
+    assert pulls and all("where year in [2023:2026]" in d for d in pulls)
+    assert out.fp_rate_pct == 0.0 and out.ai_model_seed is not None
+    assert out.ai_model_query_count == out.ai_model_seed_count == 30
+    assert out.ai_model_query_count_all_years == 60
+
+
+def test_window_filter_reaches_the_dsl_builders() -> None:
+    from dataset_agent.adapters.dimensions_dsl import (
+        build_for_clause_count_dsl,
+        build_search_publications_paged_dsl,
+    )
+
+    assert build_for_clause_count_dsl("X", where="year in [2020:2026]") == (
+        'search publications in full_data for "X" where year in [2020:2026] '
+        "return publications[id] limit 1"
+    )
+    assert "for \"X\" return" in build_search_publications_paged_dsl("X")
+    assert 'for "X" where year in [2020:2026] return' in build_search_publications_paged_dsl(
+        "X", where="year in [2020:2026]"
+    )
 
 
 def test_hub_repo_id_is_not_a_name_candidate() -> None:

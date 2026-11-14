@@ -231,16 +231,22 @@ def build_publications_count_dsl(
     )
 
 
+def _where(where: str) -> str:
+    return f"where {where} " if where else ""
+
+
 def build_for_clause_count_dsl(
     for_clause: str,
     *,
     search_in: str = "full_data",
     limit: int = 1,
+    where: str = "",
 ) -> str:
-    """Total hit count DSL for an arbitrary boolean ``for`` clause (scope comparison, etc.)."""
+    """Total hit count DSL for an arbitrary boolean ``for`` clause (scope comparison, etc.);
+    *where* is an optional filter such as ``year in [2020:2026]``."""
     lim = max(1, int(limit))
     return (
-        f'search publications in {search_in} for "{for_clause}" '
+        f'search publications in {search_in} for "{for_clause}" {_where(where)}'
         f"return publications[id] limit {lim}"
     )
 
@@ -267,12 +273,13 @@ def build_search_publications_paged_dsl(
     limit: int = 1000,
     skip: int = 0,
     fields: str = "basics+title+times_cited",
+    where: str = "",
 ) -> str:
     """Paginated publications fetch (DSL allows up to 1000 records per request)."""
     lim = max(1, min(1000, int(limit)))
     sk = max(0, int(skip))
     return (
-        f'search publications in {search_in} for "{for_clause}" '
+        f'search publications in {search_in} for "{for_clause}" {_where(where)}'
         f"return publications[{fields}] "
         f"sort by times_cited limit {lim} skip {sk}"
     )
@@ -367,6 +374,7 @@ def fetch_publications_resilient(
     search_in: str = "full_data",
     page_size: int = 100,
     min_page_size: int = 10,
+    where: str = "",
 ) -> tuple[list[dict], int, bool]:
     """Single big ``sort by times_cited limit N`` pull, with a paged fallback.
 
@@ -377,7 +385,7 @@ def fetch_publications_resilient(
     times_cited order and are de-duplicated by id. Other errors propagate.
     """
     big = build_search_publications_paged_dsl(
-        for_clause, search_in=search_in, limit=limit, skip=0, fields=fields
+        for_clause, search_in=search_in, limit=limit, skip=0, fields=fields, where=where
     )
     try:
         result = run_query(big)
@@ -406,7 +414,8 @@ def fetch_publications_resilient(
         while True:
             calls += 1
             dsl = build_search_publications_paged_dsl(
-                for_clause, search_in=search_in, limit=size, skip=skip, fields=fields
+                for_clause, search_in=search_in, limit=size, skip=skip, fields=fields,
+                where=where,
             )
             try:
                 res = run_query(dsl)

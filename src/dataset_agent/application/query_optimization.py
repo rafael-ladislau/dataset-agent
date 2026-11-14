@@ -253,6 +253,8 @@ class _ModelRun:
     reserve_measured: bool = False
     #: Titles and abstracts already pulled (top-cited hits), mined for joined versions.
     pulled_texts: list[str] = dataclasses.field(default_factory=list)
+    #: Year window of the shipped query (start, end), known once anchors are decided.
+    years: tuple[int, int] | None = None
     #: Context-flag candidates of the run, kept for a measurement at re-gate time.
     context_terms: list[str] = dataclasses.field(default_factory=list)
     #: Why the seed must be withheld when the abstract check fails (names kept unsafe).
@@ -261,6 +263,10 @@ class _ModelRun:
     states: dict[str, tuple[list[str], list[str], list[str], list[str]]] = dataclasses.field(
         default_factory=dict
     )
+
+    @property
+    def where(self) -> str:
+        return f"year in [{self.years[0]}:{self.years[1]}]" if self.years else ""
 
     @property
     def context(self) -> str:
@@ -855,14 +861,15 @@ class QueryOptimizationUseCase:
 
     # ------------------------------------------------------------------ AI models
 
-    async def _clause_count(self, clause: str) -> int | None:
-        """Hits of a boolean clause; ``None`` when the call budget is spent or
-        Dimensions cannot parse the clause. Other errors propagate."""
+    async def _clause_count(self, clause: str, where: str = "") -> int | None:
+        """Hits of a boolean clause (filtered by *where*, e.g. ``year in [a:b]``);
+        ``None`` when the call budget is spent or Dimensions cannot parse the clause.
+        Other errors propagate."""
         if not clause or not self._budget_left():
             return None
         try:
             return parse_total_count(
-                await self._counted_execute(build_for_clause_count_dsl(clause))
+                await self._counted_execute(build_for_clause_count_dsl(clause, where=where))
             )
         except DimensionsDslError as exc:
             if not is_dsl_syntax_error(exc):
@@ -997,6 +1004,24 @@ class QueryOptimizationUseCase:
                 if len(out) >= cap or judged >= 2 * cap:
                     break
         return out
+
+    async def _model_years(self, request: OptimizeRequest, model: _ModelRun) -> tuple[int, int]:
+        """Year window of the shipped query: from the caller, else the earliest of the
+        card's years and the first name-bearing anchor's year, else the default start."""
+        s = self._settings
+        years_end = request.years_end or max(s.default_years_end, time.gmtime().tm_year)
+        known = [y for y in [model.hub.created_year, *model.hub.paper_years] if y]
+        if not request.years_start:
+            # A versioned or re-uploaded card must not cut the model's own first papers.
+            try:
+                first = await self._first_anchor_year(model)
+            except DimensionsDslError as exc:
+                logger.warning("model research: anchor year lookup failed: %s", exc)
+                first = None
+            if first:
+                known.append(first)
+        years_start = request.years_start or (min(known) if known else s.default_years_start)
+        return min(years_start, years_end), years_end
 
     async def _first_anchor_year(self, model: _ModelRun) -> int | None:
         """Earliest publication year of the anchors whose title names the model (the
@@ -1573,6 +1598,8 @@ class QueryOptimizationUseCase:
                 notes_parts.append(f"model research: joined versions found in abstracts {mined_names}")
             model.anchors = list(titles)
             title_group = q(*titles) if titles else ""
+            # The window that ships: the abstract check and the recorded counts use it.
+            model.years = await self._model_years(request, model)
 
             # 2. Names: count, then classify by shape and by title confirmation.
             safe: list[str] = []
@@ -1827,19 +1854,9 @@ class QueryOptimizationUseCase:
                 d.decision = "rejected"
                 d.reason += "; not in the selected query"
 
-        years_end = request.years_end or max(s.default_years_end, time.gmtime().tm_year)
-        known = [y for y in [model.hub.created_year, *model.hub.paper_years] if y]
-        if not request.years_start:
-            # A versioned or re-uploaded card must not cut the model's own first papers.
-            try:
-                first = await self._first_anchor_year(model)
-            except DimensionsDslError as exc:
-                logger.warning("model research: anchor year lookup failed: %s", exc)
-                first = None
-            if first:
-                known.append(first)
-        years_start = request.years_start or (min(known) if known else s.default_years_start)
-        years_start = min(years_start, years_end)
+        if model.years is None:
+            model.years = await self._model_years(request, model)
+        years_start, years_end = model.years
         out.dsl_query = (
             f'search publications in full_data for "{out.for_clause}" '
             f"where year in [{years_start}:{years_end}] "
@@ -1884,8 +1901,11 @@ class QueryOptimizationUseCase:
         out.ai_model_seed_clause = ai_model_seed_clause(
             seed_names, seed["flag_terms"], seed["exclude_terms"]
         )
-        out.ai_model_seed_count = await self._clause_count(out.ai_model_seed_clause)
-        out.ai_model_query_count = await self._clause_count(out.for_clause)
+        out.ai_model_seed_count = await self._clause_count(
+            out.ai_model_seed_clause, where=model.where
+        )
+        out.ai_model_query_count = await self._clause_count(out.for_clause, where=model.where)
+        out.ai_model_query_count_all_years = await self._clause_count(out.for_clause)
         if seed["model_name"].casefold() != model.name.casefold():
             notes.append(
                 f"seed: model_name is {seed['model_name']!r} because {model.name!r} is not "
@@ -1895,12 +1915,12 @@ class QueryOptimizationUseCase:
             notes.append(
                 "seed: flag terms apply to every name in the extraction pipeline, so the "
                 "safe names are sent as flag terms too; "
-                f"it finds {out.ai_model_seed_count} papers (all years)"
+                f"it finds {out.ai_model_seed_count} papers ({years_start}-{years_end})"
             )
         if out.ai_model_seed_count != out.ai_model_query_count:
             notes.append(
                 f"seed: the seed finds {out.ai_model_seed_count} papers and the selected "
-                f"query {out.ai_model_query_count} (all years); the counts differ"
+                f"query {out.ai_model_query_count} ({years_start}-{years_end}); the counts differ"
             )
         out.notes = " ".join(notes)
         return out
@@ -2371,7 +2391,10 @@ class QueryOptimizationUseCase:
                 settings=self._settings,
                 agent=self._agent,
                 dsl_runner=self._make_eval_runner(asyncio.get_running_loop()),
-                **({"entity_context": model.context} if model is not None else {}),
+                **(
+                    {"entity_context": model.context, "years": model.years}
+                    if model is not None else {}
+                ),
             )
 
             if ev.get("error"):

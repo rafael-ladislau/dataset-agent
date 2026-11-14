@@ -929,11 +929,13 @@ def evaluate_for_clause_sync(
     agent: AgentPort | None = None,
     dsl_runner: "Callable[[str], Any] | None" = None,
     entity_context: str = "",
+    years: tuple[int, int] | None = None,
 ) -> dict:
     """
     Sync candidate-DSL evaluator.
 
-    *entity_context* (AI-model runs) is passed to the mention classifier.
+    *entity_context* (AI-model runs) is passed to the mention classifier; *years*
+    ``(start, end)`` limits the pull (and ``publications_total``) to that window.
 
     When *dsl_runner* is given, every Dimensions call goes through it (the
     optimizer passes a bridge to the throttled client that also counts calls
@@ -967,9 +969,11 @@ def evaluate_for_clause_sync(
         }
 
     pull_size = min(int(settings.fp_sample_size), 1000)
+    where = f"year in [{years[0]}:{years[1]}]" if years else ""
     q = (
         f'search publications in full_data for "{for_clause}" '
-        f"return publications[basics+title+abstract+reference_ids+times_cited] "
+        + (f"where {where} " if where else "")
+        + f"return publications[basics+title+abstract+reference_ids+times_cited] "
         f"sort by times_cited limit {pull_size}"
     )
 
@@ -992,6 +996,7 @@ def evaluate_for_clause_sync(
             for_clause,
             fields="basics+title+abstract+reference_ids+times_cited",
             limit=pull_size,
+            where=where,
         )
     except Exception as exc:
         logger.warning("evaluate_for_clause_sync: main query failed: %s", exc)
