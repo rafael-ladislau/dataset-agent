@@ -69,6 +69,9 @@ def fetch_page_text(url: str | None, *, max_chars: int = 60_000) -> str:
         return ""
     try:
         r = httpx.get(url, timeout=30.0, follow_redirects=True)
+        if not r.is_success:
+            logger.warning("resource map: fetch %s returned %s", url, r.status_code)
+            return ""
         return " ".join(_TAGS.sub(" ", r.text or "").split())[:max_chars]
     except Exception as exc:
         logger.warning("resource map: fetch %s failed: %s", url, exc)
@@ -186,13 +189,16 @@ def build_map(raw: dict, *, dataset_name: str, pages: str,
 
 
 def gather_pages(dataset_name: str, home_url: str | None, *, search=None, fetch=None) -> str:
-    """The home page text plus two web searches (data access; former names)."""
+    """The home page text plus three web searches: data access, history (former and
+    parent names), first data release."""
     from dataset_agent.adapters.tools import web_search
 
     search = search or web_search
     fetch = fetch or fetch_page_text
     parts = [fetch(home_url)]
-    for q in (f"{dataset_name} data access researchers", f"{dataset_name} formerly known as"):
+    for q in (f"{dataset_name} data access researchers",
+              f"{dataset_name} history formerly known as launched by initiative",
+              f"{dataset_name} first data release to researchers year"):
         try:
             parts.append(search(q))
         except Exception as exc:  # web context is best effort

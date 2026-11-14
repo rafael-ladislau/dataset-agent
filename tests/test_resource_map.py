@@ -108,4 +108,6 @@ def test_map_for_record_asks_with_the_research_names_and_pages():
     assert m is not None and m.data_resource_names == ["Example Workbench"]
     assert "- Example Program Cohort" in agent.prompts[0] and "- Agency" in agent.prompts[0]
     pages = gather_pages("X", "http://h", search=lambda q: f"[{q}]", fetch=lambda u: f"<{u}>")
-    assert pages == "<http://h>\n[X data access researchers]\n[X formerly known as]"
+    assert pages == ("<http://h>\n[X data access researchers]\n"
+                     "[X history formerly known as launched by initiative]\n"
+                     "[X first data release to researchers year]")
