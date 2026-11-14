@@ -49,6 +49,14 @@ class IterationMetrics(BaseModel):
         default_factory=list,
         description="(publication id, used | mentioned | not_mentioned) for every evaluated paper",
     )
+    cited_only_count: Optional[int] = Field(
+        default=None,
+        description="AI models: genuine papers naming the model only in the reference list "
+        "(counted as matches); None for datasets",
+    )
+    cited_rate: Optional[float] = Field(
+        default=None, description="AI models: cited only / evaluated (0-1); None for datasets"
+    )
     error: Optional[str] = None
 
 

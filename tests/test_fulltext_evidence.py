@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+
 from dataset_agent.adapters.fulltext_evidence import (
     PubVerdict,
     attribute_terms,
@@ -198,3 +203,133 @@ def test_no_contexts_keeps_the_verdict():
 def test_flag_contexts_only_keep_the_verdict():
     ev = build_evidence({"publications": [_refpub("r", [_c("references", role="flag")])]})
     assert ev.verdicts[0].verdict == "mentioned"
+
+
+# -- AI-model verdicts (seed_type "ai_model", model task v2) -------------------
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "llm-results-model-task-v2.json"
+
+
+def load_model_task_v2() -> dict:
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+
+def _mrow(used=False, mentioned=True, quote="", match_type="llm_validation", usage_type=None):
+    return {"name": "PhaseNet", "is_mentioned": mentioned, "is_used": used, "text_quote": quote,
+            "match_type": match_type, "usage_type": usage_type}
+
+
+def _mpub(pid, rows, contexts=None, cites=1, validation_failed=False):
+    return {
+        "publication_id": pid, "doi": f"10/{pid}", "title": f"T {pid}", "citation_count": cites,
+        "fulltext": {"status": "delivered", "source": "pmc", "reason": None},
+        "analyzed": True, "validation_failed": validation_failed,
+        "validated_ai_models": rows, "category_for": [], "term_contexts": contexts or [],
+    }
+
+
+def _model_body(*pubs):
+    return {"task_id": "T", "probe": True, "seed_type": "ai_model", "publications": list(pubs)}
+
+
+def test_contract_fixture_model_evidence():
+    ev = build_evidence(load_model_task_v2())
+    assert ev.entity == "ai_model"
+    # pub.1004 is not open (sampled, not delivered); pub.1003 is an error row.
+    assert (ev.n_sampled, ev.n_delivered, ev.n_evaluated) == (4, 3, 2)
+    assert ev.n_error_rows == 1
+    used, cited = ev.verdicts
+    assert (used.publication_id, used.verdict, used.usage_type, used.cited_only) == (
+        "pub.1001", "used", "inference", False)
+    assert (cited.publication_id, cited.verdict, cited.usage_type, cited.cited_only) == (
+        "pub.1002", "mentioned", "cited", True)
+    # Owner decision: a reference-list-only model name is a mention, never overridden.
+    assert all(v.overridden_from is None for v in ev.verdicts)
+    assert ev.n_cited_only == 1
+    m = ev.metrics(0, "q", None)
+    assert m.fulltext_precision == 1.0 and m.used_rate == 0.5
+    assert m.cited_only_count == 1 and m.cited_rate == 0.5
+
+
+def test_model_references_only_paper_stays_genuine_and_counts_as_cited_only():
+    ctx = [_c("references", term="PhaseNet"), _c("references", term="PhaseNet")]
+    ev = build_evidence(_model_body(_mpub("r", [_mrow(used=True)], ctx)))
+    v = ev.verdicts[0]
+    assert v.verdict == "used" and v.genuine and v.overridden_from is None
+    # No served usage_type: the location fallback counts it as cited only.
+    assert v.cited_only is True and ev.n_cited_only == 1
+
+
+def test_same_paper_as_dataset_is_still_overridden():
+    ev = build_evidence({"publications": [_refpub("r", [_c("references"), _c("references")], used=True)]})
+    assert ev.entity == "dataset"
+    assert ev.verdicts[0].overridden_from == "used" and ev.verdicts[0].cited_only is False
+    m = ev.metrics(0, "q", None)
+    assert ev.n_cited_only is None and m.cited_only_count is None and m.cited_rate is None
+
+
+def test_model_cited_only_fallback_ignores_flag_contexts():
+    # Aurora named only in the references; GraphCast (a flag) in the body.
+    ctx = [_c("references", term="Aurora"), _c("body", role="flag", term="GraphCast")]
+    ev = build_evidence(_model_body(_mpub("r", [_mrow()], ctx)))
+    assert ev.verdicts[0].verdict == "mentioned" and ev.verdicts[0].cited_only is True
+
+
+def test_model_body_mention_is_not_cited_only():
+    ctx = [_c("references", term="PhaseNet"), _c("body", term="PhaseNet")]
+    ev = build_evidence(_model_body(_mpub("r", [_mrow()], ctx)))
+    assert ev.verdicts[0].cited_only is False
+
+
+def test_served_usage_type_wins_over_the_location_fallback():
+    ctx = [_c("references", term="PhaseNet")]
+    ev = build_evidence(_model_body(_mpub("r", [_mrow(used=True, usage_type="fine_tuning")], ctx)))
+    assert ev.verdicts[0].cited_only is False
+
+
+def test_usage_type_cited_is_a_mention():
+    ev = build_evidence(_model_body(_mpub("r", [_mrow(mentioned=False, usage_type="cited")])))
+    v = ev.verdicts[0]
+    assert v.verdict == "mentioned" and v.genuine and v.cited_only is True
+
+
+def test_empty_model_list_is_no_verdict():
+    ev = build_evidence(_model_body(_mpub("r", [])))
+    assert ev.n_delivered == 1 and ev.n_evaluated == 0
+
+
+@pytest.mark.parametrize("mt", ["validation_error", "processing_error"])
+def test_model_error_rows_are_no_verdict(mt):
+    ev = build_evidence(_model_body(_mpub("r", [_mrow(mentioned=False, match_type=mt)])))
+    assert ev.n_evaluated == 0 and ev.n_error_rows == 1
+
+
+def test_error_row_next_to_a_real_row_keeps_the_real_verdict():
+    rows = [_mrow(mentioned=False, match_type="processing_error"), _mrow(mentioned=False)]
+    ev = build_evidence(_model_body(_mpub("r", rows)))
+    assert ev.verdicts[0].verdict == "not_mentioned" and ev.n_error_rows == 0
+
+
+def test_model_not_mentioned_is_a_false_positive():
+    ev = build_evidence(_model_body(_mpub("r", [_mrow(mentioned=False, quote="phase unwrapping")])))
+    v = ev.verdicts[0]
+    assert v.verdict == "not_mentioned" and not v.genuine and v.cited_only is False
+    assert v.match_type == "llm_validation"
+
+
+def test_model_body_ignores_validated_datasets():
+    p = _mpub("r", [])
+    p["validated_datasets"] = [{"name": "X", "is_used": True, "is_mentioned": True}]
+    assert build_evidence(_model_body(p)).n_evaluated == 0
+
+
+def test_seed_type_mismatch_raises():
+    with pytest.raises(ValueError, match="seed_type"):
+        build_evidence(_model_body(), entity="dataset")
+    with pytest.raises(ValueError, match="seed_type"):
+        build_evidence({"seed_type": "dataset", "publications": []}, entity="ai_model")
+
+
+def test_explicit_model_entity_without_seed_type_reads_model_rows():
+    body = _model_body(_mpub("r", [_mrow()]))
+    del body["seed_type"]
+    assert build_evidence(body, entity="ai_model").verdicts[0].verdict == "mentioned"

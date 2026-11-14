@@ -13,6 +13,17 @@ dataset is a correct match even when it does not use it):
 * a dataset name found only in the paper's reference list is not a mention: when every
   non-flag snippet is in ``references`` and no flag snippet lies outside it, the
   verdict is ``not_mentioned`` whatever the validator said (see _references_only).
+
+AI models (body ``seed_type == "ai_model"``, model task v2) read ``validated_ai_models``
+rows instead, with these differences (owner decision: a model name found only in the
+reference list IS a mention):
+
+* no references-only override: ``overridden_from`` stays None;
+* a row with ``usage_type == "cited"`` is a mention; such papers, and genuine papers
+  whose only name snippets are in ``references`` when no ``usage_type`` is served (flag
+  snippets ignored), are counted as *cited only* (``PubVerdict.cited_only``);
+* an empty row list, or only ``validation_error`` / ``processing_error`` rows, is no
+  verdict (never ``not_mentioned``): the validator emits one row per seed.
 """
 
 from __future__ import annotations
@@ -48,6 +59,11 @@ class PubVerdict:
     categories: list[str] = field(default_factory=list)
     #: The validator's verdict when a deterministic rule replaced it, else None.
     overridden_from: str | None = None
+    #: AI models only: the deciding row's ``usage_type`` / ``match_type``.
+    usage_type: str | None = None
+    match_type: str | None = None
+    #: AI models only: a genuine paper that names the model only in its reference list.
+    cited_only: bool = False
 
     @property
     def genuine(self) -> bool:
@@ -90,6 +106,17 @@ class Evidence:
     batches: int = 0
     stop_reason: str | None = None
     budget_exhausted: bool = False
+    #: ``dataset`` or ``ai_model`` (from the body's ``seed_type``).
+    entity: str = "dataset"
+    #: Delivered, analyzed papers with no verdict because validation errored.
+    n_error_rows: int = 0
+
+    @property
+    def n_cited_only(self) -> int | None:
+        """AI models: genuine papers that cite the model only; None for datasets."""
+        if self.entity != "ai_model":
+            return None
+        return sum(1 for v in self.verdicts if v.cited_only)
 
     @property
     def shortfall_note(self) -> str | None:
@@ -118,6 +145,7 @@ class Evidence:
         n = self.n_evaluated
         used = sum(1 for v in self.verdicts if v.used)
         matched = len(self.genuine)
+        cited = self.n_cited_only
         return IterationMetrics(
             iteration=iteration,
             for_clause=for_clause,
@@ -135,6 +163,8 @@ class Evidence:
             fulltext_stop_reason=self.stop_reason,
             fulltext_budget_exhausted=self.budget_exhausted,
             papers=[(v.publication_id, v.verdict) for v in self.verdicts],
+            cited_only_count=cited,
+            cited_rate=(cited / n) if cited is not None and n else None,
         )
 
 
@@ -155,6 +185,57 @@ def _verdict_for(pub: dict[str, Any]) -> tuple[str, str] | None:
     return ("not_mentioned", str(entries[0].get("text_quote") or ""))
 
 
+_ERROR_MATCH_TYPES = frozenset({"validation_error", "processing_error"})
+
+
+@dataclass
+class _ModelVerdict:
+    verdict: str
+    quote: str
+    usage_type: str | None
+    match_type: str | None
+
+
+def _model_rows(pub: dict[str, Any]) -> list[dict]:
+    return [e for e in (pub.get("validated_ai_models") or []) if isinstance(e, dict)]
+
+
+def _is_error_row(row: dict) -> bool:
+    return row.get("match_type") in _ERROR_MATCH_TYPES
+
+
+def _model_verdict_for(pub: dict[str, Any]) -> _ModelVerdict | None:
+    """Collapse a publication's validated AI models: used > mentioned > not_mentioned.
+
+    None = no verdict: an empty list, only error rows, or rows without any judgement.
+    ``usage_type == "cited"`` is a mention (reference-list-only), never a use."""
+    rows = [r for r in _model_rows(pub) if not _is_error_row(r)]
+    if not rows:
+        return None
+    if all(r.get("is_used") is None and r.get("is_mentioned") is None and not r.get("usage_type")
+           for r in rows):
+        return None
+
+    def mk(verdict: str, r: dict) -> _ModelVerdict:
+        return _ModelVerdict(verdict, str(r.get("text_quote") or ""), r.get("usage_type"),
+                             r.get("match_type"))
+
+    for r in rows:
+        if r.get("is_used") is True and r.get("usage_type") != "cited":
+            return mk("used", r)
+    for r in rows:
+        if r.get("is_mentioned") is True or r.get("is_used") is True or r.get("usage_type") == "cited":
+            return mk("mentioned", r)
+    return mk("not_mentioned", rows[0])
+
+
+def _model_names_in_references_only(contexts: list[dict]) -> bool:
+    """AI models: at least one non-flag snippet and all of them in ``references``. Flag
+    snippets are ignored (another model named in the body says nothing about this one)."""
+    names = [c for c in contexts if c.get("role") != "flag"]
+    return bool(names) and all(c.get("part") == "references" for c in names)
+
+
 def _references_only(contexts: list[dict]) -> bool:
     """True when the paper names the dataset only in its reference list: at least one
     non-flag snippet, all non-flag snippets in ``references``, and no flag snippet
@@ -165,27 +246,73 @@ def _references_only(contexts: list[dict]) -> bool:
     return all(c.get("part") == "references" for c in contexts if c.get("role") == "flag")
 
 
-def build_evidence(results: dict[str, Any]) -> Evidence:
+_ENTITIES = ("dataset", "ai_model")
+
+
+def _entity_of(results: dict[str, Any], entity: str | None) -> str:
+    served = results.get("seed_type")
+    if served is not None and served not in _ENTITIES:
+        raise ValueError(f"unknown llm-results seed_type {served!r}")
+    if entity is not None and entity not in _ENTITIES:
+        raise ValueError(f"unknown entity {entity!r}")
+    if entity is not None and served is not None and served != entity:
+        raise ValueError(f"llm-results seed_type {served!r} does not match entity {entity!r}")
+    return entity or served or "dataset"
+
+
+def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evidence:
     """Build :class:`Evidence` from a ``GET /pipelines/{id}/llm-results`` body.
 
     The sample is every publication that has a full-text outcome; publications never
-    sent for full text are not part of it.
+    sent for full text are not part of it. The entity is the body's ``seed_type``
+    (default ``dataset``); an explicit *entity* that contradicts it raises ValueError.
     """
+    kind = _entity_of(results, entity)
     pubs = [p for p in (results.get("publications") or []) if isinstance(p, dict)]
     pubs.sort(key=lambda p: -(p.get("citation_count") or 0))
     sample = [p for p in pubs if is_attempted(p)]
-    ev = Evidence(n_sampled=len(sample))
+    ev = Evidence(n_sampled=len(sample), entity=kind)
     for p in sample:
         if not is_delivered(p):
             continue
         ev.n_delivered += 1
-        if not p.get("analyzed") or p.get("validation_failed"):
-            # Unanalyzed, or validation errored: no verdict (never not_mentioned).
+        if not p.get("analyzed"):
+            continue
+        if p.get("validation_failed"):
+            # Validation errored: no verdict (never not_mentioned).
+            ev.n_error_rows += 1
+            continue
+        contexts = [c for c in (p.get("term_contexts") or []) if isinstance(c, dict)]
+        if kind == "ai_model":
+            mv = _model_verdict_for(p)
+            if mv is None:
+                rows = _model_rows(p)
+                if rows and all(_is_error_row(r) for r in rows):
+                    ev.n_error_rows += 1
+                continue
+            cited_only = mv.verdict != "not_mentioned" and (
+                mv.usage_type == "cited" if mv.usage_type
+                else _model_names_in_references_only(contexts)
+            )
+            ev.verdicts.append(
+                PubVerdict(
+                    publication_id=str(p.get("publication_id") or ""),
+                    doi=p.get("doi"),
+                    title=str(p.get("title") or ""),
+                    citation_count=int(p.get("citation_count") or 0),
+                    verdict=mv.verdict,
+                    quote=mv.quote,
+                    contexts=contexts,
+                    categories=[c for c in (p.get("category_for") or []) if isinstance(c, str)],
+                    usage_type=mv.usage_type,
+                    match_type=mv.match_type,
+                    cited_only=cited_only,
+                )
+            )
             continue
         v = _verdict_for(p)
         if v is None:
             continue
-        contexts = [c for c in (p.get("term_contexts") or []) if isinstance(c, dict)]
         overridden_from = None
         if v[0] != "not_mentioned" and _references_only(contexts):
             overridden_from, v = v[0], ("not_mentioned", v[1])

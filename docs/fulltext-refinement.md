@@ -46,7 +46,13 @@ rejected with 422, so `seed_type` is never sent) and analyzes with
 `/pipelines/...` routes. The `llm-results` body carries `seed_type: "ai_model"` and per
 publication `validated_ai_models` rows (`name`, `is_mentioned`, `is_used`, `text_quote`,
 `match_type`, `usage_type`); the shared example is
-`tests/fixtures/llm-results-model-task-v2.json`.
+`tests/fixtures/llm-results-model-task-v2.json`. `build_evidence` reads these rows when
+`seed_type` is `ai_model`: an empty list or only `validation_error` / `processing_error`
+rows is no verdict; `usage_type: "cited"` is a mention. The references-only override below
+does not apply to models (a model name found only in the reference list is a mention);
+such papers are counted as `cited_only_count` / `cited_rate` in the iteration metrics
+(null for datasets). Without a served `usage_type`, a genuine model paper whose name
+snippets are all in `references` is counted as cited only; flag snippets are ignored.
 
 When fewer than the target papers have full text, the iteration notes and the proposal
 say so (for example `18/30 papers with full text (pool_exhausted; 212 attempted in 8
