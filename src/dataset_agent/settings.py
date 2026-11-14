@@ -332,6 +332,10 @@ class Settings(BaseSettings):
     #: each removing at most this share of the current result.
     ai_model_refine_max_excludes: int = Field(default=3, ge=0, le=10)
     ai_model_refine_exclude_max_share: float = Field(default=0.02, ge=0.0, le=1.0)
+    #: When a false-positive name is in the reference set, its excludes are validated
+    #: against the reference without that name if it holds at least this many papers
+    #: (then the result share cap above does not apply).
+    ai_model_refine_reference_min_papers: int = Field(default=10, ge=1)
     refine_max_new_aliases: int = Field(default=3, ge=0, le=10)
     #: Min false-positive papers an exclude must occur in (title or full-text snippet).
     refine_min_exclude_papers: int = Field(default=2, ge=1)

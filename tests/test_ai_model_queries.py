@@ -638,6 +638,74 @@ PHASENET_FP = {
 }
 
 
+def _namesake_docs(*, titled: int = 50, phrase_in_titled: int = 0) -> list[str]:
+    """100 PhaseNet papers: *titled* quote the model paper (half carry it as their own
+    title), 15 are the video namesake, the rest use PhaseNet without quoting it."""
+    own = titled // 2
+    cites = titled - own - phrase_in_titled
+    return (
+        [f"{PHASENET_TITLE} || PhaseNet picks P and S waves y2019"] * own
+        + ["We pick arrivals with PhaseNet. Ref: " + PHASENET_TITLE] * cites
+        + ["PhaseNet picks arrivals; unlike frame interpolation. Ref: " + PHASENET_TITLE]
+        * phrase_in_titled
+        + ["PhaseNet for video frame interpolation"] * 15
+        + ["Arrival picking with PhaseNet on DAS data."] * (85 - titled)
+    )
+
+
+NAMESAKE_FP = {
+    "fp_rate_pct": 25.0, "fp_count": 3, "genuine_by_alias": {"PhaseNet": 9},
+    "fp_hits": [{"matched_alias": "PhaseNet", "snippet": "PhaseNet for video frame interpolation"}] * 3,
+}
+
+
+def _namesake_run(tmp_path, patched, docs):
+    patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
+    patched.eval = _fake_eval([NAMESAKE_FP])
+    llm = dict(PHASENET_LLM, paper_titles=[], exclude_terms=["frame interpolation"])
+    return _run(
+        tmp_path, docs, llm,
+        OptimizeRequest(dataset_name="PhaseNet", entity_type="ai_model", hugging_face_id="x/phasenet"),
+        ai_model_plain_word_max_safe_hits=20_000, ai_model_max_mined_context_terms=0,
+    )
+
+
+def test_refine_exclude_is_validated_against_papers_that_do_not_need_the_name(tmp_path, patched) -> None:
+    """The false-positive name is itself in the reference set: the exclude is checked
+    against the paper titles alone (50 papers), removes none of them and 15% of the
+    query, and is accepted without the share cap on the result."""
+    out, _dsl, _agent = _namesake_run(tmp_path, patched, _namesake_docs())
+
+    assert out.success, out.errors
+    excl = _decision(out, "frame interpolation", "exclude")
+    assert excl.decision == "exclude", excl.reason
+    assert excl.stats["precise_matches"] == 50 and excl.stats["precise_matches_removed"] == 0
+    assert excl.stats["removed"] == 15
+    assert out.exclusion_terms == ["frame interpolation"]
+    assert out.aliases.safe == ["PhaseNet"] and out.selected_variant == "V4~gate1"
+    assert out.ai_model_seed is not None and out.ai_model_seed["exclude_terms"] == ["frame interpolation"]
+    assert out.ai_model_seed_count == out.ai_model_query_count == 85
+
+
+def test_refine_exclude_that_removes_title_citing_papers_is_rejected(tmp_path, patched) -> None:
+    out, _dsl, _agent = _namesake_run(tmp_path, patched, _namesake_docs(phrase_in_titled=3))
+
+    excl = _decision(out, "frame interpolation", "exclude")
+    assert excl.decision == "rejected"
+    assert "would remove 3 of 50 precise matches (6%)" in excl.reason
+    assert out.exclusion_terms == []
+
+
+def test_refine_exclude_keeps_the_old_check_when_the_reference_without_the_name_is_small(
+    tmp_path, patched
+) -> None:
+    out, _dsl, _agent = _namesake_run(tmp_path, patched, _namesake_docs(titled=9))
+
+    excl = _decision(out, "frame interpolation", "exclude")
+    assert excl.decision == "rejected"
+    assert "would remove 15 of 100 precise matches" in excl.reason
+
+
 def test_coined_name_failing_the_abstract_check_is_regated_with_a_reserve_flag(tmp_path, patched) -> None:
     """The coined name is safe (20% title share), so nothing is gated, yet its flags are
     measured and held in reserve. 60% false positives in the last iteration re-gate it

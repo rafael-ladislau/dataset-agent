@@ -232,6 +232,10 @@ class _ModelRun:
     #: OR group of paper titles and safe names: papers that certainly refer to the model.
     reference_clause: str = ""
     reference_count: int = 0
+    #: The safe names in the reference set (the titles are ``anchors``).
+    reference_names: list[str] = dataclasses.field(default_factory=list)
+    #: Hits of reference clauses already counted (each is counted once).
+    clause_counts: dict[str, int | None] = dataclasses.field(default_factory=dict)
     decisions: list[TermDecision] = dataclasses.field(default_factory=list)
     #: Anchor paper titles, and the first publication year of those already known
     #: (from the top-cited pull), keyed by the punctuation-folded title.
@@ -858,23 +862,40 @@ class QueryOptimizationUseCase:
                 raise
             return None
 
-    async def _model_exclude_check(self, model: _ModelRun, term: str) -> tuple[bool, str, dict]:
+    async def _model_exclude_check(
+        self, model: _ModelRun, term: str, reference: tuple[str, int] | None = None
+    ) -> tuple[bool, str, dict]:
         """An exclude is kept only when it removes (almost) none of the papers that
-        certainly refer to the model."""
-        if not model.reference_clause or model.reference_count <= 0:
+        certainly refer to the model; *reference* ``(clause, count)`` replaces the
+        model's reference set."""
+        ref_clause, ref_count = reference or (model.reference_clause, model.reference_count)
+        if not ref_clause or ref_count <= 0:
             return False, "no precise name or paper title to validate it against", {}
-        hit = await self._clause_count(f"{model.reference_clause} AND {_or_group([term])}")
+        hit = await self._clause_count(f"{ref_clause} AND {_or_group([term])}")
         if hit is None:
             return False, "not measured (Dimensions call budget or unparseable term)", {}
-        loss = hit / model.reference_count
-        stats = {"precise_matches_removed": hit, "precise_matches": model.reference_count}
+        loss = hit / ref_count
+        stats = {"precise_matches_removed": hit, "precise_matches": ref_count}
         if loss > self._settings.ai_model_exclude_max_anchor_loss:
             return (
                 False,
-                f"would remove {hit} of {model.reference_count} precise matches ({loss:.0%})",
+                f"would remove {hit} of {ref_count} precise matches ({loss:.0%})",
                 stats,
             )
-        return True, f"removes {hit} of {model.reference_count} precise matches ({loss:.1%})", stats
+        return True, f"removes {hit} of {ref_count} precise matches ({loss:.1%})", stats
+
+    async def _reference_without(self, model: _ModelRun, names: set[str]) -> tuple[str, int, str]:
+        """``(clause, count, label)`` of the papers that certainly refer to the model
+        without depending on *names* (casefolded): the paper titles plus the safe names
+        that contain none of them. Each clause is counted once."""
+        terms = dedupe_strings_ci_preserve_order(model.anchors + [
+            n for n in model.reference_names if not any(contains_word(n, a) for a in names)
+        ])
+        clause = _or_group(terms) if terms else ""
+        if clause and clause not in model.clause_counts:
+            model.clause_counts[clause] = await self._clause_count(clause)
+        count = model.clause_counts.get(clause) or 0 if clause else 0
+        return clause, count, f"precise matches without {sorted(names)}"
 
     async def _model_title_check(
         self, model: _ModelRun, title: str, bases: list[str], snippet: str = ""
@@ -1041,15 +1062,26 @@ class QueryOptimizationUseCase:
     ) -> tuple[list[str], list[str], list[str], list[str]] | None:
         """One refinement step from the abstract check's false positives.
 
-        A safe name with two or more false positives, and no more genuine mentions than
-        false ones, stops being safe: it becomes flag-gated when it is the model's own
-        name and flags (or measured reserve flags) exist. An own base name is never
-        dropped: with no flag to gate it, it is kept and the seed is withheld. Other
-        names are dropped. "X model" forms follow their base name. An exclude phrase the LLM derives from the false positives is kept only
-        if it occurs in one of their snippets, passes ``_model_exclude_check`` and removes
-        a small part of the current result (a phrase that removes much is describing the
-        topic, not the false positive). Returns ``(safe, risky, flags, excludes)``, or ``None``
-        when nothing changes."""
+        Excludes come first. An exclude phrase the LLM derives from the false positives
+        is kept only if it occurs in one of their snippets and passes
+        ``_model_exclude_check``. When a name whose false positives contain the phrase
+        is itself in the reference set, the check uses the papers that do not depend
+        on that name (``_reference_without``): with at least
+        ``ai_model_refine_reference_min_papers`` of them, the exclude is accepted when
+        it removes at most ``ai_model_exclude_max_anchor_loss`` of them and something
+        from the query. Otherwise the phrase must also remove only a small part of the
+        current result (a phrase that removes much describes the topic, not the false
+        positive).
+
+        Then names. A safe name with two or more false positives, and no more genuine
+        mentions than false ones, stops being safe: it becomes flag-gated when it is the
+        model's own name and flags (or measured reserve flags) exist. An own base name
+        is never dropped: with no flag to gate it, it is kept and the seed is withheld.
+        Other names are dropped. "X model" forms follow their base name. When an exclude
+        was accepted in this step, own names are not re-gated in it: the next abstract
+        check judges the excluded query first.
+
+        Returns ``(safe, risky, flags, excludes)``, or ``None`` when nothing changes."""
         fp_hits = [h for h in (ev.get("fp_hits") or []) if isinstance(h, dict)]
         if not fp_hits:
             return None
@@ -1062,10 +1094,82 @@ class QueryOptimizationUseCase:
             for k, v in (ev.get("genuine_by_alias") or {}).items()
             if isinstance(v, int)
         }
+        changed = False
+
+        # 1. Excludes.
+        try:
+            suggested = await asyncio.to_thread(
+                derive_exclude_terms_from_fps,
+                self._agent,
+                dataset_name=model.name,
+                fp_hits=fp_hits,
+            )
+        except Exception as exc:  # the LLM step is best effort
+            logger.warning("model refine: exclude derivation failed: %s", exc)
+            suggested = []
+        s = self._settings
+        new_excl = list(excludes)
+        taken = {t.casefold() for t in [*excludes, *flags, *model.names]}
+        tried = {d.term.casefold() for d in model.decisions if d.kind == "exclude"}
+        snippets = " ".join(str(h.get("snippet") or "") for h in fp_hits).casefold()
+        in_reference = {n.casefold() for n in model.reference_names}
+        total = int(ev.get("publications_total") or 0)
+        max_removed = max(1, int(total * s.ai_model_refine_exclude_max_share))
+        added = 0
+        for term in suggested[: s.ai_model_max_exclude_terms]:
+            key = term.casefold()
+            if key in taken or key in tried or is_short_acronym(term):
+                continue
+            tried.add(key)
+            if added >= s.ai_model_refine_max_excludes:
+                break
+            if key not in snippets:
+                model.decide(term, "exclude", "rejected",
+                             "from abstract false positives; not a phrase of any of them")
+                continue
+            # Names whose false positives hold the phrase and that vouch for the
+            # reference set themselves: measuring against them would be circular.
+            refined = {
+                str(h.get("matched_alias") or "").casefold() for h in fp_hits
+                if key in str(h.get("snippet") or "").casefold()
+            } & in_reference
+            reference: tuple[str, int] | None = None
+            if refined:
+                clause, count, _label = await self._reference_without(model, refined)
+                if count >= s.ai_model_refine_reference_min_papers:
+                    reference = (clause, count)
+            ok, reason, stats = await self._model_exclude_check(model, term, reference)
+            if reference is not None:
+                stats["reference_without"] = sorted(refined)
+            if ok and for_clause:
+                removed = await self._clause_count(f"({for_clause}) AND {_or_group([term])}")
+                stats["removed"] = removed
+                if removed is None:
+                    ok, reason = False, "effect not measured"
+                elif removed == 0:
+                    ok, reason = False, "removes nothing from the query"
+                elif reference is None and removed > max_removed:
+                    ok = False
+                    reason = (
+                        f"would remove {removed} of {total} results: too broad for a phrase "
+                        "taken from a few false positives"
+                    )
+                elif reference is not None:
+                    reason += f" without {sorted(refined)}; removes {removed} of {total} results"
+            added += 1 if ok else 0
+            model.decide(
+                term, "exclude", "exclude" if ok else "rejected",
+                f"from abstract false positives; {reason}", **stats,
+            )
+            if ok:
+                new_excl.append(term)
+                changed = True
+        exclude_accepted = added > 0
+
+        # 2. Names.
         new_safe: list[str] = []
         new_risky = list(risky)
         new_flags = list(flags)
-        changed = False
         regated: set[str] = set()
 
         def _base_of(alias: str) -> str | None:
@@ -1081,7 +1185,13 @@ class QueryOptimizationUseCase:
             if n_fp < 2 or n_fp < genuine.get(key, 0):
                 new_safe.append(alias)
                 continue
-            if key in model.own_keys and (new_flags or model.reserve_flags):
+            if key in model.own_keys and exclude_accepted:
+                new_safe.append(alias)
+                notes_parts.append(
+                    f"gate_iter{iteration}: {alias!r} not re-gated: an exclude was accepted "
+                    "first, the next abstract check judges it"
+                )
+            elif key in model.own_keys and (new_flags or model.reserve_flags):
                 changed = True
                 regated.add(key)
                 new_risky.append(alias)
@@ -1120,55 +1230,6 @@ class QueryOptimizationUseCase:
                 new_risky.append(alias)
             else:
                 new_safe.append(alias)
-        try:
-            suggested = await asyncio.to_thread(
-                derive_exclude_terms_from_fps,
-                self._agent,
-                dataset_name=model.name,
-                fp_hits=fp_hits,
-            )
-        except Exception as exc:  # the LLM step is best effort
-            logger.warning("model refine: exclude derivation failed: %s", exc)
-            suggested = []
-        new_excl = list(excludes)
-        taken = {t.casefold() for t in [*excludes, *flags, *model.names]}
-        tried = {d.term.casefold() for d in model.decisions if d.kind == "exclude"}
-        snippets = " ".join(str(h.get("snippet") or "") for h in fp_hits).casefold()
-        total = int(ev.get("publications_total") or 0)
-        max_removed = max(1, int(total * self._settings.ai_model_refine_exclude_max_share))
-        added = 0
-        for term in suggested[: self._settings.ai_model_max_exclude_terms]:
-            key = term.casefold()
-            if key in taken or key in tried or is_short_acronym(term):
-                continue
-            tried.add(key)
-            if added >= self._settings.ai_model_refine_max_excludes:
-                break
-            if key not in snippets:
-                model.decide(term, "exclude", "rejected",
-                             "from abstract false positives; not a phrase of any of them")
-                continue
-            ok, reason, stats = await self._model_exclude_check(model, term)
-            if ok and for_clause:
-                removed = await self._clause_count(f"({for_clause}) AND {_or_group([term])}")
-                stats["removed"] = removed
-                if removed is None or removed > max_removed:
-                    ok = False
-                    reason = (
-                        f"would remove {removed} of {total} results: too broad for a phrase "
-                        "taken from a few false positives"
-                        if removed is not None else "effect not measured"
-                    )
-                elif removed == 0:
-                    ok, reason = False, "removes nothing from the query"
-            added += 1 if ok else 0
-            model.decide(
-                term, "exclude", "exclude" if ok else "rejected",
-                f"from abstract false positives; {reason}", **stats,
-            )
-            if ok:
-                new_excl.append(term)
-                changed = True
         if not changed:
             return None
         return new_safe, dedupe_strings_ci_preserve_order(new_risky), new_flags, new_excl
@@ -1400,6 +1461,7 @@ class QueryOptimizationUseCase:
 
             # 3. Reference set: papers that certainly refer to the model.
             reference = dedupe_strings_ci_preserve_order(titles + safe)
+            model.reference_names = list(safe)
             model.reference_clause = q(*reference) if reference else ""
             model.reference_count = (
                 await self._clause_count(model.reference_clause) or 0 if reference else 0
