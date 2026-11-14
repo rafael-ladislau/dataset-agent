@@ -1327,6 +1327,11 @@ class QueryOptimizationUseCase:
             gate: list[tuple[str, int, str]] = []
             counts: dict[str, int] = {}
             for nm, _kind in cands.names:
+                follows = next((b for b in base_keys
+                                if nm.casefold() in (f"{b} model", f"{b} foundation model")), None)
+                if follows and follows not in {g.casefold() for g, _c, _r in gate}:
+                    # "X model" adds papers only when the bare name is not searched alone.
+                    continue
                 both: int | None = None
                 c = await self._clause_count(q(nm))
                 if c is None:
@@ -1384,6 +1389,18 @@ class QueryOptimizationUseCase:
             model.reference_count = (
                 await self._clause_count(model.reference_clause) or 0 if reference else 0
             )
+            # A safe name containing another safe name adds no papers to the query.
+            covered: set[str] = set()
+            for a in safe:
+                cover = next((b for b in safe
+                              if b.casefold() != a.casefold() and contains_word(a, b)), None)
+                if cover:
+                    covered.add(a)
+                    d = next(d for d in model.decisions if d.kind == "alias" and d.term == a)
+                    d.decision = "rejected"
+                    d.reason += (f"; covered by {cover!r}: kept in the reference set, left out "
+                                 "of the query")
+            safe = [a for a in safe if a not in covered]
 
             # 4. Excludes (other meanings of the name).
             excludes: list[str] = []

@@ -233,6 +233,8 @@ def test_aurora_decisions_explain_every_term(tmp_path, patched) -> None:
     assert aurora.decision == "gated" and aurora.count == 515
     assert "single word with 515 hits" in aurora.reason and "context flag" in aurora.reason
     assert _decision(out, "Microsoft Aurora").decision == "safe"
+    # The bare name is gated, so its "model" forms are counted.
+    assert _decision(out, "Aurora foundation model").decision == "safe"
     assert _decision(out, "Aurora model").decision == "rejected"
     assert "covered by flag-gated 'Aurora'" in _decision(out, "Aurora model").reason
     assert _decision(out, "Aurora AI").reason == "0 Dimensions hits"
@@ -695,6 +697,16 @@ def test_year_window_ignores_anchors_that_do_not_name_the_model(tmp_path, patche
     assert "where year in [2023:" in out.dsl_query
 
 
+def test_hub_repo_id_is_not_a_name_candidate() -> None:
+    hub = HubEvidence(hugging_face_id="ibm-nasa-geospatial/Prithvi-WxC-1.0-2300M", found=True)
+    c = assemble_candidates(
+        model_name="Prithvi WxC", family=None, given_aliases=[], hub=hub, llm={},
+        max_names=14, max_context=12, max_excludes=8,
+    )
+    every = [n for n, _k in c.names] + [t for _k, t, _r in c.rejected]
+    assert "Prithvi-WxC-1.0-2300M" not in every
+
+
 def test_assemble_candidates_orders_and_caps_titles() -> None:
     hub = HubEvidence(paper_titles=["A Geometric Approach to Weather Forecasting", "FourCastNet 3: A Geometric Approach"])
     llm = {"paper_titles": [
@@ -764,13 +776,22 @@ def test_coined_name_is_safe_without_flags(tmp_path, patched) -> None:
     )
 
     assert out.success, out.errors
-    assert out.aliases.safe == ["FourCastNet", "FourCastNet3", "FourCastNet 3"]
+    # "FourCastNet 3" is covered by the safe "FourCastNet": measured, kept in the
+    # reference set, left out of the query and the seed.
+    assert out.aliases.safe == ["FourCastNet", "FourCastNet3"]
+    covered = _decision(out, "FourCastNet 3", "alias")
+    assert covered.decision == "rejected" and "covered by 'FourCastNet'" in covered.reason
+    assert any('"FourCastNet3" OR "FourCastNet 3"' in c for c in dsl.clauses)
     assert out.aliases.risky == [] and out.flag_terms == []
     assert _decision(out, "GraphCast", "flag").reason == "not needed: no name requires gating"
     assert out.ai_model_seed["model_name"] == "FourCastNet"
-    assert out.ai_model_seed["model_aliases"] == ["FourCastNet3", "FourCastNet 3"]
+    assert out.ai_model_seed["model_aliases"] == ["FourCastNet3"]
     assert out.ai_model_seed["flag_terms"] == []
     assert out.ai_model_seed_count == 60
+    # The bare name is safe: its "model" forms cannot add papers and are not counted.
+    terms = {d.term for d in out.term_decisions}
+    assert "FourCastNet model" not in terms and "FourCastNet foundation model" not in terms
+    assert "NVIDIA FourCastNet" in terms
 
 
 def test_coined_family_name_with_a_partial_title_share_is_safe(tmp_path, patched) -> None:

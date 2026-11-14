@@ -573,8 +573,6 @@ def assemble_candidates(
                 "family", "version", "checkpoint", "qualified", "former"
             ) else "version"
             names.append((item["name"], str(kind)))
-    if hub.hugging_face_id and hub.found:
-        names.append((hub.hugging_face_id.split("/", 1)[1], "checkpoint"))
 
     seen: set[str] = set()
     #: Dimensions folds punctuation: "PhaseNet+" and "PhaseNet" are one search.
