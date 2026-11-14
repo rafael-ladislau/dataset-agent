@@ -2253,16 +2253,22 @@ class QueryOptimizationUseCase:
                     elif prec >= self._settings.fulltext_recall_min_precision:
                         confidence = ConfidenceLevel.MEDIUM
                 if confidence == ConfidenceLevel.HIGH:
-                    # HIGH needs more than a precise sample: a sample cut short by an exhausted
-                    # pool, or a precise addition the recall check could not make, caps it.
+                    # HIGH needs more than a precise sample: a sample cut short of its paper
+                    # target for any reason (exhausted pool, batch cap, budget), or a precise
+                    # addition the recall check could not make, caps it.
                     capped = False
                     if (
-                        sel.fulltext_stop_reason == STOP_POOL_EXHAUSTED
-                        and sel.fulltext_target is not None
+                        sel.fulltext_target is not None
                         and sel.n_fulltext_delivered < sel.fulltext_target
                     ):
+                        why = (
+                            "the probe pool was exhausted"
+                            if sel.fulltext_stop_reason == STOP_POOL_EXHAUSTED
+                            else "the probe stopped below its paper target"
+                            f" ({sel.fulltext_stop_reason or 'stopped'})"
+                        )
                         notes_parts.append(
-                            "confidence capped at MEDIUM: the probe pool was exhausted "
+                            f"confidence capped at MEDIUM: {why} "
                             f"({sel.n_fulltext_delivered} of {sel.fulltext_target} papers)"
                         )
                         capped = True

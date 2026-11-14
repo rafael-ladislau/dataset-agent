@@ -394,7 +394,8 @@ def test_confidence_follows_low_fulltext_precision(tmp_path, _zero_abstract_fp):
 
 def test_confidence_high_when_fulltext_precision_meets_threshold(tmp_path, _zero_abstract_fp):
     good = [pub(f"g{i}", 50 - i, True, "My Long Dataset Alpha data") for i in range(10)]
-    out = asyncio.run(_ft_uc(tmp_path, [{"publications": good}]).execute(REQ))
+    out = asyncio.run(_ft_uc(tmp_path, [{"publications": good}],
+                             fulltext_target_delivered=10).execute(REQ))
     assert out.confidence.value == "high"
 
 
@@ -409,7 +410,8 @@ def test_confidence_ignores_the_abstract_rate_in_fulltext_mode(tmp_path, monkeyp
                          "total_pubs": 100, "coverage_pct": 100.0, "for_clause": k.get("for_clause", ""),
                          "publications_total": 100, "fp_hits": []},
     )
-    out = asyncio.run(_ft_uc(tmp_path, [{"publications": _probe_of(10, 10)}]).execute(REQ))
+    out = asyncio.run(_ft_uc(tmp_path, [{"publications": _probe_of(10, 10)}],
+                             fulltext_target_delivered=10).execute(REQ))
     assert out.confidence.value == "high"
 
 
@@ -672,8 +674,25 @@ def test_confidence_capped_at_medium_when_the_probe_pool_was_exhausted(tmp_path,
     assert any("probe pool was exhausted" in n for n in out.proposal.notes)
 
 
-def test_confidence_stays_high_when_the_probe_stopped_for_another_reason(tmp_path, _zero_abstract_fp):
+def test_confidence_capped_at_medium_when_the_probe_stopped_below_target_for_another_reason(
+    tmp_path, _zero_abstract_fp
+):
+    # 16 of 30 is the same weak evidence whatever the stop reason.
     out = asyncio.run(_ft_uc_pool(tmp_path, "max_batches").execute(REQ))
+    assert out.confidence.value == "medium"
+    assert ("confidence capped at MEDIUM: the probe stopped below its paper target (max_batches) "
+            "(16 of 30 papers)") in str(out.notes)
+
+
+def test_confidence_stays_high_when_the_probe_met_its_target(tmp_path, _zero_abstract_fp):
+    llm = MagicMock()
+    llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "reasoning": ""}
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=llm,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True, optimize_max_iterations=1),
+        extraction_client=FakeClient([{"publications": _probe_of(30, 30)}], stop_reason="target_met"))
+    out = asyncio.run(uc.execute(REQ))
+    assert out.fulltext_iterations[0].n_evaluated == 30
     assert out.confidence.value == "high"
     assert "confidence capped" not in str(out.notes)
 
@@ -729,7 +748,8 @@ def test_recall_reprobes_once_and_rejects_when_the_bound_still_fails(tmp_path):
 
 def test_confidence_stays_high_when_recall_rejects_on_point_precision(tmp_path):
     out, _, _ = run_recall(tmp_path, [{"publications": gate_pubs(10)},
-                                      {"publications": comp_pubs(PROGRAM, 10, 5)}])
+                                      {"publications": comp_pubs(PROGRAM, 10, 5)}],
+                           request_settings=dict(fulltext_target_delivered=10))
     assert "rejected: complement precision 0.50" in out.notes
     assert out.confidence.value == "high"
     assert "confidence capped" not in out.notes
@@ -823,7 +843,8 @@ def test_recall_caps_confidence(tmp_path, monkeypatch):
     assert PROGRAM in low.aliases.safe and low.confidence.value == "medium"
     high, _, _ = run_recall(tmp_path, [{"publications": gate_pubs(10)},
                                        {"publications": comp_pubs(PROGRAM, 20, 20)}],
-                            request_settings=dict(fulltext_recall_max_candidates=1))
+                            request_settings=dict(fulltext_recall_max_candidates=1,
+                                                  fulltext_target_delivered=10))
     assert PROGRAM in high.aliases.safe and high.confidence.value == "high"
 
 
