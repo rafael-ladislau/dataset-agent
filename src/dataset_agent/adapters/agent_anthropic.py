@@ -49,6 +49,9 @@ class AnthropicAgent(AgentPort):
         timeout_seconds: int = 120,
         http_client: Any | None = None,
         max_retries: int | None = None,
+        thinking_budget: int = 0,
+        top_p: float | None = None,
+        top_k: int | None = None,
     ):
         self._model_name = model_name
         self._base_url = base_url.rstrip("/")
@@ -59,6 +62,11 @@ class AnthropicAgent(AgentPort):
         self._timeout_seconds = timeout_seconds
         self._http_client = http_client
         self._max_retries = max_retries
+        #: > 0 asks for Anthropic ``thinking`` on structured calls (forced tools are
+        #: then replaced by ``auto``, which the API requires with thinking).
+        self._thinking_budget = max(0, int(thinking_budget))
+        self._top_p = top_p
+        self._top_k = top_k
         self._client: Anthropic | None = None
         #: Number of ``get_structured`` calls that got no schema-valid tool call
         #: (the result was a coerced near-miss or ``{}``).
@@ -93,7 +101,12 @@ class AnthropicAgent(AgentPort):
         ``anthropic`` SDK release, so it goes through ``extra_body``; the
         request payload is the same.
         """
-        return {"temperature": self._temperature}
+        body: dict[str, Any] = {"temperature": self._temperature}
+        if self._top_p is not None:
+            body["top_p"] = self._top_p
+        if self._top_k is not None:
+            body["top_k"] = self._top_k
+        return body
 
     # ------------------------------------------------------------------
     # Tool-calling agentic loop
@@ -257,15 +270,23 @@ class AnthropicAgent(AgentPort):
         error = ""
         near_miss: dict | None = None
         for attempt in (1, 2):
+            think: dict[str, Any] = {}
+            tool_choice: dict[str, Any] = {"type": "tool", "name": tool_name}
+            max_tokens = self._max_tokens
+            if self._thinking_budget:
+                think["thinking"] = {"type": "enabled", "budget_tokens": self._thinking_budget}
+                tool_choice = {"type": "auto"}
+                max_tokens += self._thinking_budget
             try:
                 response = client.messages.create(
                     model=self._model_name,
-                    max_tokens=self._max_tokens,
+                    max_tokens=max_tokens,
                     extra_body=self._sampling_body(),
                     system=SYSTEM_PROMPT,
                     tools=[result_tool],
-                    tool_choice={"type": "tool", "name": tool_name},
+                    tool_choice=tool_choice,
                     messages=[{"role": "user", "content": attempt_prompt}],
+                    **think,
                 )
             except Exception:
                 logger.exception("get_structured failed (tool=%s)", tool_name)

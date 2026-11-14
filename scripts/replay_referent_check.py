@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from itertools import combinations
 from pathlib import Path
 from typing import Any
@@ -74,6 +75,7 @@ def replay_once(rows: list[dict], labels: dict, *, agent: Any, model_name: str, 
         "raw_precision": ev.raw_precision,
         "corrected_precision": ev.corrected_precision,
         "label_precision": len(same) / len(rows) if rows else None,
+        "n_checked": res.n_checked,
         "confirmed_by_anchor": res.n_confirmed_by_anchor,
         "rejected": res.n_rejected,
         "unclear": res.n_unclear,
@@ -126,15 +128,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("labels", help="label file (JSON)")
     ap.add_argument("--set", action="append", dest="sets", help="label set(s) to replay")
     ap.add_argument("--replays", type=int, default=3)
-    ap.add_argument("--votes", type=int, default=3)
+    ap.add_argument("--votes", type=int, default=None,
+                    help="asks per paper (default: the referent_votes setting)")
     ap.add_argument("--min-agreement", type=float, default=0.90)
     ap.add_argument("--max-failed-share", type=float, default=0.05)
     args = ap.parse_args(argv)
 
-    from dataset_agent.bootstrap import _build_agent
+    from dataset_agent.bootstrap import build_referent_agent
     from dataset_agent.settings import Settings
 
-    agent = _build_agent(Settings())
+    settings = Settings()
+    agent = build_referent_agent(settings)
+    votes = args.votes or settings.referent_votes
     all_labels = json.loads(Path(args.labels).read_text(encoding="utf-8"))
     report: dict[str, Any] = {}
     for name in args.sets or list(all_labels):
@@ -144,13 +149,20 @@ def main(argv: list[str] | None = None) -> int:
         profile = model_profile(lab["description"], anchors)
         runs = []
         for i in range(args.replays):
+            t0 = time.monotonic()
             runs.append(replay_once(rows, lab, agent=agent, model_name=lab["model_name"],
                                     profile=profile, anchor_titles=[t for t, _y in anchors],
-                                    votes=args.votes))
+                                    votes=votes))
+            elapsed = time.monotonic() - t0
+            runs[-1]["seconds"] = round(elapsed, 1)
+            runs[-1]["seconds_per_paper"] = (
+                round(elapsed / runs[-1]["n_checked"], 2) if runs[-1]["n_checked"] else None
+            )
             print(f"{name} replay {i + 1}: " + json.dumps(
                 {k: v for k, v in runs[-1].items() if k not in ("decisions", "votes")}),
                 file=sys.stderr, flush=True)
-        report[name] = {"profile": profile, "replays": runs,
+        report[name] = {"profile": profile, "votes": votes,
+                        "thinking_budget": settings.referent_thinking_budget, "replays": runs,
                         **summarize_replays(runs, min_agreement=args.min_agreement,
                                             max_failed_share=args.max_failed_share)}
     print(json.dumps(report, indent=2, ensure_ascii=False))

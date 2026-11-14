@@ -30,6 +30,28 @@ def _build_agent(settings: Settings) -> AgentPort:
     )
 
 
+def build_referent_agent(settings: Settings) -> AgentPort:
+    """The agent for the full-text referent question: the main agent, unless
+    ``referent_thinking_budget`` asks for thinking on that question only."""
+    if not settings.referent_thinking_budget:
+        return _build_agent(settings)
+    endpoint = settings.llm_endpoint()
+    if endpoint.api_style != "anthropic":
+        raise ValueError("referent_thinking_budget needs the anthropic API style")
+    return AnthropicAgent(
+        model_name=endpoint.model,
+        base_url=endpoint.base_url,
+        api_key=endpoint.api_key,
+        max_tokens=settings.llm_max_tokens,
+        max_iterations=settings.agent_max_iterations,
+        timeout_seconds=settings.agent_timeout_seconds,
+        temperature=0.6 if settings.referent_temperature is None else settings.referent_temperature,
+        thinking_budget=settings.referent_thinking_budget,
+        top_p=settings.referent_top_p,
+        top_k=settings.referent_top_k,
+    )
+
+
 def _shared_dsl(settings: Settings) -> AsyncThrottledDimensionsDsl:
     return AsyncThrottledDimensionsDsl(settings)
 

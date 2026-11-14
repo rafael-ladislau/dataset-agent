@@ -307,6 +307,14 @@ class Settings(BaseSettings):
     #: re-gated: an anchor title that names the model, or a card title passing the
     #: name-share check above. It never gates a name that is safe.
     ai_model_title_flag_enabled: bool = True
+    #: Full-text referent check (AI models): votes per paper, and thinking for that
+    #: question only (0 = off; needs the Anthropic API style). Every other LLM step
+    #: keeps the main agent's settings.
+    referent_votes: int = Field(default=3, ge=1, le=9)
+    referent_thinking_budget: int = Field(default=0, ge=0)
+    referent_temperature: float | None = None
+    referent_top_p: float | None = None
+    referent_top_k: int | None = None
     #: A context term gates an ambiguous name only if at least this share of the papers
     #: it admits ("<name>" AND "<term>") already match a precise name or paper title.
     ai_model_flag_min_anchor_precision: float = Field(default=0.5, ge=0.0, le=1.0)
