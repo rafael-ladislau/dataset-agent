@@ -135,6 +135,28 @@ def _alias_risk_label(c_alias: int, c_full: int, has_full_name: bool) -> Literal
     return "safe"
 
 
+def _big_addition_notes(recall_diffs: list[TermDiff], final_count: int | None) -> list[str]:
+    """One note per recall promotion that is more than half of the final count: its share of
+    the final count and its usage rate in the recall probe. The final query is not
+    re-measured after a promotion, so this term's papers dominate an unmeasured result."""
+    if not final_count:
+        return []
+    out = []
+    for d in recall_diffs:
+        st = d.stats or {}
+        added = int(st.get("added_hits") or 0)
+        if added * 2 <= final_count:
+            continue
+        n = int(st.get("n_evaluated") or 0)
+        used = int(st.get("used") or 0)
+        usage = f"{used} of {n} recall-probe papers use the data ({used / n:.2f})" if n else "usage unknown"
+        out.append(
+            f"recall check: big addition '{d.term}' is {100.0 * added / final_count:.0f}% of the "
+            f"final count (+{added} of {final_count} hits); {usage}"
+        )
+    return out
+
+
 def _recall_target_max() -> int:
     """Upper bound of ``fulltext_recall_target_delivered``; a re-probe's doubled target is
     clamped to it."""
@@ -2192,6 +2214,7 @@ class QueryOptimizationUseCase:
                             )
                         except DimensionsDslError:
                             count = None
+                    notes_parts.extend(_big_addition_notes(recall_diffs, count))
                     prev = best_variant_entry
                     best_variant_entry = VariantTestedEntry(
                         label=f"{prev.label}+recall" if prev is not None else "V4+recall",

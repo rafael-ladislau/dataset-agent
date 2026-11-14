@@ -910,3 +910,24 @@ def test_reprobe_target_is_clamped_to_the_settings_maximum(tmp_path):
                                 request_settings=dict(fulltext_recall_max_candidates=1,
                                                       fulltext_recall_target_delivered=400))
     assert [k["target"] for k in client.kwargs[1:]] == [400, 500]
+
+
+def test_big_recall_addition_gets_a_share_and_usage_note(tmp_path):
+    # The final query counts 100 and the promotion adds 100: all of it.
+    out, _, _ = run_recall(tmp_path, [{"publications": gate_pubs()},
+                                      {"publications": comp_pubs(PROGRAM, 10, 9)}],
+                           request_settings=dict(fulltext_recall_max_candidates=1))
+    assert PROGRAM in out.aliases.safe
+    note = (f"recall check: big addition '{PROGRAM}' is 100% of the final count (+100 of 100 hits); "
+            "9 of 10 recall-probe papers use the data (0.90)")
+    assert note in out.notes
+    assert note in out.proposal.notes
+
+
+def test_small_recall_addition_gets_no_share_note(tmp_path):
+    out, _, _ = run_recall(tmp_path, [{"publications": gate_pubs()},
+                                      {"publications": comp_pubs(PROGRAM, 10, 9)}],
+                           dsl=RecallDSL(not_total=40),
+                           request_settings=dict(fulltext_recall_max_candidates=1))
+    assert PROGRAM in out.aliases.safe
+    assert "big addition" not in out.notes
