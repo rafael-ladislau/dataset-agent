@@ -187,8 +187,11 @@ class DatasetResearchUseCase:
         self._settings = settings
         self._literature_gate = literature_gate
         self._dsl_port = dsl_port
+        self._map_drawn = False
+        self._map_value = None
 
     def execute(self, request: ResearchRequest) -> tuple[DatasetRecord, Path]:
+        self._map_drawn, self._map_value = False, None
         max_attempts = max(1, self._settings.literature_max_attempts)
         logger.info(
             "Research started: dataset_name=%r literature_max_attempts=%s gate=%s",
@@ -598,8 +601,16 @@ class DatasetResearchUseCase:
         record.dataset_names = sanitize_terms(record.dataset_names, "dataset name")
         record.flag_terms = sanitize_terms(record.flag_terms, "flag term")
         if self._settings.resource_map_enabled and self._dsl_port is not None:
-            record.resource_map = self._resource_map(record)
+            self._map_once(record)
         return record
+
+    def _map_once(self, record: DatasetRecord) -> None:
+        """One map decision per research run, not per literature attempt."""
+        if not self._map_drawn:
+            self._map_value = self._resource_map(record)
+            self._map_drawn = True
+        record.resource_map = self._map_value
+        record.resource_map_checked = True
 
     def _resource_map(self, record: DatasetRecord):
         """Program versus data (``adapters.resource_map``); None when nothing splits."""

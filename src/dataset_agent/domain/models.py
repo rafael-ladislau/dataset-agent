@@ -401,6 +401,10 @@ class DatasetRecord(BaseModel):
         default=None,
         description="Set only when research found a program separate from its data",
     )
+    resource_map_checked: bool = Field(
+        default=False,
+        description="True once the resource-map step ran for this record (map or not)",
+    )
     retry_validation: Optional[ValidationRequest] = Field(
         default=None,
         description="Suggested POST /validate body for a follow-up run (set by /validate only)",

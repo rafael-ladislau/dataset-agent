@@ -2532,8 +2532,11 @@ class QueryOptimizationUseCase:
                     notes="Provide dataset_names + flag_terms to skip research.",
                 )
             desc_for_signal3 = (rec.description or "")[:2000]
-            if self._settings.resource_map_enabled and rec.resource_map is None:
+            # One map decision per run: research already made it when it ran the step.
+            if (self._settings.resource_map_enabled and rec.resource_map is None
+                    and not rec.resource_map_checked):
                 rec.resource_map = await self._research_resource_map(rec)
+                rec.resource_map_checked = True
             # The seed description (read by the full-text validator) names the program
             # and its data resources when research split them.
             desc_for_signal3 = resource_map_description(desc_for_signal3, rec.resource_map)
