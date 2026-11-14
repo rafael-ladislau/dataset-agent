@@ -62,3 +62,29 @@ def test_served_mention_scope_is_read_as_the_validator_scope():
     assert ev.verdicts[0].validator_scope == "program_only"
     assert ev.verdicts[1].validator_scope is None
     assert ev.verdicts[0].genuine and ev.verdicts[0].scope is None  # a label only
+
+
+def test_scope_metrics_report_when_the_check_ran_without_any_scope():
+    from dataset_agent.adapters.scope_check import check_scope
+
+    ev = _ev("not_mentioned", "not_mentioned")
+    check_scope(ev, agent=None, dataset_name="E", description="", program_names=["P"],
+                data_names=["D"])
+    m = ev.metrics(0, "q", None)
+    assert ev.scope_checked and m.program_only_count == 0 and m.raw_fulltext_precision == 0
+    assert m.paper_details and m.paper_details[0]["scope"] is None
+
+
+def test_raw_precision_adds_back_references_only_drops_and_details_carry_terms():
+    ev = _ev("used", "mentioned", "mentioned", "not_mentioned")
+    ev.scope_ran = True
+    _program_only(ev.verdicts[1])
+    v = ev.verdicts[2]
+    v.overridden_from, v.verdict, v.scope_references_only = v.verdict, "not_mentioned", True
+    assert ev.n_scope_references_only == 1
+    assert ev.raw_precision == pytest.approx(3 / 4)
+    m = ev.metrics(0, "q", None)
+    assert m.scope_references_only_count == 1
+    d = {p["id"]: p for p in m.paper_details}
+    assert d["p1"]["scope"] == "program_only" and d["p2"]["references_only"]
+    assert d["p0"]["terms"] == ["All of Us"]

@@ -249,6 +249,7 @@ def check_scope(
     res = ScopeResult()
     if ev.entity != "dataset" or not program_names or not data_names:
         return res
+    ev.scope_ran = True
     owned = program_owned_data_names(program_names, data_names)
     terms = list(dict.fromkeys([*data_names, *(data_terms or [])]))
     for v in ev.verdicts:
@@ -260,6 +261,7 @@ def check_scope(
         res.n_checked += 1
         if v.contexts and not _text_contexts(v):
             v.overridden_from, v.verdict = v.verdict, "not_mentioned"
+            v.scope_references_only = True
             res.n_references_only += 1
             res.papers[v.publication_id] = {"stage": 0, "votes": [], "decision": "references_only"}
             continue

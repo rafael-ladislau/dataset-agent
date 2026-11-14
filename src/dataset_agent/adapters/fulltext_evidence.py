@@ -91,6 +91,8 @@ class PubVerdict:
     #: Datasets: the full-text validator's own ``mention_scope`` label when served
     #: (``data`` | ``program_only`` | ``not_applicable``); a label only, never decisive.
     validator_scope: str | None = None
+    #: Datasets: the scope check turned this paper under its references-only rule.
+    scope_references_only: bool = False
 
     @property
     def genuine(self) -> bool:
@@ -152,6 +154,8 @@ class Evidence:
     n_incoherent: int = 0
     #: AI models: delivered, analyzed papers whose rows hold no judgement at all.
     n_no_verdict: int = 0
+    #: Datasets: the scope check ran on this evidence (set by ``scope_check``).
+    scope_ran: bool = False
 
     @property
     def n_referent_rejected(self) -> int:
@@ -163,7 +167,14 @@ class Evidence:
 
     @property
     def scope_checked(self) -> bool:
-        return any(v.scope is not None for v in self.verdicts)
+        return self.scope_ran or any(v.scope is not None for v in self.verdicts)
+
+    @property
+    def n_scope_references_only(self) -> int | None:
+        """Papers the scope check turned under its references-only rule; None when not run."""
+        if not self.scope_checked:
+            return None
+        return sum(1 for v in self.verdicts if v.scope_references_only)
 
     @property
     def n_program_only(self) -> int | None:
@@ -181,9 +192,11 @@ class Evidence:
 
     @property
     def raw_precision(self) -> float | None:
-        """Judge precision before the referent and scope checks (an upper bound)."""
+        """Judge precision before the referent and scope checks (an upper bound): every
+        paper either check removed counts again."""
         n = self.n_evaluated
-        extra = self.n_referent_rejected + (self.n_program_only or 0)
+        extra = (self.n_referent_rejected + (self.n_program_only or 0)
+                 + (self.n_scope_references_only or 0))
         return (len(self.genuine) + extra) / n if n else None
 
     @property
@@ -272,6 +285,7 @@ class Evidence:
                 self.n_program_only / n if self.n_program_only is not None and n else None
             ),
             scope_unclear_count=self.n_scope_unclear,
+            scope_references_only_count=self.n_scope_references_only,
             referent_rejected_count=(
                 self.n_referent_rejected if self.entity == "ai_model" else None
             ),
@@ -292,6 +306,19 @@ class Evidence:
                     for v in self.verdicts
                 ]
                 if self.entity == "ai_model"
+                else [
+                    {
+                        "id": v.publication_id,
+                        "verdict": v.verdict,
+                        "overridden_from": v.overridden_from,
+                        "scope": v.scope,
+                        "references_only": v.scope_references_only,
+                        "validator_scope": v.validator_scope,
+                        "terms": sorted({str(c.get("term") or "") for c in v.contexts} - {""}),
+                    }
+                    for v in self.verdicts
+                ]
+                if self.scope_checked
                 else None
             ),
         )

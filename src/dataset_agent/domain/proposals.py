@@ -86,6 +86,10 @@ class IterationMetrics(BaseModel):
     scope_unclear_count: Optional[int] = Field(
         default=None, description="papers the scope check could not decide (kept); None when not run"
     )
+    scope_references_only_count: Optional[int] = Field(
+        default=None,
+        description="papers the scope check turned under its references-only rule; None when not run",
+    )
     cited_only_unknown_count: Optional[int] = Field(
         default=None,
         description="AI models: genuine papers whose name location is unknown; None for datasets",
@@ -93,7 +97,8 @@ class IterationMetrics(BaseModel):
     paper_details: Optional[list[dict[str, Any]]] = Field(
         default=None,
         description="AI models: one entry per evaluated paper (id, title, verdict, location, "
-        "cited_only, matched_name); None for datasets",
+        "cited_only, matched_name). Datasets with a scope check: id, verdict, overridden_from, "
+        "scope, references_only, validator_scope and the matched terms; else None",
     )
     error: Optional[str] = None
 
