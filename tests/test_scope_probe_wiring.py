@@ -68,3 +68,15 @@ def test_generated_phrases_cover_each_program_name():
 
     assert generated_data_phrases(["A B"]) == ["A B data", "A B dataset", "A B participants",
                                               "data from the A B"]
+
+
+def test_window_starts_at_a_confirmed_first_release_year(tmp_path):
+    uc = _uc(tmp_path, Judge(), MAP.model_copy(update={"first_release_year": 2021}))
+    assert uc._dataset_years() == (2021, uc._settings.default_years_end)
+    assert "year in [2021:" in uc._build_where_dsl('\\"x\\"')
+    _probe(uc)
+    assert uc._get_extraction().seeds[0]["years_range"]["start_year"] == 2021
+    uc._resource_map = MAP  # no confirmed year: the default window
+    assert uc._dataset_years()[0] == uc._settings.default_years_start
+    uc._resource_map = MAP.model_copy(update={"first_release_year": 1990})
+    assert uc._dataset_years()[0] == uc._settings.default_years_start  # never earlier

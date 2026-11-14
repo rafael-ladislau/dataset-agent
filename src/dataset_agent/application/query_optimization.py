@@ -383,7 +383,7 @@ class QueryOptimizationUseCase:
         seed = candidate_to_seed(
             candidate,
             group_name=s.default_group_name,
-            years=(s.default_years_start, s.default_years_end),
+            years=self._dataset_years(),
             publication_types=list(s.default_publication_types),
             filter_us_affiliation=s.default_filter_us_affiliation,
             extra={"home_url": request.dataset_url},
@@ -2339,9 +2339,18 @@ class QueryOptimizationUseCase:
                 fp_hits += 1
         return 100.0 * fp_hits / float(len(sample))
 
+    def _dataset_years(self) -> tuple[int, int]:
+        """The dataset window: it starts at the first data release year when research
+        found one and counts confirmed it (never before the default start)."""
+        s = self._settings
+        start = s.default_years_start
+        rmap = self._resource_map
+        if rmap is not None and rmap.first_release_year:
+            start = max(start, rmap.first_release_year)
+        return start, s.default_years_end
+
     def _build_where_dsl(self, for_clause: str) -> str:
-        ys = self._settings.default_years_start
-        ye = self._settings.default_years_end
+        ys, ye = self._dataset_years()
         return (
             f'search publications in full_data for "{for_clause}" '
             f"where year in [{ys}:{ye}] and type=\"article\" "
@@ -2433,6 +2442,10 @@ class QueryOptimizationUseCase:
                 rec.resource_map = await self._research_resource_map(rec)
             self._resource_map = rec.resource_map
             self._dataset_description = rec.description or ""
+            if rec.resource_map is not None and rec.resource_map.first_release_year:
+                notes_parts.append(
+                    f"window starts at the first data release ({rec.resource_map.first_release_year})"
+                )
             if rec.resource_map is not None:
                 notes_parts.append(
                     "resource map: program "
@@ -3261,7 +3274,8 @@ class QueryOptimizationUseCase:
                         or n.startswith("confidence capped")
                         or n in ft_refiner_notes
                     ],
-                    seed_kw={"extra": {"home_url": request.dataset_url}},
+                    seed_kw={"extra": {"home_url": request.dataset_url},
+                             "years": self._dataset_years()},
                 )
             except ValueError as exc:
                 logger.warning("proposal_unbuildable run_id=%s error=%s", run_id, exc)
