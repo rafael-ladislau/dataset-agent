@@ -307,6 +307,11 @@ class Settings(BaseSettings):
     #: re-gated: an anchor title that names the model, or a card title passing the
     #: name-share check above. It never gates a name that is safe.
     ai_model_title_flag_enabled: bool = True
+    #: A joined version of a coined name is also searched in its other spelling
+    #: ("FourCastNet2" / "FourCastNetv2").
+    ai_model_version_siblings: bool = True
+    #: AI models: the default window ends next year (papers already dated next year).
+    ai_model_window_next_year: bool = True
     #: Full-text referent check (AI models): votes per paper, and thinking for that
     #: question only (0 = off; needs the Anthropic API style). Every other LLM step
     #: keeps the main agent's settings.

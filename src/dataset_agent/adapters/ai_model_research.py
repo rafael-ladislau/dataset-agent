@@ -547,6 +547,18 @@ def _versioned_base(name: str, bases: list[str]) -> bool:
     )
 
 
+def version_sibling(name: str, bases: list[str]) -> str | None:
+    """The other spelling of a joined version of a coined base name: "FourCastNet2" ->
+    "FourCastNetv2" and back. None when *name* is not such a token."""
+    m = re.fullmatch(r"(.+?)([vV]?)(\d+)", (name or "").strip())
+    if not m:
+        return None
+    base = next((b for b in bases if is_distinctive(b) and m.group(1).casefold() == b.casefold()), None)
+    if base is None:
+        return None
+    return f"{m.group(1)}{m.group(3)}" if m.group(2) else f"{m.group(1)}v{m.group(3)}"
+
+
 def mine_joined_versions(texts: list[str], bases: list[str]) -> list[str]:
     """Tokens of *texts* that are a coined base name joined to a version ("FourCastNetv2",
     "FourCastNet3"), first spelling seen, in order. Hyphenated forms ("FourCastNet-3")
@@ -576,6 +588,7 @@ def assemble_candidates(
     max_context: int,
     max_excludes: int,
     max_titles: int = 6,
+    version_siblings: bool = True,
 ) -> ModelCandidates:
     """Merge deterministic and LLM candidates and screen them by shape only.
 
@@ -625,6 +638,10 @@ def assemble_candidates(
             joined = _joined_form(raw, out.developer)
             if joined:
                 with_joined.append((joined, "former"))
+                # The other version spelling ("FourCastNet2" / "FourCastNetv2").
+                sibling = version_sibling(joined, own_bases) if version_siblings else None
+                if sibling:
+                    with_joined.append((sibling, "former"))
     names = with_joined
     for raw, kind in names:
         name = sanitize_term(raw)

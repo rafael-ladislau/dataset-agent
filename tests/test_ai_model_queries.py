@@ -1841,3 +1841,51 @@ def test_model_reads_high_only_on_many_clean_abstracts(tmp_path, patched) -> Non
     patched.eval = _fake_eval([{"fp_count": 0, "genuine_count": 40, "judged_count": 40}])
     out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request())
     assert out.confidence.value == "high" and out.abstract_n_judged == 40
+
+
+# --------------------------------------------------------------------------- recall rules
+
+
+def test_version_sibling_spelling() -> None:
+    assert amr.version_sibling("FourCastNet2", ["FourCastNet"]) == "FourCastNetv2"
+    assert amr.version_sibling("FourCastNetv2", ["FourCastNet"]) == "FourCastNet2"
+    assert amr.version_sibling("FourCastNetV3", ["FourCastNet"]) == "FourCastNet3"
+    assert amr.version_sibling("FourCastNet", ["FourCastNet"]) is None
+    assert amr.version_sibling("GraphCast2", ["FourCastNet"]) is None
+
+
+def test_joined_version_gets_its_sibling_spelling() -> None:
+    c = assemble_candidates(
+        model_name="FourCastNet", family=None, given_aliases=[], hub=HubEvidence(developer="NVIDIA"),
+        llm={"names": [{"name": "FourCastNet 2", "kind": "version"}]},
+        max_names=20, max_context=12, max_excludes=8,
+    )
+    names = [n for n, _k in c.names]
+    assert "FourCastNet2" in names and "FourCastNetv2" in names
+
+
+def test_mined_version_sibling_is_counted_and_a_zero_hit_one_rejected(tmp_path, patched) -> None:
+    patched.hub = HubEvidence()
+    docs = (["We compare FourCastNet with FourCastNet2 on ERA5."] * 10
+            + ["FourCastNetv2 forecasts cyclones."] * 4 + ["We run FourCastNet for heat waves."] * 30)
+    llm = {"description": "FourCastNet is NVIDIA's weather model.", "names": [],
+           "paper_titles": [], "context_terms": [], "other_meanings": []}
+    out, _dsl, _agent = _run(tmp_path, docs, llm,
+                             OptimizeRequest(dataset_name="FourCastNet", entity_type="ai_model"))
+    assert _decision(out, "FourCastNetv2", "alias").decision == "safe"
+    assert out.ai_model_seed_count == 44
+    out, _dsl, _agent = _run(tmp_path, docs[:10] + docs[14:], llm,
+                             OptimizeRequest(dataset_name="FourCastNet", entity_type="ai_model"))
+    assert _decision(out, "FourCastNetv2", "alias").reason == "0 Dimensions hits"
+
+
+def test_model_window_ends_next_year_unless_given(tmp_path, patched) -> None:
+    import time as _t
+    nxt = _t.gmtime().tm_year + 1
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request())
+    assert f":{nxt}]" in out.dsl_query
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request(years_end=2026))
+    assert ":2026]" in out.dsl_query
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request(),
+                             ai_model_window_next_year=False)
+    assert f":{nxt}]" not in out.dsl_query

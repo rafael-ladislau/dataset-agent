@@ -24,6 +24,7 @@ from dataset_agent.adapters.ai_model_research import (
     mine_context_terms,
     mine_joined_versions,
     model_terms_prompt,
+    version_sibling,
 )
 from dataset_agent.adapters.dimensions_dsl import (
     AsyncThrottledDimensionsDsl,
@@ -1041,7 +1042,10 @@ class QueryOptimizationUseCase:
         """Year window of the shipped query: from the caller, else the earliest of the
         card's years and the first name-bearing anchor's year, else the default start."""
         s = self._settings
-        years_end = request.years_end or max(s.default_years_end, time.gmtime().tm_year)
+        this_year = time.gmtime().tm_year
+        years_end = request.years_end or max(
+            s.default_years_end, this_year + (1 if s.ai_model_window_next_year else 0)
+        )
         known = [y for y in [model.hub.created_year, *model.hub.paper_years] if y]
         if not request.years_start:
             # A versioned or re-uploaded card must not cut the model's own first papers.
@@ -1623,6 +1627,7 @@ class QueryOptimizationUseCase:
             max_names=s.ai_model_max_names,
             max_context=s.ai_model_max_context_terms,
             max_excludes=s.ai_model_max_exclude_terms,
+            version_siblings=s.ai_model_version_siblings,
             max_titles=s.ai_model_max_paper_titles,
         )
         model.description = cands.description
@@ -1731,7 +1736,11 @@ class QueryOptimizationUseCase:
                 _stem_text(t) for k, t, _r in cands.rejected if k == "alias"
             }
             mined_names: list[str] = []
-            for tok in mine_joined_versions(model.pulled_texts, coined_bases):
+            mined = mine_joined_versions(model.pulled_texts, coined_bases)
+            if s.ai_model_version_siblings:
+                mined = [t for tok in mined
+                         for t in (tok, version_sibling(tok, coined_bases)) if t]
+            for tok in mined:
                 if _stem_text(tok) in searched:
                     continue
                 searched.add(_stem_text(tok))
