@@ -78,10 +78,12 @@ def test_summarize_fixture():
     assert out["n_error_rows"] == 1 and out["error_row_share"] == round(1 / 3, 4)
     assert out["wilson_95"] == [round(probe.wilson_interval(2, 2)[0], 4), 1.0]
     assert out["n_overridden"] == 0
+    assert out["n_incoherent"] == 0 and out["n_no_verdict"] == 0
     first = out["papers"][0]
     assert first == {"publication_id": "pub.1001", "title": "Aftershock detection with deep phase picking",
                      "verdict": "used", "usage_type": "inference", "match_type": "llm_validation",
                      "cited_only": False, "mention_location": "text", "matched_name": "PhaseNet",
+                     "is_mentioned": True, "is_used": True,
                      "text_quote": "We picked P and S ar…"}
     assert out["papers"][1]["cited_only"] is True
 

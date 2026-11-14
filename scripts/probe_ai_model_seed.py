@@ -20,7 +20,10 @@ Extraction URL and credentials come from the dataset probe's settings:
 Metrics: precision = papers that mention or use the model / evaluated (a name found only
 in the reference list counts as a mention; ``n_cited_only`` reports those papers);
 used_rate = used / evaluated; Wilson 95% interval on precision; error rows = delivered,
-analyzed papers whose validation errored (no verdict). The sample is the top-cited head
+analyzed papers whose validation errored (no verdict); ``n_no_verdict`` = analyzed papers
+whose rows hold no judgement; ``n_incoherent`` = papers judged not this model whose row
+still claims a use or usage type (never counted genuine). Each paper row carries the raw
+``is_mentioned`` / ``is_used`` flags. The sample is the top-cited head
 of the search result, not a random sample.
 
 A failed model probe can stay WAITING on extraction, so keep ``--poll-timeout`` short
@@ -117,6 +120,8 @@ def summarize(ev: Evidence, *, quote_chars: int = 200) -> dict[str, Any]:
         "error_row_share": _r(ev.n_error_rows / ev.n_delivered) if ev.n_delivered else None,
         "wilson_95": [_r(lo), _r(hi)],
         "n_overridden": sum(1 for v in ev.verdicts if v.overridden_from is not None),
+        "n_incoherent": ev.n_incoherent,
+        "n_no_verdict": ev.n_no_verdict,
         "papers": [
             {
                 "publication_id": v.publication_id,
@@ -127,6 +132,8 @@ def summarize(ev: Evidence, *, quote_chars: int = 200) -> dict[str, Any]:
                 "cited_only": v.cited_only,
                 "mention_location": v.mention_location,
                 "matched_name": v.matched_name,
+                "is_mentioned": v.is_mentioned,
+                "is_used": v.is_used,
                 "text_quote": _truncate(v.quote, quote_chars),
             }
             for v in ev.verdicts

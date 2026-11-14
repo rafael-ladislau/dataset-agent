@@ -298,9 +298,38 @@ def test_served_usage_type_wins_over_the_location_fallback():
 
 
 def test_usage_type_cited_is_a_mention():
+    """A row judged not to mention the model is never genuine, whatever its usage_type."""
     ev = build_evidence(_model_body(_mpub("r", [_mrow(mentioned=False, usage_type="cited")])))
     v = ev.verdicts[0]
-    assert v.verdict == "mentioned" and v.genuine and v.cited_only is True
+    assert v.verdict == "not_mentioned" and not v.genuine and v.cited_only is False
+    assert ev.n_incoherent == 1
+
+
+@pytest.mark.parametrize(
+    ("mentioned", "used", "usage_type", "verdict", "incoherent"),
+    [
+        (False, False, "cited", "not_mentioned", 1),
+        (False, True, "inference", "not_mentioned", 1),
+        (True, False, "cited", "mentioned", 0),
+        (None, False, "cited", "mentioned", 0),
+        (False, False, None, "not_mentioned", 0),
+        (True, True, "inference", "used", 0),
+        (None, True, "inference", "used", 0),
+    ],
+)
+def test_model_row_judged_not_this_model_is_never_genuine(mentioned, used, usage_type, verdict, incoherent):
+    row = _mrow(mentioned=mentioned, used=used, usage_type=usage_type)
+    ev = build_evidence(_model_body(_mpub("r", [row])))
+    assert ev.verdicts[0].verdict == verdict
+    assert ev.n_incoherent == incoherent
+
+
+def test_analyzed_papers_without_a_model_verdict_are_counted():
+    no_judgement = {"name": "PhaseNet", "is_mentioned": None, "is_used": None, "text_quote": "",
+                    "match_type": "llm_validation", "usage_type": None}
+    ev = build_evidence(_model_body(_mpub("a", []), _mpub("b", [no_judgement]),
+                                    _mpub("c", [_mrow(match_type="processing_error")])))
+    assert ev.n_evaluated == 0 and ev.n_no_verdict == 2 and ev.n_error_rows == 1
 
 
 def test_empty_model_list_is_no_verdict():

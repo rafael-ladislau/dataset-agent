@@ -19,7 +19,10 @@ AI models (body ``seed_type == "ai_model"``, model task v2 / v2.1) read
 found only in the reference list IS a mention):
 
 * no references-only override: ``overridden_from`` stays None;
-* a row with ``usage_type == "cited"`` is a mention;
+* a row with ``is_mentioned`` False is never a mention or a use, whatever its
+  ``is_used`` or ``usage_type`` say (such a row with either set is counted in
+  ``n_incoherent``); with ``is_mentioned`` None, ``is_used`` True or
+  ``usage_type == "cited"`` makes it a mention;
 * *cited only* (``PubVerdict.cited_only``, genuine papers only): the served
   ``mention_location`` (v2.1) decides when it is ``text`` or ``references_only``; when it
   is missing or ``unknown``, a served ``usage_type`` decides (``cited``), else the papers
@@ -70,6 +73,9 @@ class PubVerdict:
     #: served, and the model name or alias the verdict rests on. None when not served.
     mention_location: str | None = None
     matched_name: str | None = None
+    #: AI models only: the deciding row's raw ``is_mentioned`` / ``is_used`` flags.
+    is_mentioned: bool | None = None
+    is_used: bool | None = None
 
     @property
     def genuine(self) -> bool:
@@ -116,6 +122,10 @@ class Evidence:
     entity: str = "dataset"
     #: Delivered, analyzed papers with no verdict because validation errored.
     n_error_rows: int = 0
+    #: AI models: rows judged not this model that still claim a use or a usage type.
+    n_incoherent: int = 0
+    #: AI models: delivered, analyzed papers whose rows hold no judgement at all.
+    n_no_verdict: int = 0
 
     @property
     def n_cited_only(self) -> int | None:
@@ -217,6 +227,8 @@ class _ModelVerdict:
     match_type: str | None
     mention_location: str | None = None
     matched_name: str | None = None
+    is_mentioned: bool | None = None
+    is_used: bool | None = None
 
 
 _LOCATIONS = ("text", "references_only")
@@ -249,15 +261,28 @@ def _model_verdict_for(pub: dict[str, Any]) -> _ModelVerdict | None:
     def mk(verdict: str, r: dict) -> _ModelVerdict:
         return _ModelVerdict(verdict, str(r.get("text_quote") or ""), r.get("usage_type"),
                              r.get("match_type"), _text_or_none(r.get("mention_location")),
-                             _text_or_none(r.get("matched_name")))
+                             _text_or_none(r.get("matched_name")),
+                             r.get("is_mentioned"), r.get("is_used"))
 
+    # A row judged "not this model" blocks its own use and usage type.
     for r in rows:
-        if r.get("is_used") is True and r.get("usage_type") != "cited":
+        if (r.get("is_mentioned") is not False and r.get("is_used") is True
+                and r.get("usage_type") != "cited"):
             return mk("used", r)
     for r in rows:
-        if r.get("is_mentioned") is True or r.get("is_used") is True or r.get("usage_type") == "cited":
+        if r.get("is_mentioned") is True or (
+            r.get("is_mentioned") is None
+            and (r.get("is_used") is True or r.get("usage_type") == "cited")
+        ):
             return mk("mentioned", r)
     return mk("not_mentioned", rows[0])
+
+
+def _is_incoherent(row: dict) -> bool:
+    """Judged not this model, yet claiming a use or a usage type."""
+    return row.get("is_mentioned") is False and (
+        row.get("is_used") is True or bool(row.get("usage_type"))
+    )
 
 
 def _model_names_in_references_only(contexts: list[dict]) -> bool:
@@ -316,11 +341,17 @@ def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evi
         contexts = [c for c in (p.get("term_contexts") or []) if isinstance(c, dict)]
         if kind == "ai_model":
             mv = _model_verdict_for(p)
+            rows = _model_rows(p)
             if mv is None:
-                rows = _model_rows(p)
                 if rows and all(_is_error_row(r) for r in rows):
                     ev.n_error_rows += 1
+                else:
+                    ev.n_no_verdict += 1
                 continue
+            if mv.verdict == "not_mentioned" and any(
+                _is_incoherent(r) for r in rows if not _is_error_row(r)
+            ):
+                ev.n_incoherent += 1
             if mv.mention_location in _LOCATIONS:
                 cited_only_rule = mv.mention_location == "references_only"
             elif mv.usage_type:
@@ -343,6 +374,8 @@ def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evi
                     cited_only=cited_only,
                     mention_location=mv.mention_location,
                     matched_name=mv.matched_name,
+                    is_mentioned=mv.is_mentioned,
+                    is_used=mv.is_used,
                 )
             )
             continue
