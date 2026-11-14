@@ -276,14 +276,18 @@ class QueryOptimizationRecord(BaseModel):
         default=None,
         description=(
             "AI models: `POST /ai-models/start` body for the extraction pipeline. Its flag "
-            "terms apply to every alias there, so `ai_model_seed_count` can be lower than "
-            "`expected_count`."
+            "terms apply to every alias there, so they carry the safe names too and the "
+            "seed finds what the selected query finds."
         ),
     )
     ai_model_seed_clause: Optional[str] = Field(
         default=None, description="AI models: the `for` clause the extraction pipeline builds from the seed"
     )
     ai_model_seed_count: Optional[int] = Field(default=None, ge=0)
+    ai_model_query_count: Optional[int] = Field(
+        default=None, ge=0,
+        description="AI models: all-years hits of the selected `for_clause`, next to `ai_model_seed_count`",
+    )
     notes: str = ""
 
 

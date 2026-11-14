@@ -7,6 +7,7 @@ corpus, so the tests assert on behavior (what a term matches) and not on call or
 from __future__ import annotations
 
 import asyncio
+import itertools
 import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -284,16 +285,33 @@ def test_aurora_seed_for_extraction(tmp_path, patched) -> None:
         "description": "Aurora is Microsoft's foundation model of the atmosphere.",
         "hugging_face_id": "microsoft/aurora",
         "model_aliases": ["Microsoft Aurora", "Aurora foundation model"],
-        "flag_terms": ["GraphCast", "Pangu-Weather"],
+        # The safe names travel as flags too: (S or R) and (F or S) == S or (R and F).
+        "flag_terms": ["GraphCast", "Pangu-Weather", "Microsoft Aurora", "Aurora foundation model"],
         "exclude_terms": ["aurora borealis"],
         "years_range": {"start_year": 2024, "end_year": 2026},
     }
-    # In the extraction pipeline the flags gate every name.
     assert out.ai_model_seed_clause == (
         '((\\"Aurora\\" OR \\"Microsoft Aurora\\" OR \\"Aurora foundation model\\") AND '
-        '(\\"GraphCast\\" OR \\"Pangu-Weather\\")) NOT (\\"aurora borealis\\")'
+        '(\\"GraphCast\\" OR \\"Pangu-Weather\\" OR \\"Microsoft Aurora\\" OR '
+        '\\"Aurora foundation model\\")) NOT (\\"aurora borealis\\")'
     )
     assert out.ai_model_seed_count == 50
+    assert out.ai_model_query_count == 50
+
+
+def test_seed_finds_what_the_selected_query_finds(tmp_path, patched) -> None:
+    """Safe-name papers without a flag: the seed still finds them, the gated branch is
+    kept (no safe-only fallback), and the seed count equals the selected query's count."""
+    docs = _aurora_corpus() + ["Microsoft Aurora downscaling of regional winds."] * 30
+    out, _dsl, _agent = _run(tmp_path, docs, AURORA_LLM, _aurora_request())
+
+    assert out.success, out.errors
+    seed = out.ai_model_seed
+    assert seed["model_name"] == "Aurora" and seed["flag_terms"][:2] == ["GraphCast", "Pangu-Weather"]
+    hits = [d for d in docs if _matches(out.for_clause, d)]
+    assert out.ai_model_query_count == len(hits) == 80
+    assert out.ai_model_seed_count == 80
+    assert "safe names only" not in out.notes and "differ" not in out.notes
 
 
 def test_aurora_without_a_precise_flag_drops_the_bare_name(tmp_path, patched) -> None:
@@ -1096,7 +1114,7 @@ def test_ai_model_seed_mapping() -> None:
         gated, model_name="Aurora", model_family="Aurora", hugging_face_id=None, years=(2024, 2026)
     )
     assert seed["model_name"] == "Aurora" and seed["model_aliases"] == ["Microsoft Aurora"]
-    assert seed["flag_terms"] == ["GraphCast"]
+    assert seed["flag_terms"] == ["GraphCast", "Microsoft Aurora"]  # never the risky name
 
     # Risky names without flags are never sent, and never become model_name.
     ungated = QueryCandidate(main_dataset_name="Aurora", safe=["Microsoft Aurora"], risky=["Aurora"])
@@ -1112,6 +1130,17 @@ def test_ai_model_seed_mapping() -> None:
         )
     assert ai_model_seed_clause(["A B"], [], []) == '(\\"A B\\")'
     assert ai_model_seed_clause(["A"], ["F"], ["X"]) == '((\\"A\\") AND (\\"F\\")) NOT (\\"X\\")'
+
+
+@pytest.mark.parametrize("present", [
+    frozenset(c) for n in range(6) for c in itertools.combinations(
+        ["Safe1", "Risky1", "Flag1", "Safe2", "Excl1"], n)
+])
+def test_seed_clause_with_safe_names_as_flags_is_the_measured_query(present) -> None:
+    clause = ai_model_seed_clause(["Safe1", "Safe2", "Risky1"], ["Flag1", "Safe1", "Safe2"], ["Excl1"])
+    doc = " ".join(sorted(present)) or "nothing"
+    s, r, f, e = ("Safe1" in present or "Safe2" in present), "Risky1" in present, "Flag1" in present, "Excl1" in present
+    assert _matches(clause, doc) is ((s or (r and f)) and not e)
 
 
 def test_fetch_hub_evidence_reads_card_citation_and_arxiv() -> None:

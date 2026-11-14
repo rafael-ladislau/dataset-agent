@@ -185,7 +185,9 @@ def candidate_to_ai_model_seed(
     The pipeline searches ``model_name`` plus ``model_aliases`` and, when flags are
     given, requires one of them for every name. So:
 
-    * with gated (risky) names and flags, all names are sent and the flags gate them;
+    * with gated (risky) names and flags, all names are sent and the flag terms are
+      the flags plus the safe names: ``(S or R) and (F or S)`` equals ``S or (R and F)``,
+      the query that was measured (a risky name is never a flag);
     * otherwise only safe names are sent, and ``model_name`` becomes a safe name when
       the requested one is not (bare "Aurora" must never be searched on its own).
 
@@ -206,7 +208,9 @@ def candidate_to_ai_model_seed(
         "description": c.description or None,
         "hugging_face_id": hugging_face_id,
         "model_aliases": [n for n in names if n.casefold() != primary.casefold()],
-        "flag_terms": list(c.flag_terms) if gated else [],
+        "flag_terms": (
+            dedupe_strings_ci_preserve_order(list(c.flag_terms) + list(c.safe)) if gated else []
+        ),
         "exclude_terms": list(c.exclude_terms),
         "years_range": {"start_year": years[0], "end_year": years[1]},
     }

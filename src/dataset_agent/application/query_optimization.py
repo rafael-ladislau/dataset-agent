@@ -1692,19 +1692,6 @@ class QueryOptimizationUseCase:
             main_dataset_name=model.name, safe=safe, risky=risky, flag_terms=flags,
             exclude_terms=excludes, description=model.description,
         )
-        if risky and flags and safe:
-            # The extraction pipeline applies flags to every name. If that loses more than
-            # the gated name adds, send the safe names only.
-            gated_count = await self._clause_count(
-                ai_model_seed_clause(safe + risky, flags, excludes)
-            )
-            safe_count = await self._clause_count(ai_model_seed_clause(safe, [], excludes))
-            if gated_count is not None and safe_count is not None and safe_count > gated_count:
-                candidate = dataclasses.replace(candidate, risky=[], flag_terms=[])
-                notes.append(
-                    f"seed: safe names alone find {safe_count} papers, more than the "
-                    f"flag-gated seed ({gated_count}); the seed uses the safe names only"
-                )
         try:
             seed = candidate_to_ai_model_seed(
                 candidate, model_name=model.name, model_family=model.family,
@@ -1720,6 +1707,7 @@ class QueryOptimizationUseCase:
             seed_names, seed["flag_terms"], seed["exclude_terms"]
         )
         out.ai_model_seed_count = await self._clause_count(out.ai_model_seed_clause)
+        out.ai_model_query_count = await self._clause_count(out.for_clause)
         if seed["model_name"].casefold() != model.name.casefold():
             notes.append(
                 f"seed: model_name is {seed['model_name']!r} because {model.name!r} is not "
@@ -1727,8 +1715,14 @@ class QueryOptimizationUseCase:
             )
         if seed["flag_terms"] and safe:
             notes.append(
-                "seed: flag terms apply to every name in the extraction pipeline; "
+                "seed: flag terms apply to every name in the extraction pipeline, so the "
+                "safe names are sent as flag terms too; "
                 f"it finds {out.ai_model_seed_count} papers (all years)"
+            )
+        if out.ai_model_seed_count != out.ai_model_query_count:
+            notes.append(
+                f"seed: the seed finds {out.ai_model_seed_count} papers and the selected "
+                f"query {out.ai_model_query_count} (all years); the counts differ"
             )
         out.notes = " ".join(notes)
         return out
