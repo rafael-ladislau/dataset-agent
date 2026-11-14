@@ -92,6 +92,16 @@ def _paper_line(v: PubVerdict) -> str:
     return " ".join(bits)
 
 
+def _program_only_block(program_only: list[PubVerdict] | None, lines) -> str:
+    if not program_only:
+        return ""
+    return (
+        "\nPapers matched by the query that discuss only the program, not its data (program "
+        "only; never a source of exclude terms; they show which names pull in program talk):\n"
+        f"{lines(program_only)}\n"
+    )
+
+
 def propose_refinements(
     agent: AgentPort,
     *,
@@ -101,9 +111,12 @@ def propose_refinements(
     aliases: list[str],
     flag_terms: list[str],
     exclude_terms: list[str],
+    program_only: list[PubVerdict] | None = None,
 ) -> dict:
     """LLM pattern pass over all probe papers: false-positive groups with excludes,
-    flags and new aliases from the matching papers."""
+    flags and new aliases from the matching papers. *program_only* papers (scope check)
+    get their own block, never a source of excludes; the prompt is byte-identical
+    without them."""
 
     def lines(vs: list[PubVerdict]) -> str:
         return "\n".join(_paper_line(v) for v in vs[:_MAX_PROMPT_PAPERS]) or "(none)"
@@ -118,7 +131,7 @@ Papers whose full text MENTIONS the dataset (correct matches, whether or not the
 
 Papers matched by the query whose full text does NOT mention the dataset at all (false positives):
 {lines(false_positives)}
-
+{_program_only_block(program_only, lines)}
 Look at the false positives TOGETHER: group them by the other meaning of the query term that pulled
 them in (for example an acronym that also names a medical condition, a technology or an author), and
 for each group give the query term that caused it and short exclude phrases that occur in that
@@ -267,6 +280,10 @@ def refine_candidate(
 
     stats = attribute_terms(evidence, aliases)
     flags_stats = attribute_terms(evidence, list(candidate.flag_terms), partial=False)
+    # Program-only papers (scope check) count against names in the alias statistics,
+    # so they can drop or demote a name, but they never create an exclude.
+    program_only = [v for v in evidence.false_positives if v.scope == "program_only"]
+    fps = [v for v in evidence.false_positives if v.scope != "program_only"]
 
     # --- LLM proposals, validated against the quotes ------------------------------
     rejected: dict[str, list[str]] = {"exclude": [], "flag": [], "alias": []}
@@ -287,15 +304,16 @@ def refine_candidate(
     overlap_demote: dict[str, str] = {}
     if enough:
         notes.extend(category_patterns(evidence, settings.refine_category_min_fp_papers))
-    if enough and agent is not None and (evidence.genuine or evidence.false_positives):
+    if enough and agent is not None and (evidence.genuine or fps or program_only):
         prop = propose_refinements(
             agent,
             dataset_name=dataset_name,
             genuine=evidence.genuine,
-            false_positives=evidence.false_positives,
+            false_positives=fps,
             aliases=aliases,
             flag_terms=candidate.flag_terms,
             exclude_terms=candidate.exclude_terms,
+            program_only=program_only,
         )
         if prop.get("failed"):
             notes.append(
@@ -303,7 +321,7 @@ def refine_candidate(
             )
         for g in prop.get("groups") or []:
             verified = (
-                sum(1 for v in evidence.false_positives if term_in(g["cause_term"], v))
+                sum(1 for v in fps if term_in(g["cause_term"], v))
                 if g["cause_term"] else 0
             )
             notes.append(
@@ -321,7 +339,7 @@ def refine_candidate(
             overlapped = [a for a in aliases if _phrase_in(t, a) or _phrase_in(a, t)]
             if overlapped or any(_phrase_in(t, f) for f in candidate.flag_terms):
                 reject("exclude", t, "overlaps an alias or flag")
-                n_fp_overlap = sum(1 for v in evidence.false_positives if term_in(t, v))
+                n_fp_overlap = sum(1 for v in fps if term_in(t, v))
                 if n_fp_overlap >= settings.refine_min_exclude_papers and not any(
                     term_in(t, v) for v in evidence.genuine
                 ):
@@ -329,7 +347,7 @@ def refine_candidate(
                         if a.lower() in safe_l and a.lower() != t.lower():
                             overlap_demote.setdefault(a, t)
                 continue
-            hit_fp = [v for v in evidence.false_positives if term_in(t, v)]
+            hit_fp = [v for v in fps if term_in(t, v)]
             # Over-matching the genuine side is the safe direction here: an exclude
             # is blocked when the term, or its singular, occurs in a genuine paper.
             forms = [t, *singular_variants(t)]
@@ -468,7 +486,7 @@ def refine_candidate(
                     "alias, and no matching paper does; now requires flag terms"
                 ),
                 evidence=_quotes(
-                    [v for v in evidence.false_positives if term_in(overlap_demote[a], v)],
+                    [v for v in fps if term_in(overlap_demote[a], v)],
                     overlap_demote[a],
                 ), **base))
             keep_risky.append(a)
