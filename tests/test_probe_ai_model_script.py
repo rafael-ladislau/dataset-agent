@@ -87,6 +87,7 @@ def test_summarize_fixture():
                      "verdict": "used", "usage_type": "inference", "match_type": "llm_validation",
                      "cited_only": False, "mention_location": "text", "matched_name": "PhaseNet",
                      "not_run": False, "is_mentioned": True, "is_used": True,
+                     "referent": None, "judge_verdict": "used",
                      "text_quote": "We picked P and S ar…"}
     assert out["papers"][1]["cited_only"] is True
 
@@ -186,3 +187,40 @@ def test_write_seed_file_holds_the_seed_verbatim(tmp_path):
     assert json.loads(path.read_text(encoding="utf-8")) == SHIPPED
     import hashlib
     assert digest == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class _Judge:
+    def __init__(self, answer):
+        self.answer, self.prompts = answer, []
+
+    def get_structured(self, prompt, _tool):
+        self.prompts.append(prompt)
+        return {"is_genuine_dataset_reference": self.answer(prompt)}
+
+
+def test_run_probe_applies_the_referent_check():
+    topup = TopupResult(results=_body(), batches=1, attempted=6, delivered=5, target=30,
+                        stop_reason="pool_exhausted", task_id="T9")
+    judge = _Judge(lambda p: "Swarm seismicity" not in p)  # rejects pub.1006
+    referent = {"agent": judge, "model_name": "PhaseNet", "profile": "P.", "anchors": [],
+                "votes": 1}
+    out = probe.run_probe(_FakeClient(result=topup), {"model_name": "PhaseNet", "description": "d"},
+                          target=30, batch_size=25, max_batches=4, pull_cap=150, referent=referent)
+    assert out["raw_precision"] == 0.75 and out["precision"] == 0.5
+    assert out["n_referent_rejected"] == 1 and out["n_referent_unclear"] == 0
+    assert out["referent"]["calls"] == 3 and out["referent"]["failed_calls"] == 0
+    rejected = next(p for p in out["papers"] if p["publication_id"] == "pub.1006")
+    assert rejected["verdict"] == "not_mentioned" and rejected["referent"] == "rejected"
+    assert rejected["judge_verdict"] == "used"
+    lo, hi = probe.wilson_interval(2, 4)
+    assert out["wilson_95"] == [round(lo, 4), round(hi, 4)]
+
+
+def test_anchors_from_result_are_the_admitted_paper_titles(tmp_path):
+    record = {"term_decisions": [
+        {"term": "A", "kind": "paper_title", "decision": "anchor"},
+        {"term": "B", "kind": "paper_title", "decision": "rejected"},
+        {"term": "C", "kind": "alias", "decision": "safe"}]}
+    path = tmp_path / "r.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    assert probe.anchors_from_result(path) == ["A"]

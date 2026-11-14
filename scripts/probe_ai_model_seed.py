@@ -32,6 +32,11 @@ still claims a use or usage type (never counted genuine). Each paper row carries
 ``is_mentioned`` / ``is_used`` flags. The sample is the top-cited head
 of the search result, not a random sample.
 
+``--referent`` runs the referent check (``referent_*`` settings; the profile is the seed
+description) on every genuine paper: ``precision`` is then the corrected precision and
+``raw_precision`` the judge's (an upper bound); each paper row carries ``referent`` and
+``judge_verdict``.
+
 A failed model probe can stay WAITING on extraction, so keep ``--poll-timeout`` short
 (it applies to the search and to each batch).
 """
@@ -49,6 +54,7 @@ from typing import Any
 
 from dataset_agent.adapters.extraction_client import ExtractionClient, ExtractionError
 from dataset_agent.adapters.fulltext_evidence import Evidence, build_evidence
+from dataset_agent.adapters.referent_check import check_referents
 from dataset_agent.settings import Settings
 
 #: Keys ``POST /ai-models/start`` accepts besides the probe fields the client adds.
@@ -102,6 +108,15 @@ def seed_from_result(path: Path, settings: Settings) -> tuple[dict[str, Any], st
     return seed, record.get("ai_model_seed_clause")
 
 
+def anchors_from_result(path: Path) -> list[str]:
+    """The admitted paper titles (anchors) of an ``optimize-model`` result file."""
+    record = json.loads(Path(path).read_text(encoding="utf-8"))
+    return [
+        str(d["term"]) for d in record.get("term_decisions") or []
+        if d.get("kind") == "paper_title" and d.get("decision") == "anchor"
+    ]
+
+
 def write_seed_file(seed: dict[str, Any], out_dir: Path) -> tuple[Path, str]:
     """Write ``<out_dir>/<model>.json`` holding *seed* verbatim; return the path and its
     sha256."""
@@ -140,6 +155,7 @@ def summarize(ev: Evidence, *, quote_chars: int = 200) -> dict[str, Any]:
     used = sum(1 for v in ev.verdicts if v.used)
     cited = ev.n_cited_only
     lo, hi = wilson_interval(genuine, n)
+    raw = ev.raw_precision
     return {
         "n_sampled": ev.n_sampled,
         "n_delivered": ev.n_delivered,
@@ -147,6 +163,9 @@ def summarize(ev: Evidence, *, quote_chars: int = 200) -> dict[str, Any]:
         "n_genuine": genuine,
         "n_used": used,
         "precision": _r(genuine / n) if n else None,
+        "raw_precision": _r(raw),
+        "n_referent_rejected": ev.n_referent_rejected,
+        "n_referent_unclear": ev.n_referent_unclear,
         "used_rate": _r(used / n) if n else None,
         "n_cited_only": cited,
         "cited_only_share": _r(cited / genuine) if genuine and cited is not None else None,
@@ -174,6 +193,8 @@ def summarize(ev: Evidence, *, quote_chars: int = 200) -> dict[str, Any]:
                 "matched_name": v.matched_name,
                 "is_mentioned": v.is_mentioned,
                 "is_used": v.is_used,
+                "referent": v.referent,
+                "judge_verdict": v.overridden_from or v.verdict,
                 "text_quote": _truncate(v.quote, quote_chars),
             }
             for v in ev.verdicts
@@ -198,8 +219,11 @@ def run_probe(
     max_batches: int,
     pull_cap: int,
     quote_chars: int = 200,
+    referent: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run the model probe (cleaned up by the client) and build the report."""
+    """Run the model probe (cleaned up by the client) and build the report. With
+    *referent* (``agent``, ``model_name``, ``profile``, ``anchors``, ``votes``) every
+    genuine paper gets the referent check before the metrics."""
     report: dict[str, Any] = {
         "seed": seed,
         "sample": "top-cited head of the search result",
@@ -218,6 +242,19 @@ def run_probe(
         report["cleanup"] = _cleanup_report(client, report["probe_task_id"])
         return report
     ev = build_evidence(topup.results, entity="ai_model")
+    if referent is not None:
+        res = check_referents(
+            ev, agent=referent["agent"], model_name=referent["model_name"],
+            profile=referent["profile"], anchor_titles=list(referent.get("anchors") or []),
+            votes=int(referent.get("votes") or 1),
+        )
+        report["referent"] = {
+            "profile": referent["profile"], "anchors": list(referent.get("anchors") or []),
+            "votes": int(referent.get("votes") or 1), "checked": res.n_checked,
+            "confirmed_by_anchor": res.n_confirmed_by_anchor, "confirmed": res.n_confirmed,
+            "rejected": res.n_rejected, "unclear": res.n_unclear, "calls": res.calls,
+            "failed_calls": res.failed_calls,
+        }
     report["probe_task_id"] = topup.task_id or None
     report.update(
         target=topup.target,
@@ -247,6 +284,11 @@ def parse_args(argv: list[str] | None, settings: Settings) -> argparse.Namespace
     ap.add_argument("--extraction", choices=("dev", "prod"), default=settings.probe_target,
                     help="which DATASET_AGENT_EXTRACTION_<TARGET>_* settings to use")
     ap.add_argument("--quote-chars", type=int, default=200)
+    ap.add_argument("--referent", action="store_true",
+                    help="run the referent check (referent_* settings) on genuine papers")
+    ap.add_argument("--anchor", action="append", default=[],
+                    help="anchor paper title for the referent check (default with "
+                    "--from-result: the result's admitted paper titles)")
     return ap.parse_args(argv)
 
 
@@ -261,11 +303,22 @@ def main(argv: list[str] | None = None) -> int:
     else:
         raise SystemExit("give a seed file or --from-result")
     settings = settings.model_copy(update={"probe_poll_timeout_seconds": float(args.poll_timeout)})
+    referent = None
+    if args.referent:
+        from dataset_agent.bootstrap import build_referent_agent
+
+        anchors = list(args.anchor) or (
+            anchors_from_result(args.from_result) if args.from_result else []
+        )
+        referent = {"agent": build_referent_agent(settings), "model_name": seed["model_name"],
+                    "profile": seed["description"], "anchors": anchors,
+                    "votes": settings.referent_votes}
     client = ExtractionClient.for_target(settings, args.extraction)
     try:
         report = run_probe(
             client, seed, target=args.target, batch_size=args.batch_size,
             max_batches=args.max_batches, pull_cap=args.pull_cap, quote_chars=args.quote_chars,
+            referent=referent,
         )
     finally:
         client.close()
