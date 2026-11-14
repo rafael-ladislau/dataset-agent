@@ -1,0 +1,107 @@
+{
+  "task_id": "6f1c2b9e-0d4a-4c1e-9a52-1b7e3d0c8a41",
+  "probe": true,
+  "seed_type": "ai_model",
+  "publications": [
+    {
+      "publication_id": "pub.1001",
+      "doi": "10.1000/phasenet.use",
+      "title": "Aftershock detection with deep phase picking",
+      "citation_count": 120,
+      "fulltext": {"status": "delivered", "source": "pmc_s3", "reason": null},
+      "analyzed": true,
+      "validation_failed": false,
+      "validated_ai_models": [
+        {
+          "name": "PhaseNet",
+          "is_mentioned": true,
+          "is_used": true,
+          "text_quote": "We picked P and S arrivals with PhaseNet.",
+          "match_type": "llm_validation",
+          "usage_type": "inference"
+        }
+      ],
+      "category_for": ["Earth Sciences"],
+      "term_contexts": [
+        {
+          "term": "PhaseNet",
+          "role": "alias",
+          "part": "body",
+          "text": "We picked P and S arrivals with PhaseNet.",
+          "match": "exact"
+        }
+      ]
+    },
+    {
+      "publication_id": "pub.1002",
+      "doi": "10.1000/phasenet.cited",
+      "title": "A review of seismic arrival picking",
+      "citation_count": 64,
+      "fulltext": {"status": "delivered", "source": "openalex", "reason": null},
+      "analyzed": true,
+      "validation_failed": false,
+      "validated_ai_models": [
+        {
+          "name": "PhaseNet",
+          "is_mentioned": true,
+          "is_used": false,
+          "text_quote": "PhaseNet: a deep-neural-network-based seismic arrival time picking method",
+          "match_type": "llm_validation",
+          "usage_type": "cited"
+        }
+      ],
+      "category_for": ["Earth Sciences"],
+      "term_contexts": [
+        {
+          "term": "PhaseNet",
+          "role": "alias",
+          "part": "references",
+          "text": "PhaseNet: a deep-neural-network-based seismic arrival time picking method",
+          "match": "exact"
+        }
+      ]
+    },
+    {
+      "publication_id": "pub.1003",
+      "doi": null,
+      "title": "Interferometric phase unwrapping with a convolutional network",
+      "citation_count": 31,
+      "fulltext": {"status": "delivered", "source": "pmc", "reason": null},
+      "analyzed": true,
+      "validation_failed": true,
+      "validated_ai_models": [
+        {
+          "name": "PhaseNet",
+          "is_mentioned": false,
+          "is_used": false,
+          "text_quote": null,
+          "match_type": "validation_error",
+          "usage_type": null
+        }
+      ],
+      "category_for": [],
+      "term_contexts": [
+        {
+          "term": "PhaseNet",
+          "role": "alias",
+          "part": "body",
+          "text": "Our PhaseNet unwraps the interferometric phase.",
+          "match": "exact"
+        }
+      ]
+    },
+    {
+      "publication_id": "pub.1004",
+      "doi": "10.1000/phasenet.closed",
+      "title": "Regional seismicity catalog",
+      "citation_count": 12,
+      "fulltext": {"status": "missing", "source": null, "reason": "not_open"},
+      "analyzed": false,
+      "validation_failed": false,
+      "validated_ai_models": [],
+      "category_for": [],
+      "term_contexts": []
+    }
+  ],
+  "summary": {"publications": 4, "fulltext_delivered": 3, "analyzed": 3}
+}

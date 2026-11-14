@@ -31,12 +31,12 @@ class FakeClient:
         self.stop_reason = stop_reason
         self.batches = batches
 
-    def run_probe_topup(self, seed, *, target, batch_size, max_batches, pull_cap):
+    def run_probe_topup(self, seed, *, target, batch_size, max_batches, pull_cap, **extra):
         from dataset_agent.adapters.extraction_client import TopupResult, is_attempted, is_delivered
 
         self.seeds.append(seed)
         self.kwargs.append(dict(target=target, batch_size=batch_size, max_batches=max_batches,
-                                pull_cap=pull_cap))
+                                pull_cap=pull_cap, **extra))
         r = self.results_seq.pop(0) if len(self.results_seq) > 1 else self.results_seq[0]
         if isinstance(r, Exception):
             raise r
@@ -931,3 +931,13 @@ def test_small_recall_addition_gets_no_share_note(tmp_path):
                            request_settings=dict(fulltext_recall_max_candidates=1))
     assert PROGRAM in out.aliases.safe
     assert "big addition" not in out.notes
+
+
+def test_fake_client_accepts_new_probe_keywords():
+    """The real run_probe_topup grows keyword args (entity=, steps=); the fake must not
+    raise TypeError on them and records them for assertions."""
+    client = FakeClient([{"publications": [pub("p1", 5, True)]}])
+    client.run_probe_topup({}, target=1, batch_size=1, max_batches=1, pull_cap=10,
+                           entity="ai_model", steps={"validate_ai_models": True})
+    assert client.kwargs[0]["entity"] == "ai_model"
+    assert client.kwargs[0]["steps"] == {"validate_ai_models": True}
