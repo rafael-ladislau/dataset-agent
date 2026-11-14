@@ -121,6 +121,9 @@ def test_with_a_map_program_names_are_gated_by_the_data_names(tmp_path, monkeypa
     assert "National Agency" not in out.for_clause
     assert out.resource_map is not None and out.scope_check_calls == 0
     assert "resource map: program" in out.notes
+    assert out.program_datasets is not None
+    assert {d.name for d in out.program_datasets.datasets} >= {"Example Workbench", "Controlled Tier"}
+    assert "Datasets of the program" in out.notes
 
 
 def test_seed_description_names_the_program_and_data_resources():

@@ -611,6 +611,10 @@ class DatasetResearchUseCase:
             self._map_drawn = True
         record.resource_map = self._map_value
         record.resource_map_checked = True
+        if self._map_value is not None:
+            from dataset_agent.adapters.resource_map import program_datasets
+
+            record.program_datasets = program_datasets(self._map_value, built=False)
 
     def _resource_map(self, record: DatasetRecord):
         """Program versus data (``adapters.resource_map``); None when nothing splits."""

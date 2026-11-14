@@ -159,7 +159,19 @@ def cooccurrence_clause(program_names: list[str], data_name: str) -> str:
     return f"({group}) AND ({_quoted(data_name)})"
 
 
-def candidates(raw: dict, *, dataset_name: str, pages: str) -> tuple[list[str], list[str]] | None:
+def _note(found: dict | None, name: str, **kw) -> None:
+    """Record what happened to a data-name candidate (first source wins, later facts add)."""
+    if found is None or not name:
+        return
+    row = found.setdefault(name.casefold(), {"name": name})
+    for k, v in kw.items():
+        if k in ("source", "where") and row.get(k):
+            continue
+        row[k] = v
+
+
+def candidates(raw: dict, *, dataset_name: str, pages: str,
+               found: dict | None = None) -> tuple[list[str], list[str]] | None:
     """Program names and the data resource names still to count, or None (no map)."""
     rows = [r for r in (raw.get("names") or []) if isinstance(r, dict)]
     kind = {" ".join(str(r.get("name") or "").split()).lower(): r.get("kind") for r in rows}
@@ -174,9 +186,23 @@ def candidates(raw: dict, *, dataset_name: str, pages: str) -> tuple[list[str], 
     programs = list(dict.fromkeys(p for p in programs if p))
     data = [str(r["name"]).strip() for r in rows if r.get("kind") == "data_resource"]
     data += [n.strip() for n in (raw.get("data_resource_names_in_pages") or []) if isinstance(n, str)]
-    data = [d for d in dict.fromkeys(data) if d and _in_pages(d, pages)
-            and not any(_contained(d, p) for p in programs)]
+    data = _literal_data(data, programs, pages, found, source="pages")
     return (programs, data) if programs and data else None
+
+
+def _literal_data(data: list[str], programs: list[str], pages: str, found: dict | None, *,
+                  source: str) -> list[str]:
+    """Candidates written in *pages* and not inside a program name (others are recorded)."""
+    kept = []
+    for d in dict.fromkeys(x for x in data if x):
+        if not _in_pages(d, pages):
+            _note(found, d, source=source, kept=False, reason="not written in the pages read")
+        elif any(_contained(d, p) for p in programs):
+            _note(found, d, source=source, kept=False, reason="inside a program name")
+        else:
+            _note(found, d, source=source)
+            kept.append(d)
+    return kept
 
 
 def remainders(data: list[str], programs: list[str]) -> list[str]:
@@ -231,30 +257,40 @@ def specific_names(hits: dict[str, int], alone: dict[str, int], *, min_share: fl
 
 def check_data_names(data: list[str], programs: list[str], *,
                      count: Callable[[str], int | None], min_cooccurrence: int = 1,
-                     min_share: float | None = None) -> tuple[dict[str, int], dict[str, int]]:
+                     min_share: float | None = None, found: dict | None = None,
+                     source: str = "") -> tuple[dict[str, int], dict[str, int]]:
     """Co-occurrence and own hits of data-name candidates (plus remainders of names that
     start with a program name). A candidate is kept with at least *min_cooccurrence* hits
     together with the program names it does not contain and, when *min_share* is given,
     at least that share of its own hits. Returns (co-occurrence hits, own hits)."""
-    data = [*data, *remainders(data, programs)]
+    rests = remainders(data, programs)
+    for r in rests:
+        _note(found, r, source=source, where="remainder of a program-prefixed name")
     hits: dict[str, int] = {}
     alone: dict[str, int] = {}
-    for d in dict.fromkeys(data):
+    for d in dict.fromkeys([*data, *rests]):
         others = [p for p in programs if not _contained(p, d)]
         if not others:
             logger.info("resource map: %r contains every program name; co-occurrence not "
                         "measurable", d)
+            _note(found, d, kept=False, reason="contains every program name: co-occurrence "
+                  "not measurable (its remainder is checked instead)")
             continue
         n = count(cooccurrence_clause(others, d))
         if n is None or n < min_cooccurrence:
+            _note(found, d, hits_with_program=n, kept=False,
+                  reason="count failed" if n is None else f"{n} hits with the program names")
             continue
         a = count(_quoted(d))
         if min_share is not None and (not a or n / a < min_share):
             logger.info("resource map: %r rejected: %s of %s hits with the program", d, n, a)
+            _note(found, d, hits_with_program=n, hits_alone=a, kept=False,
+                  reason=f"only {n} of {a} hits carry a program name")
             continue
         hits[d] = n
         if a is not None:
             alone[d] = a
+        _note(found, d, hits_with_program=n, hits_alone=a, kept=True, reason="")
     return hits, alone
 
 
@@ -295,11 +331,13 @@ def build_map(raw: dict, *, dataset_name: str, pages: str,
               max_hits: int = 500_000) -> ResourceMap | None:
     """Apply the deterministic split rule; *count* returns Dimensions hits of a clause and
     *count_where* (optional) the hits under a ``where`` filter, to confirm the release year."""
-    cand = candidates(raw, dataset_name=dataset_name, pages=pages)
+    found: dict = {}
+    cand = candidates(raw, dataset_name=dataset_name, pages=pages, found=found)
     if cand is None:
         return None
     programs, data = cand
-    hits, alone = check_data_names(data, programs, count=count, min_cooccurrence=min_cooccurrence)
+    hits, alone = check_data_names(data, programs, count=count, min_cooccurrence=min_cooccurrence,
+                                   found=found, source="pages")
     if not hits:
         return None
     specific = specific_names(hits, alone, min_share=specific_min_share, max_hits=max_hits)
@@ -314,11 +352,12 @@ def build_map(raw: dict, *, dataset_name: str, pages: str,
                        former_or_parent_names=former, first_release_year=year,
                        proposed_release_year=proposed, share_before_release=share,
                        cooccurrence=hits, data_name_hits=alone, specific_data_names=specific,
-                       name_sources={d: "pages" for d in hits})
+                       name_sources={d: "pages" for d in hits},
+                       found_names=list(found.values()))
 
 
 def gather_pages_with_sources(dataset_name: str, home_url: str | None, *, search=None,
-                              fetch=None) -> tuple[str, list[str]]:
+                              fetch=None, parts_out: list | None = None) -> tuple[str, list[str]]:
     """The home page text plus three web searches (data access, history, first data
     release); when the home page cannot be fetched, two more searches (data portal and
     documentation pages) stand in for it. Returns (text, sources)."""
@@ -332,6 +371,8 @@ def gather_pages_with_sources(dataset_name: str, home_url: str | None, *, search
     if home:
         parts.append(home)
         sources.append(str(home_url))
+        if parts_out is not None:
+            parts_out.append((str(home_url), home))
     elif home_url:
         sources.append(f"failed: {home_url}")
     queries = [f"{dataset_name} data access researchers",
@@ -349,6 +390,8 @@ def gather_pages_with_sources(dataset_name: str, home_url: str | None, *, search
         if text:
             parts.append(text)
             sources.append(f"search: {q}")
+            if parts_out is not None:
+                parts_out.append((f"search: {q}", text))
     logger.info("resource map: pages for %r from %s", dataset_name, sources)
     return "\n".join(parts), sources
 
@@ -370,14 +413,14 @@ _URL_LINE = re.compile(r"^\s+(https?://\S+)\s*$", re.M)
 
 
 def discovery_pages(dataset_name: str, *, search=None, fetch=None, per_query: int = 2,
-                    max_pages: int = 6) -> tuple[str, list[str]]:
+                    max_pages: int = 6, parts: list | None = None) -> tuple[str, list[str]]:
     """Targeted searches for the program's data documentation; the top result pages
     themselves are fetched, not only the snippets. Returns (text, sources)."""
     from dataset_agent.adapters.tools import web_search
 
     search = search or web_search
     fetch = fetch or fetch_page_text
-    parts: list[str] = []
+    texts: list[str] = []
     sources: list[str] = []
     seen: set[str] = set()
     for tpl in DISCOVERY_QUERIES:
@@ -387,20 +430,24 @@ def discovery_pages(dataset_name: str, *, search=None, fetch=None, per_query: in
         except Exception as exc:  # web context is best effort
             logger.warning("resource map: discovery search failed: %s", exc)
             continue
-        parts.append(res)
+        texts.append(res)
         sources.append(f"search: {q}")
+        if parts is not None:
+            parts.append((f"search: {q}", res))
         for url in _URL_LINE.findall(res)[:per_query]:
             if url in seen or len(seen) >= max_pages:
                 continue
             seen.add(url)
             text = fetch(url)
             if text:
-                parts.append(text)
+                texts.append(text)
                 sources.append(url)
+                if parts is not None:
+                    parts.append((url, text))
             else:
                 sources.append(f"failed: {url}")
     logger.info("resource map: discovery pages for %r from %s", dataset_name, sources)
-    return "\n".join(p for p in parts if p), sources
+    return "\n".join(p for p in texts if p), sources
 
 
 def merge_names(rmap: ResourceMap, hits: dict[str, int], alone: dict[str, int], *, source: str,
@@ -428,7 +475,8 @@ def discover_from_web(agent, rmap: ResourceMap, *, dataset_name: str, descriptio
     """Only for a dataset already split: more data names from documentation pages. The
     LLM proposes; a name is kept only when it is written in those pages, is not inside a
     program name and co-occurs with the program names (the same checks as the map)."""
-    pages, sources = discovery_pages(dataset_name, search=search, fetch=fetch)
+    parts: list = []
+    pages, sources = discovery_pages(dataset_name, search=search, fetch=fetch, parts=parts)
     rmap.page_sources = [*rmap.page_sources, *sources]
     if not pages:
         return []
@@ -439,10 +487,16 @@ def discover_from_web(agent, rmap: ResourceMap, *, dataset_name: str, descriptio
     cands += [n.strip() for n in (raw.get("data_resource_names_in_pages") or [])
               if isinstance(n, str)]
     programs = list(rmap.program_names)
-    cands = [c for c in dict.fromkeys(cands) if c and _in_pages(c, pages)
-             and not any(_contained(c, p) for p in programs)]
+    found = {r["name"].casefold(): r for r in rmap.found_names}
+    have = {d.casefold() for d in rmap.data_resource_names}
+    cands = _literal_data([c for c in cands if c.casefold() not in have], programs, pages,
+                          found, source="discovery")
+    for c in cands:
+        _note(found, c, where=locate(c, parts))
     hits, alone = check_data_names(cands, programs, count=count,
-                                   min_cooccurrence=min_cooccurrence)
+                                   min_cooccurrence=min_cooccurrence, found=found,
+                                   source="discovery")
+    rmap.found_names = list(found.values())
     return merge_names(rmap, hits, alone, source="discovery",
                        specific_min_share=specific_min_share, max_hits=max_hits)
 
@@ -493,6 +547,155 @@ def literature_candidates(passages_by_paper: dict[str, list[str]], program_names
     return [shown[k] for k, ps in papers.items() if len(ps) >= min_papers]
 
 
+def locate(name: str, parts: list) -> str:
+    """The first page or search whose text holds *name* literally ("" when unknown)."""
+    for src, text in parts or []:
+        if _in_pages(name, text):
+            return src
+    return ""
+
+
+_KIND_WORDS = (
+    ("access_tier", {"tier", "tiers"}),
+    ("release", {"release", "releases", "version", "versions"}),
+    ("platform", {"workbench", "platform", "hub", "portal", "browser", "enclave", "gateway"}),
+    ("repository", {"repository", "repositories", "commons", "archive", "archives", "bank"}),
+    ("data_type", {"data", "dataset", "datasets", "survey", "surveys", "cohort", "records",
+                   "biobank"}),
+)
+
+
+def data_kind(name: str) -> str:
+    """platform | repository | access_tier | release | data_type | other, from the words."""
+    words = set(re.findall(r"[a-z0-9]+", name.lower()))
+    if re.search(r"\bv\d+(\.\d+)*\b", name.lower()):
+        return "release"
+    for kind, keys in _KIND_WORDS:
+        if words & keys:
+            return kind
+    return "other"
+
+
+_CLAUSE_TOKEN = re.compile(r'\\?"((?:[^"\\]|\\(?!"))*)\\?"|\(|\)|\bAND\b|\bOR\b|\bNOT\b')
+
+
+def clause_roles(clause: str) -> dict[str, str]:
+    """Role of each quoted term in a FOR clause: ``standalone`` (matches on its own),
+    ``gated`` (needs the AND-ed group), ``gate`` (the last operand of an AND), ``exclude``
+    (after NOT). Keys are case-folded terms."""
+    toks = [(m.group(1) is not None and "phrase" or m.group(0),
+             " ".join((m.group(1) or "").split())) for m in _CLAUSE_TOKEN.finditer(clause or "")]
+    pos = 0
+
+    def group():
+        nonlocal pos
+        ors, nots = [[operand()]], []
+        while pos < len(toks) and toks[pos][0] in ("AND", "OR", "NOT"):
+            op = toks[pos][0]
+            pos += 1
+            node = operand()
+            (ors[-1].append(node) if op == "AND" else ors.append([node]) if op == "OR"
+             else nots.append(node))
+        return ("g", ors, nots)
+
+    def operand():
+        nonlocal pos
+        kind, val = toks[pos]
+        pos += 1
+        if kind == "phrase":
+            return ("p", val)
+        node = group()
+        pos += 1  # ")"
+        return node
+
+    roles: dict[str, str] = {}
+
+    def walk(node, role):
+        if node[0] == "p":
+            roles.setdefault(node[1].casefold(), role)
+            return
+        _, ors, nots = node
+        for conj in ors:
+            if len(conj) == 1:
+                walk(conj[0], role)
+            else:
+                for n in conj[:-1]:
+                    walk(n, "gated" if role == "standalone" else role)
+                walk(conj[-1], "gate" if role == "standalone" else role)
+        for n in nots:
+            walk(n, "exclude")
+
+    try:
+        walk(group(), "standalone")
+    except (IndexError, ValueError):
+        return {}
+    return roles
+
+
+def program_datasets(rmap: ResourceMap | None, *, safe: list[str] | None = None,
+                     flags: list[str] | None = None, built: bool = True,
+                     clause: str | None = None):
+    """The output list: the program and every data name examined, with its status in the
+    final query (``standalone``, ``gate`` or ``not_used`` with the reason); statuses are
+    None when no query was built (research record)."""
+    from dataset_agent.domain.models import ProgramDataset, ProgramDatasets
+
+    if rmap is None:
+        return None
+    safe_f = {s.casefold() for s in (safe or [])}
+    flag_f = {f.casefold() for f in (flags or [])}
+    if clause is not None:
+        roles = clause_roles(clause)
+        safe_f = {k for k, r in roles.items() if r == "standalone"}
+        flag_f = {k for k, r in roles.items() if r == "gate"}
+    rows = {r["name"].casefold(): dict(r) for r in rmap.found_names}
+    for d in rmap.data_resource_names:  # names that entered without a record
+        rows.setdefault(d.casefold(), {"name": d, "kept": True,
+                                       "source": rmap.name_sources.get(d, ""),
+                                       "hits_with_program": rmap.cooccurrence.get(d),
+                                       "hits_alone": rmap.data_name_hits.get(d)})
+    out = []
+    for key, r in rows.items():
+        status, reason = None, ""
+        if built:
+            if key in safe_f:
+                status = "standalone"
+            elif key in flag_f:
+                status = "gate"
+            else:
+                status = "not_used"
+                reason = r.get("reason") or ("kept by the map, not in the final query "
+                                             "(screened, or dropped after a probe)")
+        elif not r.get("kept"):
+            reason = r.get("reason") or ""
+        out.append(ProgramDataset(
+            name=r["name"], kind=data_kind(r["name"]),
+            source=r.get("source") or rmap.name_sources.get(r["name"], ""),
+            where=r.get("where") or "", hits_alone=r.get("hits_alone"),
+            hits_with_program=r.get("hits_with_program"), status=status, reason=reason))
+    return ProgramDatasets(program_names=list(rmap.program_names),
+                           former_or_parent_names=list(rmap.former_or_parent_names),
+                           datasets=out)
+
+
+def program_datasets_summary(pd) -> str:
+    """Human-readable lines for a run summary ("" when not split)."""
+    if pd is None:
+        return ""
+    lines = [f"Program: {', '.join(pd.program_names)}"]
+    if pd.former_or_parent_names:
+        lines.append(f"  former or parent names: {', '.join(pd.former_or_parent_names)}")
+    lines.append(f"Datasets of the program ({len(pd.datasets)}):")
+    for d in pd.datasets:
+        hits = f"{d.hits_alone if d.hits_alone is not None else '?'} alone, " \
+               f"{d.hits_with_program if d.hits_with_program is not None else '?'} with the program"
+        status = f" [{d.status}]" if d.status else ""
+        why = f" — {d.reason}" if d.reason else ""
+        lines.append(f"  - {d.name} ({d.kind}; {d.source}"
+                     f"{': ' + d.where if d.where else ''}; {hits}){status}{why}")
+    return "\n".join(lines)
+
+
 def map_options(settings) -> dict:
     """The map keyword arguments taken from Settings."""
     return {"min_cooccurrence": settings.resource_map_min_cooccurrence,
@@ -511,8 +714,11 @@ def map_for_record(agent, record, *, count: Callable[[str], int | None],
     """Research the resource map of a DatasetRecord (pages fetched unless given). With
     *discover*, a split dataset also gets the web discovery step (``discover_from_web``)."""
     name = record.main_dataset_name
+    parts: list = []
     if pages is None:
-        pages, sources = gather_pages_with_sources(name, record.home_url)
+        pages, sources = gather_pages_with_sources(name, record.home_url, parts_out=parts)
+    else:
+        parts = [((sources or ["given pages"])[0], pages)]
     names = list(dict.fromkeys([name, *record.dataset_names, *record.flag_terms]))
     raw = propose(agent, dataset_name=name, description=record.description, names=names,
                   pages=pages)
@@ -522,6 +728,9 @@ def map_for_record(agent, record, *, count: Callable[[str], int | None],
                   max_hits=max_hits)
     if m is not None:
         m.page_sources = list(sources or [])
+        for r in m.found_names:
+            if r.get("source") == "pages" and not r.get("where"):
+                r["where"] = locate(r["name"], parts)
         if discover:
             added = discover_from_web(agent, m, dataset_name=name, description=record.description,
                                       count=count, min_cooccurrence=min_cooccurrence,

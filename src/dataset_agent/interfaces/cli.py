@@ -35,6 +35,7 @@ def run_cmd(
         raise typer.Exit(code=1) from e
 
     typer.echo(record.model_dump_json(indent=2))
+    _echo_program_datasets(record)
     typer.echo(f"\nSaved: {path}", err=True)
 
 
@@ -63,8 +64,18 @@ def optimize_cmd(
         raise typer.Exit(code=1) from e
 
     typer.echo(record.model_dump_json(indent=2))
+    _echo_program_datasets(record)
     if not record.success:
         raise typer.Exit(code=2)
+
+
+def _echo_program_datasets(record) -> None:
+    """The program and its datasets, readable, on stderr (nothing when not split)."""
+    from dataset_agent.adapters.resource_map import program_datasets_summary
+
+    text = program_datasets_summary(getattr(record, "program_datasets", None))
+    if text:
+        typer.echo("\n" + text, err=True)
 
 
 @app.command("optimize-model")

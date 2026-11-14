@@ -246,6 +246,32 @@ class TermDecision(BaseModel):
     stats: dict[str, Any] = Field(default_factory=dict)
 
 
+class ProgramDataset(BaseModel):
+    """One data resource or dataset found for a program (output list; see
+    ``adapters.resource_map.program_datasets``)."""
+
+    name: str
+    #: platform | repository | access_tier | release | data_type | other (None = unknown)
+    kind: Optional[str] = None
+    #: pages | discovery | literature
+    source: str = ""
+    #: The page URL, search query or used papers where the name was read.
+    where: str = ""
+    hits_alone: Optional[int] = None
+    hits_with_program: Optional[int] = None
+    #: standalone | gate | not_used (in the final query); None when no query was built.
+    status: Optional[str] = None
+    reason: str = ""
+
+
+class ProgramDatasets(BaseModel):
+    """A program and every data resource or dataset found for it."""
+
+    program_names: list[str] = Field(default_factory=list)
+    former_or_parent_names: list[str] = Field(default_factory=list)
+    datasets: list[ProgramDataset] = Field(default_factory=list)
+
+
 class ResourceMap(BaseModel):
     """A program separate from its data (research step; see ``adapters.resource_map``)."""
 
@@ -269,6 +295,9 @@ class ResourceMap(BaseModel):
     #: Data resource name -> where it was found: ``pages`` (home page and first searches),
     #: ``discovery`` (data documentation pages), ``literature`` (passages of used papers).
     name_sources: dict[str, str] = Field(default_factory=dict)
+    #: Every data-name candidate examined (kept or not): name, source, where,
+    #: hits_with_program, hits_alone, kept, reason.
+    found_names: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class QueryOptimizationRecord(BaseModel):
@@ -303,6 +332,11 @@ class QueryOptimizationRecord(BaseModel):
     all_variants_tested: list[VariantTestedEntry] = Field(default_factory=list)
     resource_map: Optional[ResourceMap] = Field(
         default=None, description="Program separate from its data, when research found one"
+    )
+    program_datasets: Optional[ProgramDatasets] = Field(
+        default=None,
+        description="Program split from its data: the program names and every data resource "
+        "or dataset found for it, with its status in the query; None when not split",
     )
     scope_check_calls: Optional[int] = Field(
         default=None, description="LLM calls the scope check made; None when it did not run"
@@ -403,6 +437,11 @@ class DatasetRecord(BaseModel):
     resource_map: Optional[ResourceMap] = Field(
         default=None,
         description="Set only when research found a program separate from its data",
+    )
+    program_datasets: Optional[ProgramDatasets] = Field(
+        default=None,
+        description="Program split from its data: the program names and every data resource "
+        "or dataset found for it, with its status in the query; None when not split",
     )
     resource_map_checked: bool = Field(
         default=False,

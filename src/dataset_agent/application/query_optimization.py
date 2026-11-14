@@ -98,6 +98,7 @@ from dataset_agent.adapters.query_heuristics import (
     is_short_acronym,
 )
 from dataset_agent.adapters.referent_check import check_referents, model_profile
+from dataset_agent.adapters.resource_map import program_datasets, program_datasets_summary
 from dataset_agent.adapters.scope_check import (
     acronym_form,
     carries_data_noun,
@@ -2503,10 +2504,17 @@ class QueryOptimizationUseCase:
                 logger.warning("literature discovery: count failed: %s", exc)
                 return None
 
+        found = {r["name"].casefold(): r for r in rmap.found_names}
+        for c in cands:
+            ids = [pid for pid, ps in passages.items()
+                   if any(_phrase_in(c, x, plural_ok=False) for x in ps)]
+            found.setdefault(c.casefold(), {"name": c, "source": "literature",
+                                            "where": "used papers: " + ", ".join(ids[:5])})
         hits, alone = await asyncio.to_thread(
             check_data_names, cands, list(rmap.program_names), count=count,
             min_cooccurrence=s.resource_map_min_cooccurrence,
-            min_share=s.resource_map_specific_min_share)
+            min_share=s.resource_map_specific_min_share, found=found, source="literature")
+        rmap.found_names = list(found.values())
         added = merge_names(rmap, hits, alone, source="literature",
                             specific_min_share=s.resource_map_specific_min_share,
                             max_hits=s.optimize_flag_max_hits)
@@ -3489,6 +3497,13 @@ class QueryOptimizationUseCase:
             if proposal is not None and self._proposal_repo is not None:
                 self._proposal_repo.save(proposal)
 
+        program_ds = program_datasets(self._resource_map, clause=best.for_clause)
+        if program_ds is not None:
+            notes_parts.append(program_datasets_summary(program_ds).replace("\n", " | "))
+            if proposal is not None:
+                proposal.program_datasets = program_ds.model_dump()
+                if self._proposal_repo is not None:
+                    self._proposal_repo.save(proposal)
         dsl_query = self._build_where_dsl(best.for_clause)
         elapsed = round(time.perf_counter() - t0, 2)
         notes_parts.append(f"dimensions_api_calls≈{self._dims_calls} elapsed_s={elapsed}")
@@ -3516,6 +3531,7 @@ class QueryOptimizationUseCase:
             fulltext_iterations=ft_iterations,
             proposal=proposal,
             resource_map=self._resource_map,
+            program_datasets=program_ds,
             scope_check_calls=self._scope_calls if self._resource_map is not None else None,
             notes=" ".join(notes_parts),
         )

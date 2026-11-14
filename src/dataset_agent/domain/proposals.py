@@ -139,6 +139,8 @@ class QueryProposal(BaseModel):
     #: Ready ``/pipelines/start`` payload (probe=false).
     start_payload: dict[str, Any] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
+    #: Program split from its data: the program and its datasets (None when not split).
+    program_datasets: Optional[Any] = None
     approved_at: Optional[str] = None
     approved_by: Optional[str] = None
     submitted_at: Optional[str] = None
