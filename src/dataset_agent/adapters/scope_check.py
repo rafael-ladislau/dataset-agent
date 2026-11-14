@@ -50,14 +50,27 @@ EMIT_SCOPE_CLASSIFICATION = {
 
 
 def generated_data_phrases(program_names: list[str]) -> list[str]:
-    """``<program> data``, ``<program> dataset``, ``<program> participants`` and ``data from
-    the <program>`` for each program name (alias candidates and data-term passages)."""
+    """``<program> data``, ``<program> dataset`` and ``data from the <program>`` for each
+    program name (alias candidates and data-term passages). A data phrase is a data
+    reference by construction. Recruitment wording (``<program> participants``) is not
+    generated: it is program-only under the owner rule."""
     out: list[str] = []
     for p in program_names:
         p = " ".join(p.split())
         if p:
-            out += [f"{p} data", f"{p} dataset", f"{p} participants", f"data from the {p}"]
+            out += [f"{p} data", f"{p} dataset", f"data from the {p}"]
     return list(dict.fromkeys(out))
+
+
+def phrase_program(phrase: str, program_names: list[str]) -> str | None:
+    """The program name a generated data phrase was built from, or None."""
+    key = " ".join(phrase.split()).casefold()
+    for p in program_names:
+        p = " ".join(p.split())
+        if key in {f"{p} data".casefold(), f"{p} dataset".casefold(),
+                   f"data from the {p}".casefold()}:
+            return p
+    return None
 
 
 def _contains_phrase(name: str, phrase: str) -> bool:

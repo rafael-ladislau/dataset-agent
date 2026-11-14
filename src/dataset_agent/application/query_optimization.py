@@ -98,7 +98,7 @@ from dataset_agent.adapters.query_heuristics import (
     is_short_acronym,
 )
 from dataset_agent.adapters.referent_check import check_referents, model_profile
-from dataset_agent.adapters.scope_check import check_scope, generated_data_phrases
+from dataset_agent.adapters.scope_check import check_scope, generated_data_phrases, phrase_program
 from dataset_agent.application.proposal_service import build_proposal, merge_diffs
 from dataset_agent.adapters.term_sanitizer import sanitize_term, sanitize_terms
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
@@ -805,6 +805,8 @@ class QueryOptimizationUseCase:
         eligible, rejected = recall_candidates(
             current, main_names=main_names, known_aliases=known_aliases,
             flag_terms=flag_terms, evidence_against=evidence_against,
+            data_phrases=(self._standalone_data_phrases(self._resource_map)
+                          if self._resource_map is not None else None),
         )
         if rejected:
             more = f"; and {len(rejected) - 8} more" if len(rejected) > 8 else ""
@@ -2348,15 +2350,31 @@ class QueryOptimizationUseCase:
         return 100.0 * fp_hits / float(len(sample))
 
     @staticmethod
-    def _apply_resource_map(rmap, safe: list[str], risky: list[str], flag_terms: list[str],
+    def _standalone_data_phrases(rmap) -> list[str]:
+        """Generated data phrases that may stand alone: built from a program name that is
+        not a short acronym (acronym forms keep the acronym guards)."""
+        programs = list(rmap.program_names)
+        return [p for p in generated_data_phrases(programs)
+                if not is_short_acronym(phrase_program(p, programs) or "")]
+
+    @classmethod
+    def _apply_resource_map(cls, rmap, safe: list[str], risky: list[str], flag_terms: list[str],
                             notes_parts: list[str]) -> tuple[list[str], list[str], list[str]]:
         """Program names go to the gated group; the gate is the data resource names, and
-        organisation flags leave it. ``build_for_clause`` is unchanged."""
+        organisation flags leave it. A generated data phrase is a data reference by
+        construction: it is a safe candidate (validated by the probe like any alias) and is
+        never placed behind the gate. ``build_for_clause`` is unchanged."""
         programs = sanitize_terms(list(rmap.program_names), "alias")
         prog = {p.casefold() for p in programs}
         moved = [a for a in safe if a.casefold() in prog]
         safe = [a for a in safe if a.casefold() not in prog]
         risky = [*risky, *moved, *programs]
+        phrases = {p.casefold() for p in cls._standalone_data_phrases(rmap)}
+        freed = [a for a in risky if a.casefold() in phrases]
+        if freed:
+            risky = [a for a in risky if a.casefold() not in phrases]
+            safe = [*safe, *freed]
+            notes_parts.append(f"resource map: data phrases stand alone {freed}")
         gate = sanitize_terms(list(rmap.data_resource_names), "flag term")
         notes_parts.append(
             f"resource map: program names {programs} gated by data resource names {gate}; "

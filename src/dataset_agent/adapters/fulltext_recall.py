@@ -150,12 +150,16 @@ def recall_candidates(
     known_aliases: list[str],
     flag_terms: list[str],
     evidence_against: set[str] | None = None,
+    data_phrases: list[str] | None = None,
 ) -> tuple[list[RecallCandidate], list[str]]:
     """``(eligible in pool order, rejection notes)``.
 
     Pool: tier 0 = *flag_terms* then *main_names*; tier 1 = *known_aliases* that are not
     safe now (risky, or dropped by phase 1). *evidence_against*: aliases the refiner dropped
-    or demoted on full-text evidence."""
+    or demoted on full-text evidence. *data_phrases*: generated data phrases of a resource
+    map ("<program> data", "data from the <program>"); they are data references by
+    construction, so the proper-name, generic-phrase and rhetorical filters do not apply."""
+    phrase_f = {_fold(p) for p in (data_phrases or [])}
     against = {_fold(a) for a in (evidence_against or set())}
     safe_f = {_fold(s) for s in current.safe}
     all_names = [n for n in (sanitize_term(x) for x in main_names) if n]
@@ -197,13 +201,13 @@ def recall_candidates(
             reject("short acronym")
         elif is_acronym_suffix_form(term):
             reject("short acronym plus generic suffix")
-        elif _generic_word(term):
+        elif _generic_word(term) and _fold(term) not in phrase_f:
             reject("not a proper name")
         elif _all_generic_words(term):
             reject("generic phrase")
         elif _fold(term) in against:
             reject("full text already rejected it")
-        elif detect_rhetorical_name(term):
+        elif detect_rhetorical_name(term) and _fold(term) not in phrase_f:
             reject("rhetorical phrase")
         elif _fold(term) in risky_f and not current.flag_terms:
             reject("already matches without flags")

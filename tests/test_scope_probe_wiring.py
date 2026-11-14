@@ -66,8 +66,7 @@ def test_without_a_map_there_are_no_scope_calls(tmp_path):
 def test_generated_phrases_cover_each_program_name():
     from dataset_agent.adapters.scope_check import generated_data_phrases
 
-    assert generated_data_phrases(["A B"]) == ["A B data", "A B dataset", "A B participants",
-                                              "data from the A B"]
+    assert generated_data_phrases(["A B"]) == ["A B data", "A B dataset", "data from the A B"]
 
 
 def test_window_starts_at_a_confirmed_first_release_year(tmp_path):
