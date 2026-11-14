@@ -1191,6 +1191,12 @@ class QueryOptimizationUseCase:
             # 4. Excludes (other meanings of the name).
             excludes: list[str] = []
             for term in cands.other_meanings:
+                if not gate:
+                    # Every name is safe: no measured other meaning exists to exclude,
+                    # and a check against the query's own papers would be circular.
+                    model.decide(term, "exclude", "rejected",
+                                 "not needed: no name has another measured meaning")
+                    continue
                 ok, reason, stats = await self._model_exclude_check(model, term)
                 model.decide(term, "exclude", "exclude" if ok else "rejected", reason, **stats)
                 if ok:

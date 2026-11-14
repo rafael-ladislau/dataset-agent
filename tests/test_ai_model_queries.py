@@ -253,6 +253,7 @@ def test_aurora_decisions_explain_every_term(tmp_path, patched) -> None:
     assert _decision(out, "aurora borealis", "exclude").count == 5
     kinase = _decision(out, "Aurora kinase", "exclude")
     assert kinase.decision == "rejected" and "removes nothing" in kinase.reason
+    assert "parenthesised" in _decision(out, "Aurora (city)", "exclude").reason
 
 
 def test_aurora_seed_for_extraction(tmp_path, patched) -> None:
@@ -646,6 +647,75 @@ def test_assemble_candidates_screens_by_shape() -> None:
     assert reasons["AK"] == "too short to exclude safely"
     assert reasons["Aurora"] == "equals a model name"
     assert reasons["Aurora paper"].startswith("fewer than 4 words")
+
+
+def _exclude_screen(other: list[str], **over) -> dict[str, str]:
+    kw = dict(
+        model_name="BioCLIP", family=None, given_aliases=[],
+        hub=HubEvidence(
+            hugging_face_id="imageomics/bioclip", found=True, author="imageomics",
+            developer="Imageomics Institute (HDR)",
+            paper_titles=["BioCLIP: A Vision Foundation Model for the Tree of Life"],
+        ),
+        llm={"description": "BioCLIP is a vision model for the tree of life.", "other_meanings": other},
+        max_names=14, max_context=12, max_excludes=8,
+    )
+    kw.update(over)
+    c = assemble_candidates(**kw)
+    reasons = {t: r for k, t, r in c.rejected if k == "exclude"}
+    reasons.update({t: "kept" for t in c.other_meanings})
+    return reasons
+
+
+def test_exclude_with_parentheses_is_rejected_before_any_count() -> None:
+    reasons = _exclude_screen(["Aurora (city)", "bio clipping"])
+    assert reasons["Aurora (city)"] == "parenthesised label: never matches as a phrase"
+    assert reasons["bio clipping"] == "kept"
+
+
+def test_exclude_expanding_the_owner_acronym_is_rejected() -> None:
+    reasons = _exclude_screen(["High Dynamic Range", "Hair Dye Remover Kit"])
+    assert reasons["High Dynamic Range"] == (
+        "expands 'HDR' of the model's owner: names the model's own source"
+    )
+    assert reasons["Hair Dye Remover Kit"] == "kept"
+
+
+def test_exclude_from_the_model_s_own_sources_is_rejected() -> None:
+    reasons = _exclude_screen(["Tree of Life", "vision model", "bio clipping"])
+    assert reasons["Tree of Life"] == "occurs in the model's own paper title or description"
+    assert reasons["vision model"] == "occurs in the model's own paper title or description"
+    assert reasons["bio clipping"] == "kept"
+
+
+def test_excludes_are_not_needed_when_no_name_is_gated(tmp_path, patched) -> None:
+    """Every name is safe: an 'other meaning' has nothing measured to exclude, so it is
+    not counted at all; an exclude derived from abstract false positives still is."""
+    patched.hub = HubEvidence(hugging_face_id="nvidia/fourcastnet", found=True, developer="NVIDIA")
+    patched.eval = _fake_eval([{
+        "fp_rate_pct": 40.0, "fp_count": 1,
+        "fp_hits": [{"matched_alias": "FourCastNet", "snippet": "the FourCastNet radio show"}],
+    }])
+    docs = (
+        ["We compare with FourCastNet and GraphCast."] * 40
+        + ["FourCastNet radio show on fishing weather."]
+        + ["Fourcast Network radio stations."] * 5
+    )
+    llm = {
+        "description": "FourCastNet is NVIDIA's weather model.", "names": [], "paper_titles": [],
+        "context_terms": [], "other_meanings": ["Fourcast Network"], "exclude_terms": ["radio show"],
+    }
+    out, dsl, _agent = _run(
+        tmp_path, docs, llm, OptimizeRequest(dataset_name="FourCastNet", entity_type="ai_model"),
+    )
+
+    assert out.success, out.errors
+    other = _decision(out, "Fourcast Network", "exclude")
+    assert other.decision == "rejected"
+    assert other.reason == "not needed: no name has another measured meaning"
+    assert not any("Fourcast Network" in c for c in dsl.clauses)
+    assert _decision(out, "radio show", "exclude").decision == "exclude"
+    assert out.exclusion_terms == ["radio show"]
 
 
 def test_mine_context_terms_keeps_coined_names_and_acronyms() -> None:

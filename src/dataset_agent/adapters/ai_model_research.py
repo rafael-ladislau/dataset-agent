@@ -498,6 +498,18 @@ def _only_generic(name: str) -> bool:
     return not (content_tokens(name) - _MODEL_GENERIC)
 
 
+def _initials(term: str) -> str:
+    return "".join(w[0] for w in re.split(r"[\s-]+", term) if w and w[0].isalpha()).upper()
+
+
+def _owner_acronyms(*owners: str) -> set[str]:
+    """All-caps tokens of the owner or developer string ("HDR" in "Imageomics (HDR)")."""
+    return {
+        t for o in owners for t in re.findall(r"[A-Za-z]+", o or "")
+        if len(t) >= 2 and t.isupper()
+    }
+
+
 def assemble_candidates(
     *,
     model_name: str,
@@ -607,12 +619,29 @@ def assemble_candidates(
 
     raw_other = llm.get("other_meanings")
     other = [t for t in (raw_other if isinstance(raw_other, list) else []) if isinstance(t, str)]
+    owner_acronyms = _owner_acronyms(out.developer, hub.developer, hub.author)
+    own_sources = [*hub.paper_titles, out.description]
     for term in sanitize_terms(dedupe_strings_ci_preserve_order(other), "exclude term"):
         key = term.casefold()
+        initials = _initials(term)
         if key in name_keys:
             out.rejected.append(("exclude", term, "equals a model name"))
         elif is_short_acronym(term):
             out.rejected.append(("exclude", term, "too short to exclude safely"))
+        elif "(" in term or ")" in term:
+            # "Aurora (city)" is a label, not a phrase any paper contains.
+            out.rejected.append(
+                ("exclude", term, "parenthesised label: never matches as a phrase")
+            )
+        elif len(initials) >= 2 and initials in owner_acronyms:
+            out.rejected.append((
+                "exclude", term,
+                f"expands {initials!r} of the model's owner: names the model's own source",
+            ))
+        elif any(contains_word(src, term) for src in own_sources if src):
+            out.rejected.append(
+                ("exclude", term, "occurs in the model's own paper title or description")
+            )
         elif len(out.other_meanings) >= max_excludes:
             out.rejected.append(("exclude", term, "over the candidate limit"))
         else:
