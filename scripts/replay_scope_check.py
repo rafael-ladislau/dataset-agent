@@ -95,26 +95,28 @@ def evidence_from_labels(entries: list[dict], terms: list[str]) -> Evidence:
 
 
 def score(entries: list[dict], ev: Evidence) -> dict:
+    """Per label group (firm, borderline, close): papers and papers no longer genuine
+    (rejected for program_only labels, lost for data labels)."""
     lab = {e["id"]: e for e in entries}
-    rows = {"program_only": [0, 0], "data": [0, 0], "data_borderline": [0, 0]}
+    rows: dict[str, list[int]] = {}
     decisions = {}
     for v in ev.verdicts:
         e = lab[v.publication_id]
-        decisions[v.publication_id] = v.scope
-        if e["label"] == "program_only":
-            rows["program_only"][0] += 1
-            rows["program_only"][1] += v.scope == "program_only"
-        else:
-            key = "data_borderline" if e.get("borderline") else "data"
-            rows[key][0] += 1
-            rows[key][1] += v.scope == "program_only"
-    return {
-        "program_only_n": rows["program_only"][0], "program_only_rejected": rows["program_only"][1],
-        "data_n": rows["data"][0], "data_lost": rows["data"][1],
-        "data_borderline_n": rows["data_borderline"][0],
-        "data_borderline_lost": rows["data_borderline"][1],
-        "decisions": decisions,
-    }
+        decisions[v.publication_id] = v.scope or ("references_only" if not v.genuine else None)
+        groups = [e["label"] + ("_borderline" if e.get("borderline") else "")]
+        if e.get("close"):
+            groups.append(e["label"] + "_close")
+        for g in groups:
+            row = rows.setdefault(g, [0, 0])
+            row[0] += 1
+            row[1] += not v.genuine
+    out: dict = {"decisions": decisions}
+    for g in ("program_only", "data", "program_only_borderline", "data_borderline",
+              "program_only_close", "data_close"):
+        n, k = rows.get(g, [0, 0])
+        word = "rejected" if g.startswith("program_only") else "lost"
+        out[f"{g}_n"], out[f"{g}_{word}"] = n, k
+    return out
 
 
 def agreement(replays: list[dict]) -> float | None:
@@ -126,17 +128,18 @@ def agreement(replays: list[dict]) -> float | None:
     return same / len(ids) if ids else None
 
 
-def run(entries, mp, agent, replays: int) -> dict:
+def run(entries, mp, agent, replays: int, votes: int = 1) -> dict:
     terms = list(dict.fromkeys([*mp["program_names"], *mp["data_names"], *mp.get("data_terms", [])]))
     outs = []
     for _ in range(replays):
         ev = evidence_from_labels(entries, terms)
         res = check_scope(ev, agent=agent, dataset_name=mp["dataset_name"],
                           description=mp.get("description", ""), program_names=mp["program_names"],
-                          data_names=mp["data_names"], data_terms=mp.get("data_terms"))
+                          data_names=mp["data_names"], data_terms=mp.get("data_terms"),
+                          votes=votes)
         s = score(entries, ev)
         s.update(calls=res.calls, failed_calls=res.failed_calls, by_name=res.n_data_by_name,
-                 unclear=res.n_unclear, votes={k: v["votes"] for k, v in res.papers.items()})
+                 unclear=res.n_unclear, references_only=res.n_references_only, votes={k: v["votes"] for k, v in res.papers.items()})
         outs.append(s)
         print(json.dumps({k: v for k, v in s.items() if k not in ("decisions", "votes")}),
               file=sys.stderr)
@@ -149,6 +152,7 @@ def main(argv=None):
     ap.add_argument("--map", required=True)
     ap.add_argument("--set", default="aou")
     ap.add_argument("--replays", type=int, default=3)
+    ap.add_argument("--votes", type=int, default=1)
     ap.add_argument("--out")
     a = ap.parse_args(argv)
     from dataset_agent.bootstrap import build_referent_agent
@@ -158,8 +162,8 @@ def main(argv=None):
     entries = (list(data["labels"].values()) if a.set == "aou"
                else next(g["labels"] for g in data["guard"] if g["set"] == a.set))
     mp = json.loads(Path(a.map).read_text())
-    out = run(entries, mp, build_referent_agent(Settings()), a.replays)
-    out.update(set=a.set, map=mp)
+    out = run(entries, mp, build_referent_agent(Settings()), a.replays, a.votes)
+    out.update(set=a.set, map=mp, votes=a.votes)
     text = json.dumps(out, indent=1)
     Path(a.out).write_text(text + "\n") if a.out else print(text)
 

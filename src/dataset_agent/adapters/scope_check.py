@@ -8,6 +8,8 @@ A paper that only discusses the program (goals, plans to collect data, recruitme
 policy, funding) is ``program_only`` and is not genuine for precision.
 
 Only papers judged ``mentioned`` are checked; ``used`` papers are ``data`` without a call.
+A checked paper with no name context outside the reference list falls under the
+references-only rule: it is turned to ``not_mentioned`` without a call (``scope`` stays None).
 
 * stage 0, no LLM call: a data resource name that carries the program's own phrase
   (e.g. "<program> Researcher Workbench") in a name context outside the reference list
@@ -95,10 +97,16 @@ Validator quote: {quote!r}
 
 The paper counts as DATA when its text refers to the data resource itself: its data, the
 access platform, the repository, a tier, a release or version, an existing data type, data
-availability, or a listing among existing data resources (for example "repositories such
-as X and Y"). Use is not required. It is PROGRAM_ONLY when it discusses only the program:
-its goals, plans to collect data, recruitment or engagement, ethics, policy or funding.
-Answer unclear when the passages do not let you decide.
+availability; or when it names the resource in a list of biobanks, cohorts, datasets,
+repositories or resources; or names it as a data source for possible future analyses.
+Use is not required.
+It is PROGRAM_ONLY when it discusses only the program: its goals, history or renaming,
+recruitment targets, the program's own plans to collect data, ethics, consent, policy or
+funding, a definition quoted from it, or when it names the program as an example in a
+list of initiatives, programs, efforts or projects.
+Noun test for lists: biobanks, cohorts, datasets, repositories or resources mean DATA;
+initiatives, programs, efforts or projects mean PROGRAM_ONLY.
+Answer unclear only when the passages do not let you decide.
 
 Use emit_scope_classification exactly once; scope is data, program_only or unclear."""
 
@@ -121,6 +129,7 @@ class ScopeResult:
     n_data: int = 0
     n_program_only: int = 0
     n_unclear: int = 0
+    n_references_only: int = 0
     calls: int = 0
     failed_calls: int = 0
     #: publication id -> {"stage", "votes", "decision"}
@@ -151,6 +160,11 @@ def check_scope(
         if v.verdict != "mentioned":
             continue
         res.n_checked += 1
+        if not _text_contexts(v):
+            v.overridden_from, v.verdict = v.verdict, "not_mentioned"
+            res.n_references_only += 1
+            res.papers[v.publication_id] = {"stage": 0, "votes": [], "decision": "references_only"}
+            continue
         if stage0_data(v, owned):
             v.scope = "data"
             res.n_data_by_name += 1

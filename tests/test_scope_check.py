@@ -83,6 +83,20 @@ def test_used_papers_are_data_and_never_asked():
     assert ev.verdicts[0].scope == "data" and ev.verdicts[1].scope is None
 
 
+def test_no_name_outside_the_reference_list_falls_under_the_references_only_rule():
+    ev = _ev(_pub("a", contexts=[_c("references", "Example Program. 2019.")]),
+             _pub("b", contexts=[]))
+    judge = FakeJudge()
+    res = _check(ev, judge)
+    # "a" was already turned by build_evidence's references-only rule; "b" has no name
+    # context at all and is turned by the scope check, without a call.
+    assert judge.prompts == [] and res.n_references_only == 1 and res.n_checked == 1
+    for v in ev.verdicts:
+        assert v.verdict == "not_mentioned" and v.overridden_from == "mentioned"
+        assert v.scope is None and not v.genuine
+    assert res.papers["b"]["decision"] == "references_only"
+
+
 def test_failed_or_unclear_answers_keep_the_paper():
     ev = _ev(_pub("a"), _pub("b"))
     res = _check(ev, FakeJudge([RuntimeError("down"), "unclear"]))
@@ -106,6 +120,10 @@ def test_prompt_carries_names_rule_and_quote():
     p = judge.prompts[0]
     assert "Program names: Example Program, Example Research Program." in p
     assert "Controlled Tier" in p and "'judge quote'" in p and "PROGRAM_ONLY" in p
+    # the amended rule and its noun test
+    assert "biobanks, cohorts, datasets, repositories or resources" in p
+    assert "initiatives, programs, efforts or projects" in p
+    assert "future analyses" in p and "own plans to collect data" in p
 
 
 def test_no_map_or_ai_models_never_enter():

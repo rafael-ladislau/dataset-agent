@@ -64,6 +64,22 @@ def test_replay_scores_labels(tmp_path):
     assert r["data_borderline_lost"] == 1 and out["agreement"] == 1.0
 
 
+def test_borderline_program_only_and_no_text_paper_are_scored(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text(TEXT.replace("We used the Example Program Workbench for analyses.", "Policy."))
+    refs = tmp_path / "r.txt"
+    refs.write_text("# TITLE: T\n\n## BODY: M\nNothing.\n\n## BIBLIOGRAPHY\n- Example Program | J\n")
+    entries = [
+        {"id": "p", "label": "program_only", "used": False, "borderline": True, "path": str(f)},
+        {"id": "r", "label": "program_only", "used": False, "path": str(refs)},
+    ]
+    out = replay.run(entries, MAP, Judge("program_only"), replays=1, votes=3)
+    r = out["replays"][0]
+    assert r["program_only_borderline_n"] == 1 and r["program_only_borderline_rejected"] == 1
+    assert r["program_only_n"] == 1 and r["program_only_rejected"] == 1  # references-only
+    assert r["calls"] == 3 and r["references_only"] == 1
+
+
 def test_agreement_counts_papers_with_one_decision():
     a = {"decisions": {"x": "data", "y": "program_only"}}
     b = {"decisions": {"x": "data", "y": "unclear"}}
