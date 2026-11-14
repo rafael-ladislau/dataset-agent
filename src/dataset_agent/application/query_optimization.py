@@ -2506,6 +2506,17 @@ class QueryOptimizationUseCase:
         desc_for_signal3 = ""
         rec: DatasetRecord | None = None
         if request.dataset_names:
+            # A research run's resource map comes with the request (full pipeline).
+            if request.resource_map is not None:
+                self._resource_map = request.resource_map
+                self._dataset_description = request.dataset_description or ""
+                desc_for_signal3 = resource_map_description(
+                    (request.dataset_description or "")[:2000], request.resource_map)
+                notes_parts.append(
+                    "resource map: program "
+                    f"{request.resource_map.program_names} separate from data "
+                    f"{request.resource_map.data_resource_names}"
+                )
             aliases = dedupe_strings_ci_preserve_order(list(request.dataset_names))
             flag_terms = dedupe_strings_ci_preserve_order(list(request.flag_terms))
             exclude_terms = dedupe_strings_ci_preserve_order(list(request.exclude_terms))

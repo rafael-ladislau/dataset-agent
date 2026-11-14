@@ -157,6 +157,20 @@ def _suffixed_form_of(alias: str, value: str) -> str:
     return ""
 
 
+def _run_blocking(make_coro):
+    """Run a coroutine to completion from synchronous code, also when this thread already
+    runs an event loop (the full pipeline calls research from inside one): then the
+    coroutine runs on a fresh loop in a worker thread."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(make_coro())
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(lambda: asyncio.run(make_coro())).result()
+
+
 class DatasetResearchUseCase:
     def __init__(
         self,
@@ -596,15 +610,12 @@ class DatasetResearchUseCase:
         from dataset_agent.adapters.resource_map import map_for_record, map_options
 
         def count_where(clause: str, where: str) -> int | None:
-            loop = asyncio.new_event_loop()
+            dsl = build_for_clause_count_dsl(clause, where=where)
             try:
-                return parse_total_count(loop.run_until_complete(self._dsl_port.execute_dsl(
-                    build_for_clause_count_dsl(clause, where=where))))
+                return parse_total_count(_run_blocking(lambda: self._dsl_port.execute_dsl(dsl)))
             except Exception as exc:
                 logger.warning("resource map: count failed: %s", exc)
                 return None
-            finally:
-                loop.close()
 
         try:
             return map_for_record(self._agent, record, count=lambda c: count_where(c, ""),

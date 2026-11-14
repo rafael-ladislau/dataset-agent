@@ -148,6 +148,17 @@ class OptimizeRequest(BaseModel):
             "`exclude_terms` in follow-up validation runs."
         ),
     )
+    resource_map: Optional[ResourceMap] = Field(
+        default=None,
+        description="Resource map from a research run (program versus data); skips drawing it again",
+    )
+    resource_map_checked: bool = Field(
+        default=False,
+        description="True when research already ran the resource-map step (even with no map)",
+    )
+    dataset_description: str = Field(
+        default="", description="Research description, read by the scope check and the validator"
+    )
     entity_type: Literal["dataset", "ai_model"] = Field(
         default="dataset",
         description=(
@@ -453,3 +464,6 @@ def build_record_from_pipeline(
         alias_collisions={},
         query_optimization=None,
     )
+
+
+OptimizeRequest.model_rebuild()
