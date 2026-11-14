@@ -98,6 +98,7 @@ from dataset_agent.adapters.query_heuristics import (
     is_short_acronym,
 )
 from dataset_agent.adapters.referent_check import check_referents, model_profile
+from dataset_agent.adapters.scope_check import check_scope, generated_data_phrases
 from dataset_agent.application.proposal_service import build_proposal, merge_diffs
 from dataset_agent.adapters.term_sanitizer import sanitize_term, sanitize_terms
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
@@ -351,6 +352,8 @@ class QueryOptimizationUseCase:
         self._dims_calls = 0
         self._cap_extra = 0
         self._resource_map = None
+        self._dataset_description = ""
+        self._scope_calls = 0
 
     def _call_cap(self) -> int:
         """Dimensions call cap of the current run (0 = unlimited)."""
@@ -401,7 +404,25 @@ class QueryOptimizationUseCase:
         ev.batches = out.batches
         ev.stop_reason = out.stop_reason
         ev.budget_exhausted = out.budget_exhausted
+        await self._apply_scope_check(ev, request)
         return ev
+
+    async def _apply_scope_check(self, ev: Evidence, request: OptimizeRequest) -> None:
+        """With a resource map, papers that only discuss the program stop counting as
+        genuine (``adapters.scope_check``); the refiner and recall check then judge on
+        corrected verdicts. Without a map nothing runs."""
+        rmap = self._resource_map
+        if rmap is None or ev.entity != "dataset":
+            return
+        programs = list(rmap.program_names)
+        res = await asyncio.to_thread(
+            check_scope, ev, agent=self._referent_agent or self._agent,
+            dataset_name=request.dataset_name, description=self._dataset_description,
+            program_names=programs, data_names=list(rmap.data_resource_names),
+            data_terms=generated_data_phrases(programs), votes=self._settings.scope_votes,
+        )
+        self._scope_calls += res.calls
+        logger.info("scope check: %s", {k: v for k, v in vars(res).items() if k != "papers"})
 
     def _budget_left(self) -> bool:
         return self._room()
@@ -2385,6 +2406,8 @@ class QueryOptimizationUseCase:
 
         self._cap_extra = 0
         self._resource_map = None
+        self._scope_calls = 0
+        self._dataset_description = ""
         if request.entity_type == "ai_model":
             return await self._execute_ai_model(request, notes_parts, run_id, t0)
 
@@ -2409,6 +2432,7 @@ class QueryOptimizationUseCase:
             if self._settings.resource_map_enabled and rec.resource_map is None:
                 rec.resource_map = await self._research_resource_map(rec)
             self._resource_map = rec.resource_map
+            self._dataset_description = rec.description or ""
             if rec.resource_map is not None:
                 notes_parts.append(
                     "resource map: program "
@@ -3296,5 +3320,7 @@ class QueryOptimizationUseCase:
             all_variants_tested=tested,
             fulltext_iterations=ft_iterations,
             proposal=proposal,
+            resource_map=self._resource_map,
+            scope_check_calls=self._scope_calls if self._resource_map is not None else None,
             notes=" ".join(notes_parts),
         )

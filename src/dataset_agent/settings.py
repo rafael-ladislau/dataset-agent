@@ -322,6 +322,8 @@ class Settings(BaseSettings):
     #: The release year moves the window start only when at most this share of
     #: program-and-data papers comes before it.
     resource_map_max_share_before_release: float = 0.05
+    #: Asks per paper in the scope check (thinking through the referent settings).
+    scope_votes: int = Field(default=1, ge=1, le=9)
     referent_votes: int = Field(default=3, ge=1, le=9)
     #: S4: after the abstract rule, probe the shipped AI-model seed on full text; with at
     #: least ai_model_fulltext_min_papers judged, corrected precision decides release both

@@ -49,6 +49,17 @@ EMIT_SCOPE_CLASSIFICATION = {
 }
 
 
+def generated_data_phrases(program_names: list[str]) -> list[str]:
+    """``<program> data``, ``<program> dataset``, ``<program> participants`` and ``data from
+    the <program>`` for each program name (alias candidates and data-term passages)."""
+    out: list[str] = []
+    for p in program_names:
+        p = " ".join(p.split())
+        if p:
+            out += [f"{p} data", f"{p} dataset", f"{p} participants", f"data from the {p}"]
+    return list(dict.fromkeys(out))
+
+
 def _contains_phrase(name: str, phrase: str) -> bool:
     return bool(phrase.strip()) and _phrase_in(phrase, name, plural_ok=False)
 

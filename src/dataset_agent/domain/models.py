@@ -235,6 +235,22 @@ class TermDecision(BaseModel):
     stats: dict[str, Any] = Field(default_factory=dict)
 
 
+class ResourceMap(BaseModel):
+    """A program separate from its data (research step; see ``adapters.resource_map``)."""
+
+    program_names: list[str] = Field(default_factory=list)
+    data_resource_names: list[str] = Field(default_factory=list)
+    former_or_parent_names: list[str] = Field(default_factory=list)
+    #: Year the data was first released: found by research with a quote and confirmed by
+    #: counts (few program-and-data papers before it); else None.
+    first_release_year: Optional[int] = None
+    #: The year research proposed, and the share of program-and-data hits before it.
+    proposed_release_year: Optional[int] = None
+    share_before_release: Optional[float] = None
+    #: Data resource name -> Dimensions hits together with the program names.
+    cooccurrence: dict[str, int] = Field(default_factory=dict)
+
+
 class QueryOptimizationRecord(BaseModel):
     """Output of the Query Optimization Agent (see docs/spec-gap-analysis.md §2.1)."""
 
@@ -265,6 +281,12 @@ class QueryOptimizationRecord(BaseModel):
         ),
     )
     all_variants_tested: list[VariantTestedEntry] = Field(default_factory=list)
+    resource_map: Optional[ResourceMap] = Field(
+        default=None, description="Program separate from its data, when research found one"
+    )
+    scope_check_calls: Optional[int] = Field(
+        default=None, description="LLM calls the scope check made; None when it did not run"
+    )
     fulltext_iterations: list[IterationMetrics] = Field(
         default_factory=list, description="Per-iteration full-text metrics (refinement enabled)"
     )
@@ -322,22 +344,6 @@ class QueryOptimizationRecord(BaseModel):
         default=None, ge=0, description="AI models: all-years hits of the selected `for_clause`"
     )
     notes: str = ""
-
-
-class ResourceMap(BaseModel):
-    """A program separate from its data (research step; see ``adapters.resource_map``)."""
-
-    program_names: list[str] = Field(default_factory=list)
-    data_resource_names: list[str] = Field(default_factory=list)
-    former_or_parent_names: list[str] = Field(default_factory=list)
-    #: Year the data was first released: found by research with a quote and confirmed by
-    #: counts (few program-and-data papers before it); else None.
-    first_release_year: Optional[int] = None
-    #: The year research proposed, and the share of program-and-data hits before it.
-    proposed_release_year: Optional[int] = None
-    share_before_release: Optional[float] = None
-    #: Data resource name -> Dimensions hits together with the program names.
-    cooccurrence: dict[str, int] = Field(default_factory=dict)
 
 
 class DatasetRecord(BaseModel):
