@@ -1044,6 +1044,33 @@ def test_excludes_are_not_needed_when_no_name_is_gated(tmp_path, patched) -> Non
     assert out.exclusion_terms == ["radio show"]
 
 
+def test_caller_excludes_are_decided_as_caller_given_when_nothing_is_gated(tmp_path, patched) -> None:
+    """A caller-given exclude on an all-safe model is neither screened by shape nor
+    measured against the query's own papers: it is recorded as not applied."""
+    patched.hub = HubEvidence(hugging_face_id="nvidia/fourcastnet", found=True, developer="NVIDIA")
+    docs = ["We compare with FourCastNet and GraphCast."] * 40 + ["Fourcast Network radio."] * 5
+    llm = {
+        "description": "FourCastNet is NVIDIA's weather model.", "names": [], "paper_titles": [],
+        "context_terms": [], "other_meanings": ["Fourcast Network"],
+    }
+    out, dsl, _agent = _run(
+        tmp_path, docs, llm,
+        OptimizeRequest(dataset_name="FourCastNet", entity_type="ai_model",
+                        exclude_terms=["radio show", "FR (radio)"]),
+    )
+
+    assert out.success, out.errors
+    for term in ("radio show", "FR (radio)"):
+        d = _decision(out, term, "exclude")
+        assert d.decision == "rejected"
+        assert d.reason == "caller-given; not applied: no name is gated"
+        assert len([x for x in out.term_decisions if x.term == term]) == 1
+        assert not any(term in c for c in dsl.clauses)
+    llm_term = _decision(out, "Fourcast Network", "exclude")
+    assert llm_term.reason == "not needed: no name has another measured meaning"
+    assert out.exclusion_terms == []
+
+
 def test_mine_context_terms_keeps_coined_names_and_acronyms() -> None:
     texts = [
         "Aurora beats GraphCast and Pangu-Weather on ERA5. The Model uses AI.",

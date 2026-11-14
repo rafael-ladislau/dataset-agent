@@ -1239,7 +1239,15 @@ class QueryOptimizationUseCase:
         )
         model.description = cands.description
         model.developer = cands.developer
+        # The caller's excludes are their own list: decided once the gate is known.
+        caller_excl = {
+            (sanitize_term(t) or t).casefold() for t in request.exclude_terms if isinstance(t, str)
+        }
+        caller_screened: list[tuple[str, str]] = []
         for kind, term, reason in cands.rejected:
+            if kind == "exclude" and term.casefold() in caller_excl:
+                caller_screened.append((term, reason))
+                continue
             model.decide(term, kind, "rejected", reason)
 
         def q(*terms: str) -> str:
@@ -1404,7 +1412,20 @@ class QueryOptimizationUseCase:
 
             # 4. Excludes (other meanings of the name).
             excludes: list[str] = []
+            if not gate:
+                # Nothing is gated: a caller-given exclude has nothing to act on, and a
+                # check against the query's own papers would be circular.
+                for term in [t for t, _r in caller_screened] + [
+                    t for t in cands.other_meanings if t.casefold() in caller_excl
+                ]:
+                    model.decide(term, "exclude", "rejected",
+                                 "caller-given; not applied: no name is gated")
+            else:
+                for term, reason in caller_screened:
+                    model.decide(term, "exclude", "rejected", reason)
             for term in cands.other_meanings:
+                if not gate and term.casefold() in caller_excl:
+                    continue
                 if not gate:
                     # Every name is safe: no measured other meaning exists to exclude,
                     # and a check against the query's own papers would be circular.
