@@ -250,13 +250,15 @@ def test_contract_fixture_model_evidence():
     m = ev.metrics(0, "q", None)
     assert m.fulltext_precision == 1.0 and m.used_rate == 0.5
     assert m.cited_only_count == 1 and m.cited_rate == 0.5
+    assert m.not_run_count == 1 and m.not_run_rate == 0.5 and m.cited_only_unknown_count == 0
     assert (used.mention_location, used.matched_name) == ("text", "PhaseNet")
     assert m.paper_details == [
         {"id": "pub.1001", "title": "Aftershock detection with deep phase picking",
-         "verdict": "used", "location": "text", "cited_only": False, "matched_name": "PhaseNet"},
+         "verdict": "used", "location": "text", "cited_only": False, "not_run": False,
+         "matched_name": "PhaseNet"},
         {"id": "pub.1002", "title": "A review of seismic arrival picking",
          "verdict": "mentioned", "location": "references_only", "cited_only": True,
-         "matched_name": "PhaseNet"},
+         "not_run": True, "matched_name": "PhaseNet"},
     ]
 
 
@@ -265,7 +267,6 @@ def test_model_references_only_paper_stays_genuine_and_counts_as_cited_only():
     ev = build_evidence(_model_body(_mpub("r", [_mrow(used=True)], ctx)))
     v = ev.verdicts[0]
     assert v.verdict == "used" and v.genuine and v.overridden_from is None
-    # No served usage_type: the location fallback counts it as cited only.
     assert v.cited_only is True and ev.n_cited_only == 1
 
 
@@ -291,10 +292,15 @@ def test_model_body_mention_is_not_cited_only():
     assert ev.verdicts[0].cited_only is False
 
 
-def test_served_usage_type_wins_over_the_location_fallback():
-    ctx = [_c("references", term="PhaseNet")]
-    ev = build_evidence(_model_body(_mpub("r", [_mrow(used=True, usage_type="fine_tuning")], ctx)))
-    assert ev.verdicts[0].cited_only is False
+def test_usage_type_never_decides_cited_only():
+    """Cited-only is where the name occurs; usage_type 'cited' is reported as not run."""
+    refs = [_c("references", term="PhaseNet")]
+    ev = build_evidence(_model_body(_mpub("r", [_mrow(used=True, usage_type="fine_tuning")], refs)))
+    assert ev.verdicts[0].cited_only is True and ev.n_not_run == 0
+    body = [_c("body", term="PhaseNet")]
+    ev = build_evidence(_model_body(_mpub("r", [_mrow(usage_type="cited")], body)))
+    v = ev.verdicts[0]
+    assert v.cited_only is False and v.not_run is True and ev.n_not_run == 1
 
 
 def test_usage_type_cited_is_a_mention():
@@ -377,19 +383,36 @@ def test_explicit_model_entity_without_seed_type_reads_model_rows():
 
 
 # -- model task v2.1: served mention_location ---------------------------------
-def test_served_mention_location_decides_cited_only_before_usage_type():
-    # The validator located the name in the body although it labelled the use "cited".
-    body_hit = _mrow(usage_type="cited", mention_location="text", matched_name="Phase-Net")
-    ev = build_evidence(_model_body(_mpub("r", [body_hit], [_c("references", term="PhaseNet")])))
+def test_name_contexts_decide_cited_only_before_the_served_location():
+    # The served location is the judge's quote position; the name contexts win.
+    row = _mrow(usage_type="cited", mention_location="text", matched_name="Phase-Net")
+    ev = build_evidence(_model_body(_mpub("r", [row], [_c("references", term="PhaseNet")])))
     v = ev.verdicts[0]
-    assert v.verdict == "mentioned" and v.cited_only is False
+    assert v.verdict == "mentioned" and v.cited_only is True
     assert (v.mention_location, v.matched_name) == ("text", "Phase-Net")
-
-
-def test_served_references_only_location_is_cited_only_before_contexts():
     row = _mrow(used=True, usage_type="inference", mention_location="references_only")
     ev = build_evidence(_model_body(_mpub("r", [row], [_c("body", term="PhaseNet")])))
-    assert ev.verdicts[0].cited_only is True
+    assert ev.verdicts[0].cited_only is False
+
+
+@pytest.mark.parametrize(("location", "cited_only"),
+                         [("references_only", True), ("text", False), ("unknown", None), (None, None)])
+def test_without_name_contexts_the_served_location_decides_else_unknown(location, cited_only):
+    flag_only = [_c("references", role="flag", term="GraphCast")]
+    ev = build_evidence(_model_body(_mpub("r", [_mrow(mention_location=location)], flag_only)))
+    assert ev.verdicts[0].cited_only is cited_only
+    assert ev.n_cited_only_unknown == (1 if cited_only is None else 0)
+    assert ev.n_cited_only == (1 if cited_only else 0)
+
+
+def test_cited_only_share_divides_by_genuine_papers():
+    refs = [_c("references", term="PhaseNet")]
+    ev = build_evidence(_model_body(
+        _mpub("a", [_mrow()], refs), _mpub("b", [_mrow()], [_c("body", term="PhaseNet")]),
+        _mpub("c", [_mrow(mentioned=False)], refs), _mpub("d", [_mrow(mentioned=False)], refs),
+    ))
+    m = ev.metrics(0, "q", None)
+    assert m.cited_only_count == 1 and m.cited_rate == 0.5
 
 
 @pytest.mark.parametrize("location", ["unknown", None])
@@ -409,6 +432,6 @@ def test_not_mentioned_model_paper_is_never_cited_only():
 def test_v2_rows_without_location_give_paper_details_with_nulls():
     ev = build_evidence(_model_body(_mpub("r", [_mrow(used=True, usage_type="inference")])))
     assert ev.metrics(0, "q", None).paper_details == [
-        {"id": "r", "title": "T r", "verdict": "used", "location": None, "cited_only": False,
-         "matched_name": None},
+        {"id": "r", "title": "T r", "verdict": "used", "location": None, "cited_only": None,
+         "not_run": False, "matched_name": None},
     ]

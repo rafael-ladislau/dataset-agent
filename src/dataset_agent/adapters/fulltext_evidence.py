@@ -23,10 +23,13 @@ found only in the reference list IS a mention):
   ``is_used`` or ``usage_type`` say (such a row with either set is counted in
   ``n_incoherent``); with ``is_mentioned`` None, ``is_used`` True or
   ``usage_type == "cited"`` makes it a mention;
-* *cited only* (``PubVerdict.cited_only``, genuine papers only): the served
-  ``mention_location`` (v2.1) decides when it is ``text`` or ``references_only``; when it
-  is missing or ``unknown``, a served ``usage_type`` decides (``cited``), else the papers
-  whose only name snippets are in ``references`` (flag snippets ignored);
+* *cited only* (``PubVerdict.cited_only``, genuine papers only) = the model's names occur
+  only in the reference list. With at least one non-flag name snippet: true when every
+  one is in ``references``, false when any is in the title, abstract or body (flag
+  snippets ignored). With none, the served ``mention_location`` (v2.1) decides
+  (``references_only`` true, ``text`` false); otherwise it is unknown (None).
+  ``usage_type`` never decides it; a genuine paper with ``usage_type == "cited"`` is
+  reported apart as *not run* (discussed, not run). Shares divide by genuine papers;
 * an empty row list, or only ``validation_error`` / ``processing_error`` rows, is no
   verdict (never ``not_mentioned``): the validator emits one row per seed.
 """
@@ -67,8 +70,9 @@ class PubVerdict:
     #: AI models only: the deciding row's ``usage_type`` / ``match_type``.
     usage_type: str | None = None
     match_type: str | None = None
-    #: AI models only: a genuine paper that names the model only in its reference list.
-    cited_only: bool = False
+    #: AI models only: the names occur only in the reference list (True), elsewhere too
+    #: (False), or unknown (None); see the module rule. Read through ``cited_only``.
+    names_in_references_only: bool | None = False
     #: AI models only (contract v2.1): ``text`` | ``references_only`` | ``unknown`` as
     #: served, and the model name or alias the verdict rests on. None when not served.
     mention_location: str | None = None
@@ -85,6 +89,17 @@ class PubVerdict:
     @property
     def used(self) -> bool:
         return self.verdict == "used"
+
+    @property
+    def cited_only(self) -> bool | None:
+        """AI models: a genuine paper naming the model only in its reference list; None
+        when unknown; False for papers that are not genuine."""
+        return self.names_in_references_only if self.genuine else False
+
+    @property
+    def not_run(self) -> bool:
+        """AI models: a genuine paper the judge labelled ``cited`` (discussed, not run)."""
+        return self.genuine and self.usage_type == "cited"
 
     def evidence_quote_text(self, term: str | None = None) -> str:
         """The validator quote, or when it is empty the snippet for *term* (else the
@@ -135,6 +150,20 @@ class Evidence:
         return sum(1 for v in self.verdicts if v.cited_only)
 
     @property
+    def n_cited_only_unknown(self) -> int | None:
+        """AI models: genuine papers whose name location is unknown; None for datasets."""
+        if self.entity != "ai_model":
+            return None
+        return sum(1 for v in self.verdicts if v.genuine and v.cited_only is None)
+
+    @property
+    def n_not_run(self) -> int | None:
+        """AI models: genuine papers labelled ``cited`` (not run); None for datasets."""
+        if self.entity != "ai_model":
+            return None
+        return sum(1 for v in self.verdicts if v.not_run)
+
+    @property
     def shortfall_note(self) -> str | None:
         """Human note when fewer than the target papers had full text, else None."""
         if self.target is None or self.n_delivered >= self.target:
@@ -162,6 +191,7 @@ class Evidence:
         used = sum(1 for v in self.verdicts if v.used)
         matched = len(self.genuine)
         cited = self.n_cited_only
+        not_run = self.n_not_run
         return IterationMetrics(
             iteration=iteration,
             for_clause=for_clause,
@@ -180,7 +210,10 @@ class Evidence:
             fulltext_budget_exhausted=self.budget_exhausted,
             papers=[(v.publication_id, v.verdict) for v in self.verdicts],
             cited_only_count=cited,
-            cited_rate=(cited / n) if cited is not None and n else None,
+            cited_rate=(cited / matched) if cited is not None and matched else None,
+            not_run_count=not_run,
+            not_run_rate=(not_run / matched) if not_run is not None and matched else None,
+            cited_only_unknown_count=self.n_cited_only_unknown,
             paper_details=(
                 [
                     {
@@ -189,6 +222,7 @@ class Evidence:
                         "verdict": v.verdict,
                         "location": v.mention_location,
                         "cited_only": v.cited_only,
+                        "not_run": v.not_run,
                         "matched_name": v.matched_name,
                     }
                     for v in self.verdicts
@@ -285,11 +319,17 @@ def _is_incoherent(row: dict) -> bool:
     )
 
 
-def _model_names_in_references_only(contexts: list[dict]) -> bool:
-    """AI models: at least one non-flag snippet and all of them in ``references``. Flag
-    snippets are ignored (another model named in the body says nothing about this one)."""
+def _model_names_in_references_only(contexts: list[dict], location: str | None) -> bool | None:
+    """AI models: True when every non-flag name snippet is in ``references`` (at least
+    one), False when any is elsewhere. Flag snippets are ignored (another model named in
+    the body says nothing about this one). With no name snippet the served location
+    decides; otherwise None (unknown)."""
     names = [c for c in contexts if c.get("role") != "flag"]
-    return bool(names) and all(c.get("part") == "references" for c in names)
+    if names:
+        return all(c.get("part") == "references" for c in names)
+    if location in _LOCATIONS:
+        return location == "references_only"
+    return None
 
 
 def _references_only(contexts: list[dict]) -> bool:
@@ -352,13 +392,6 @@ def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evi
                 _is_incoherent(r) for r in rows if not _is_error_row(r)
             ):
                 ev.n_incoherent += 1
-            if mv.mention_location in _LOCATIONS:
-                cited_only_rule = mv.mention_location == "references_only"
-            elif mv.usage_type:
-                cited_only_rule = mv.usage_type == "cited"
-            else:
-                cited_only_rule = _model_names_in_references_only(contexts)
-            cited_only = mv.verdict != "not_mentioned" and cited_only_rule
             ev.verdicts.append(
                 PubVerdict(
                     publication_id=str(p.get("publication_id") or ""),
@@ -371,7 +404,9 @@ def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evi
                     categories=[c for c in (p.get("category_for") or []) if isinstance(c, str)],
                     usage_type=mv.usage_type,
                     match_type=mv.match_type,
-                    cited_only=cited_only,
+                    names_in_references_only=_model_names_in_references_only(
+                        contexts, mv.mention_location
+                    ),
                     mention_location=mv.mention_location,
                     matched_name=mv.matched_name,
                     is_mentioned=mv.is_mentioned,

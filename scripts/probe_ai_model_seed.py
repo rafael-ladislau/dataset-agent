@@ -18,7 +18,9 @@ Extraction URL and credentials come from the dataset probe's settings:
 ``--extraction dev|prod`` (default ``DATASET_AGENT_PROBE_TARGET``).
 
 Metrics: precision = papers that mention or use the model / evaluated (a name found only
-in the reference list counts as a mention; ``n_cited_only`` reports those papers);
+in the reference list counts as a mention); cited-only = genuine papers whose names occur
+only in the reference list, by name location (``n_cited_only`` / genuine, unknown counted
+apart); not run = genuine papers the judge labelled ``cited`` (``n_not_run`` / genuine);
 used_rate = used / evaluated; Wilson 95% interval on precision; error rows = delivered,
 analyzed papers whose validation errored (no verdict); ``n_no_verdict`` = analyzed papers
 whose rows hold no judgement; ``n_incoherent`` = papers judged not this model whose row
@@ -115,7 +117,12 @@ def summarize(ev: Evidence, *, quote_chars: int = 200) -> dict[str, Any]:
         "precision": _r(genuine / n) if n else None,
         "used_rate": _r(used / n) if n else None,
         "n_cited_only": cited,
-        "cited_rate": _r(cited / n) if n and cited is not None else None,
+        "cited_only_share": _r(cited / genuine) if genuine and cited is not None else None,
+        "n_cited_only_unknown": ev.n_cited_only_unknown,
+        "n_not_run": ev.n_not_run,
+        "not_run_share": (
+            _r(ev.n_not_run / genuine) if genuine and ev.n_not_run is not None else None
+        ),
         "n_error_rows": ev.n_error_rows,
         "error_row_share": _r(ev.n_error_rows / ev.n_delivered) if ev.n_delivered else None,
         "wilson_95": [_r(lo), _r(hi)],
@@ -130,6 +137,7 @@ def summarize(ev: Evidence, *, quote_chars: int = 200) -> dict[str, Any]:
                 "usage_type": v.usage_type,
                 "match_type": v.match_type,
                 "cited_only": v.cited_only,
+                "not_run": v.not_run,
                 "mention_location": v.mention_location,
                 "matched_name": v.matched_name,
                 "is_mentioned": v.is_mentioned,

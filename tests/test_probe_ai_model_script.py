@@ -74,7 +74,9 @@ def test_summarize_fixture():
     out = probe.summarize(ev, quote_chars=20)
     assert (out["n_sampled"], out["n_delivered"], out["n_evaluated"]) == (4, 3, 2)
     assert out["precision"] == 1.0 and out["used_rate"] == 0.5
-    assert out["n_cited_only"] == 1 and out["cited_rate"] == 0.5
+    assert out["n_cited_only"] == 1 and out["cited_only_share"] == 0.5
+    assert out["n_cited_only_unknown"] == 0
+    assert out["n_not_run"] == 1 and out["not_run_share"] == 0.5
     assert out["n_error_rows"] == 1 and out["error_row_share"] == round(1 / 3, 4)
     assert out["wilson_95"] == [round(probe.wilson_interval(2, 2)[0], 4), 1.0]
     assert out["n_overridden"] == 0
@@ -83,7 +85,7 @@ def test_summarize_fixture():
     assert first == {"publication_id": "pub.1001", "title": "Aftershock detection with deep phase picking",
                      "verdict": "used", "usage_type": "inference", "match_type": "llm_validation",
                      "cited_only": False, "mention_location": "text", "matched_name": "PhaseNet",
-                     "is_mentioned": True, "is_used": True,
+                     "not_run": False, "is_mentioned": True, "is_used": True,
                      "text_quote": "We picked P and S ar…"}
     assert out["papers"][1]["cited_only"] is True
 

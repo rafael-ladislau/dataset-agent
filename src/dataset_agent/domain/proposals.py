@@ -55,7 +55,19 @@ class IterationMetrics(BaseModel):
         "(counted as matches); None for datasets",
     )
     cited_rate: Optional[float] = Field(
-        default=None, description="AI models: cited only / evaluated (0-1); None for datasets"
+        default=None, description="AI models: cited only / genuine (0-1); None for datasets"
+    )
+    not_run_count: Optional[int] = Field(
+        default=None,
+        description="AI models: genuine papers the judge labelled 'cited' (discussed, not "
+        "run); None for datasets",
+    )
+    not_run_rate: Optional[float] = Field(
+        default=None, description="AI models: not run / genuine (0-1); None for datasets"
+    )
+    cited_only_unknown_count: Optional[int] = Field(
+        default=None,
+        description="AI models: genuine papers whose name location is unknown; None for datasets",
     )
     paper_details: Optional[list[dict[str, Any]]] = Field(
         default=None,
