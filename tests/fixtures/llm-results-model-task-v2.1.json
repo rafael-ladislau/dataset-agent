@@ -107,7 +107,69 @@
       "validated_ai_models": [],
       "category_for": [],
       "term_contexts": []
+    },
+    {
+      "publication_id": "pub.1005",
+      "doi": "10.1000/phasenet.video",
+      "title": "Phase-based video frame interpolation",
+      "citation_count": 9,
+      "fulltext": {"status": "delivered", "source": "pmc", "reason": null},
+      "analyzed": true,
+      "validation_failed": false,
+      "validated_ai_models": [
+        {
+          "name": "PhaseNet",
+          "is_mentioned": false,
+          "is_used": false,
+          "text_quote": "Our PhaseNet interpolates video frames.",
+          "match_type": "llm_validation",
+          "usage_type": null,
+          "mention_location": "text",
+          "matched_name": "PhaseNet"
+        }
+      ],
+      "category_for": [],
+      "term_contexts": [
+        {
+          "term": "PhaseNet",
+          "role": "alias",
+          "part": "body",
+          "text": "Our PhaseNet interpolates video frames.",
+          "match": "exact"
+        }
+      ]
+    },
+    {
+      "publication_id": "pub.1006",
+      "doi": "10.1000/phasenet.unplaced",
+      "title": "Swarm seismicity of a volcanic island",
+      "citation_count": 7,
+      "fulltext": {"status": "delivered", "source": "openalex", "reason": null},
+      "analyzed": true,
+      "validation_failed": false,
+      "validated_ai_models": [
+        {
+          "name": "PhaseNet",
+          "is_mentioned": true,
+          "is_used": true,
+          "text_quote": "Arrivals were picked with PhaseNet (Table 2).",
+          "match_type": "llm_validation",
+          "usage_type": "inference",
+          "mention_location": "unknown",
+          "matched_name": "PhaseNet"
+        }
+      ],
+      "category_for": ["Earth Sciences"],
+      "term_contexts": [
+        {
+          "term": "PhaseNet",
+          "role": "alias",
+          "part": "body",
+          "text": "Arrivals were picked with PhaseNet (Table 2).",
+          "match": "exact"
+        }
+      ]
     }
   ],
-  "summary": {"publications": 4, "fulltext_delivered": 3, "analyzed": 3}
+  "summary": {"publications": 6, "fulltext_delivered": 5, "analyzed": 5}
 }

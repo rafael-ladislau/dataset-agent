@@ -72,13 +72,14 @@ def test_wilson_interval():
 def test_summarize_fixture():
     ev = build_evidence(_body())
     out = probe.summarize(ev, quote_chars=20)
-    assert (out["n_sampled"], out["n_delivered"], out["n_evaluated"]) == (4, 3, 2)
-    assert out["precision"] == 1.0 and out["used_rate"] == 0.5
-    assert out["n_cited_only"] == 1 and out["cited_only_share"] == 0.5
+    assert (out["n_sampled"], out["n_delivered"], out["n_evaluated"]) == (6, 5, 4)
+    assert out["precision"] == 0.75 and out["used_rate"] == 0.5
+    assert out["n_cited_only"] == 1 and out["cited_only_share"] == round(1 / 3, 4)
     assert out["n_cited_only_unknown"] == 0
-    assert out["n_not_run"] == 1 and out["not_run_share"] == 0.5
-    assert out["n_error_rows"] == 1 and out["error_row_share"] == round(1 / 3, 4)
-    assert out["wilson_95"] == [round(probe.wilson_interval(2, 2)[0], 4), 1.0]
+    assert out["n_not_run"] == 1 and out["not_run_share"] == round(1 / 3, 4)
+    assert out["n_error_rows"] == 1 and out["error_row_share"] == 0.2
+    lo, hi = probe.wilson_interval(3, 4)
+    assert out["wilson_95"] == [round(lo, 4), round(hi, 4)]
     assert out["n_overridden"] == 0
     assert out["n_incoherent"] == 0 and out["n_no_verdict"] == 0
     first = out["papers"][0]
@@ -120,7 +121,7 @@ def test_run_probe_reports_probe_and_cleanup():
     out = probe.run_probe(client, seed, target=30, batch_size=25, max_batches=4, pull_cap=150)
     assert client.calls[0][1] == dict(target=30, batch_size=25, max_batches=4, pull_cap=150,
                                       entity="ai_model")
-    assert out["probe_task_id"] == "T9" and out["n_evaluated"] == 2
+    assert out["probe_task_id"] == "T9" and out["n_evaluated"] == 4
     assert out["stop_reason"] == "pool_exhausted" and out["batches"] == 2
     assert out["cleanup"] == {"ok": True, "items": [{"status": "queued"}], "error": None}
     assert out["seed"] == seed and out["error"] is None

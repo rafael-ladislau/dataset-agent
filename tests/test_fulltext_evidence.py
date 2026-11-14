@@ -236,10 +236,16 @@ def _model_body(*pubs):
 def test_contract_fixture_model_evidence():
     ev = build_evidence(load_model_task_v2())
     assert ev.entity == "ai_model"
-    # pub.1004 is not open (sampled, not delivered); pub.1003 is an error row.
-    assert (ev.n_sampled, ev.n_delivered, ev.n_evaluated) == (4, 3, 2)
-    assert ev.n_error_rows == 1
-    used, cited = ev.verdicts
+    # pub.1004 is not open (sampled, not delivered); pub.1003 is an error row; pub.1005
+    # is a namesake (another PhaseNet); pub.1006 is served with location 'unknown'.
+    assert (ev.n_sampled, ev.n_delivered, ev.n_evaluated) == (6, 5, 4)
+    assert ev.n_error_rows == 1 and ev.n_incoherent == 0
+    used, cited, namesake, unknown = ev.verdicts
+    assert (namesake.publication_id, namesake.verdict, namesake.cited_only) == (
+        "pub.1005", "not_mentioned", False)
+    # The name contexts decide cited-only, so a served 'unknown' location does not.
+    assert (unknown.publication_id, unknown.verdict, unknown.mention_location,
+            unknown.cited_only) == ("pub.1006", "used", "unknown", False)
     assert (used.publication_id, used.verdict, used.usage_type, used.cited_only) == (
         "pub.1001", "used", "inference", False)
     assert (cited.publication_id, cited.verdict, cited.usage_type, cited.cited_only) == (
@@ -248,9 +254,9 @@ def test_contract_fixture_model_evidence():
     assert all(v.overridden_from is None for v in ev.verdicts)
     assert ev.n_cited_only == 1
     m = ev.metrics(0, "q", None)
-    assert m.fulltext_precision == 1.0 and m.used_rate == 0.5
-    assert m.cited_only_count == 1 and m.cited_rate == 0.5
-    assert m.not_run_count == 1 and m.not_run_rate == 0.5 and m.cited_only_unknown_count == 0
+    assert m.fulltext_precision == 0.75 and m.used_rate == 0.5
+    assert m.cited_only_count == 1 and m.cited_rate == 1 / 3
+    assert m.not_run_count == 1 and m.not_run_rate == 1 / 3 and m.cited_only_unknown_count == 0
     assert (used.mention_location, used.matched_name) == ("text", "PhaseNet")
     assert m.paper_details == [
         {"id": "pub.1001", "title": "Aftershock detection with deep phase picking",
@@ -259,6 +265,12 @@ def test_contract_fixture_model_evidence():
         {"id": "pub.1002", "title": "A review of seismic arrival picking",
          "verdict": "mentioned", "location": "references_only", "cited_only": True,
          "not_run": True, "matched_name": "PhaseNet"},
+        {"id": "pub.1005", "title": "Phase-based video frame interpolation",
+         "verdict": "not_mentioned", "location": "text", "cited_only": False, "not_run": False,
+         "matched_name": "PhaseNet"},
+        {"id": "pub.1006", "title": "Swarm seismicity of a volcanic island",
+         "verdict": "used", "location": "unknown", "cited_only": False, "not_run": False,
+         "matched_name": "PhaseNet"},
     ]
 
 
