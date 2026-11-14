@@ -191,14 +191,11 @@ async def check_suffix_necessity(
     *,
     search_in: str = "full_data",
     ratio_threshold: float = 100.0,
-    bare_count: int | None = None,
-    counts_out: dict[str, int] | None = None,
 ) -> str | None:
     """If count(bare)/count(bare + suffix) > *ratio_threshold*, return best suffixed form.
 
     A multi-word alias already ending in a generic suffix ("MIDAS survey") is never
-    promoted again ("MIDAS survey survey"). When *counts_out* is given, the count of
-    the returned form is stored in it under that form.
+    promoted again ("MIDAS survey survey").
     """
     from dataset_agent.adapters.dimensions_dsl import run_alias_count
 
@@ -208,16 +205,12 @@ async def check_suffix_necessity(
     words = bare.split()
     if len(words) > 1 and words[-1].lower() in _SUFFIX_CANDIDATES:
         return None
-    if bare_count is not None:
-        c_bare = bare_count
-    else:
-        c_bare = await run_alias_count(dsl_port, bare, search_in=search_in)
+    c_bare = await run_alias_count(dsl_port, bare, search_in=search_in)
     if c_bare <= 0:
         return None
 
     best: str | None = None
     best_ratio = 0.0
-    best_count = 0
     for suf in _SUFFIX_CANDIDATES:
         suffixed = f"{bare} {suf}".strip()
         c_s = await run_alias_count(dsl_port, suffixed, search_in=search_in)
@@ -227,7 +220,4 @@ async def check_suffix_necessity(
         if ratio > ratio_threshold and ratio > best_ratio:
             best_ratio = ratio
             best = suffixed
-            best_count = c_s
-    if best is not None and counts_out is not None:
-        counts_out[best] = best_count
     return best

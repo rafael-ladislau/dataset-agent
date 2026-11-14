@@ -85,8 +85,8 @@ def test_check_suffix_necessity_returns_suffixed_when_ratio_high() -> None:
     asyncio.run(_go())
 
 
-def test_check_suffix_necessity_uses_bare_count_param() -> None:
-    """When bare_count is supplied, skip the redundant bare-alias Dimensions call."""
+def test_check_suffix_necessity_counts_bare_then_each_suffix() -> None:
+    """One bare-alias count, then one count per suffix candidate."""
     calls: list[str] = []
 
     class _P:
@@ -100,13 +100,10 @@ def test_check_suffix_necessity_uses_bare_count_param() -> None:
 
     async def _go() -> None:
         p = _P()
-        rec = await check_suffix_necessity(
-            p, "All of Us", bare_count=5000, ratio_threshold=50.0
-        )
+        rec = await check_suffix_necessity(p, "All of Us", ratio_threshold=50.0)
         assert rec is not None
         assert "dataset" in rec.lower()
-        # bare_count skips one Dimensions round-trip; only suffix candidates are queried.
-        assert len(calls) == len(_SUFFIX_CANDIDATES)
+        assert len(calls) == 1 + len(_SUFFIX_CANDIDATES)
 
     asyncio.run(_go())
 
@@ -155,14 +152,14 @@ def test_check_suffix_necessity_skips_alias_already_ending_in_suffix() -> None:
 
     async def _go() -> None:
         # Bare count is huge and every suffixed form is rare, yet no "survey survey".
-        assert await check_suffix_necessity(_P(), "MIDAS survey", bare_count=289) is None
-        assert await check_suffix_necessity(_P(), "MIDAS Survey", bare_count=289) is None
+        assert await check_suffix_necessity(_P(), "MIDAS survey") is None
+        assert await check_suffix_necessity(_P(), "MIDAS Survey") is None
         assert calls == []
 
     asyncio.run(_go())
 
 
-def test_check_suffix_necessity_reports_count_of_promoted_form() -> None:
+def test_check_suffix_necessity_promotes_the_rare_suffixed_form() -> None:
     from types import SimpleNamespace
 
     class _P:
@@ -170,11 +167,6 @@ def test_check_suffix_necessity_reports_count_of_promoted_form() -> None:
             return SimpleNamespace(count_total=289 if "survey" in dsl else 99999)
 
     async def _go() -> None:
-        counts: dict[str, int] = {}
-        rec = await check_suffix_necessity(
-            _P(), "MIDAS", bare_count=183_973, counts_out=counts
-        )
-        assert rec == "MIDAS survey"
-        assert counts == {"MIDAS survey": 289}
+        assert await check_suffix_necessity(_P(), "MIDAS") == "MIDAS survey"
 
     asyncio.run(_go())

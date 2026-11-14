@@ -510,10 +510,12 @@ def test_fp_rate_counts_all_fp_domains() -> None:
     assert "patient" in noise
 
 
+@pytest.mark.parametrize("flags", [["NIH"], []])
 def test_optimize_listed_acronym_suffix_alias_is_risky_with_flags(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
+    flags: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """A research-listed suffixed acronym form (B-04 shape rule) stays risky with flags."""
+    """A research-listed suffixed acronym form (B-04 shape rule) stays risky with flags;
+    without flags it stays safe (a risky alias would never be searched)."""
     responses = [
         SimpleNamespace(count_total=2000),
         SimpleNamespace(count_total=500_000),
@@ -549,12 +551,17 @@ def test_optimize_listed_acronym_suffix_alias_is_risky_with_flags(
             OptimizeRequest(
                 dataset_name="My Long Dataset Alpha",
                 dataset_names=["My Long Dataset Alpha", "ONET", "ONET dataset"],
-                flag_terms=["NIH"],
+                flag_terms=flags,
             )
         )
     )
     assert out.success is True
     assert out.aliases is not None
+    if not flags:
+        assert "ONET dataset" in out.aliases.safe
+        assert "ONET dataset" not in out.aliases.risky
+        assert "suffix_risky" not in out.notes
+        return
     # Research listing "ONET dataset" itself does not make it safe: same shape, same risk.
     assert "ONET dataset" in out.aliases.risky
     assert "ONET dataset" not in out.aliases.safe
