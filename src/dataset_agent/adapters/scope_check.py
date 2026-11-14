@@ -8,8 +8,10 @@ A paper that only discusses the program (goals, plans to collect data, recruitme
 policy, funding) is ``program_only`` and is not genuine for precision.
 
 Only papers judged ``mentioned`` are checked; ``used`` papers are ``data`` without a call.
-A checked paper with no name context outside the reference list falls under the
+A checked paper whose name contexts all sit in the reference list falls under the
 references-only rule: it is turned to ``not_mentioned`` without a call (``scope`` stays None).
+A paper with no contexts at all is asked on the judge's quote alone; with neither contexts
+nor a quote it is kept (``unclear``).
 
 * stage 0, no LLM call: a data resource name that carries the program's own phrase
   (e.g. "<program> Researcher Workbench") in a name context outside the reference list
@@ -256,10 +258,16 @@ def check_scope(
         if v.verdict != "mentioned":
             continue
         res.n_checked += 1
-        if not _text_contexts(v):
+        if v.contexts and not _text_contexts(v):
             v.overridden_from, v.verdict = v.verdict, "not_mentioned"
             res.n_references_only += 1
             res.papers[v.publication_id] = {"stage": 0, "votes": [], "decision": "references_only"}
+            continue
+        if not v.contexts and not (v.quote or "").strip():
+            # Neither a context nor a quote: nothing to judge, the paper is kept.
+            v.scope = "unclear"
+            res.n_unclear += 1
+            res.papers[v.publication_id] = {"stage": 0, "votes": [], "decision": "no_context"}
             continue
         if stage0_data(v, owned):
             v.scope = "data"

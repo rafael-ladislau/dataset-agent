@@ -83,18 +83,41 @@ def test_used_papers_are_data_and_never_asked():
     assert ev.verdicts[0].scope == "data" and ev.verdicts[1].scope is None
 
 
-def test_no_name_outside_the_reference_list_falls_under_the_references_only_rule():
+def test_a_paper_with_no_contexts_is_asked_on_the_quote_never_dropped():
     ev = _ev(_pub("a", contexts=[_c("references", "Example Program. 2019.")]),
              _pub("b", contexts=[]))
+    judge = FakeJudge(default="data")
+    res = _check(ev, judge)
+    # "a" was already turned by build_evidence's references-only rule; "b" has no context
+    # at all: the question is asked on the judge quote, and the paper is not dropped.
+    a, b = ev.verdicts
+    assert a.verdict == "not_mentioned" and a.scope is None
+    assert len(judge.prompts) == 1 and "judge quote" in judge.prompts[0]
+    assert "(none)" in judge.prompts[0]  # no passages
+    assert b.verdict == "mentioned" and b.scope == "data" and res.n_references_only == 0
+
+
+def test_no_context_and_no_quote_keeps_the_paper_without_a_call():
+    p = _pub("c", contexts=[])
+    p["validated_datasets"][0]["text_quote"] = ""
+    ev = _ev(p)
     judge = FakeJudge()
     res = _check(ev, judge)
-    # "a" was already turned by build_evidence's references-only rule; "b" has no name
-    # context at all and is turned by the scope check, without a call.
-    assert judge.prompts == [] and res.n_references_only == 1 and res.n_checked == 1
-    for v in ev.verdicts:
-        assert v.verdict == "not_mentioned" and v.overridden_from == "mentioned"
-        assert v.scope is None and not v.genuine
-    assert res.papers["b"]["decision"] == "references_only"
+    assert judge.prompts == [] and ev.verdicts[0].genuine and ev.verdicts[0].scope == "unclear"
+    assert res.papers["c"]["decision"] == "no_context" and res.n_unclear == 1
+
+
+def test_contexts_only_in_the_reference_list_fall_under_the_references_only_rule():
+    from dataset_agent.adapters.fulltext_evidence import Evidence, PubVerdict
+
+    ev = Evidence(entity="dataset")
+    ev.verdicts.append(PubVerdict(publication_id="r", doi=None, title="", citation_count=0,
+                                  verdict="mentioned", quote="q",
+                                  contexts=[_c("references", "Example Program. 2019.")]))
+    judge = FakeJudge()
+    res = _check(ev, judge)
+    assert judge.prompts == [] and res.n_references_only == 1
+    assert ev.verdicts[0].verdict == "not_mentioned"
 
 
 def test_failed_or_unclear_answers_keep_the_paper():
