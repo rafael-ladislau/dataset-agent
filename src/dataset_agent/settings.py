@@ -303,6 +303,10 @@ class Settings(BaseSettings):
     #: ...and only if no more papers than this quote it (a card may cite a famous
     #: paper that many unrelated works quote too).
     ai_model_title_max_hits: int = Field(default=50_000, ge=1)
+    #: The model's paper title may be one of the flags of an own name that is gated or
+    #: re-gated: an anchor title that names the model, or a card title passing the
+    #: name-share check above. It never gates a name that is safe.
+    ai_model_title_flag_enabled: bool = True
     #: A context term gates an ambiguous name only if at least this share of the papers
     #: it admits ("<name>" AND "<term>") already match a precise name or paper title.
     ai_model_flag_min_anchor_precision: float = Field(default=0.5, ge=0.0, le=1.0)

@@ -255,6 +255,8 @@ class _ModelRun:
     pulled_texts: list[str] = dataclasses.field(default_factory=list)
     #: Year window of the shipped query (start, end), known once anchors are decided.
     years: tuple[int, int] | None = None
+    #: Anchor titles that may flag a gated own name, with why: ``(title, reason)``.
+    title_flags: list[tuple[str, str]] = dataclasses.field(default_factory=list)
     #: Context-flag candidates of the run, kept for a measurement at re-gate time.
     context_terms: list[str] = dataclasses.field(default_factory=list)
     #: Why the seed must be withheld when the abstract check fails (names kept unsafe).
@@ -1222,6 +1224,72 @@ class QueryOptimizationUseCase:
             not_x=f" NOT {_or_group(excludes)}" if excludes else "",
         )
 
+    async def _add_title_flags(
+        self, model: _ModelRun, group: list[str], flags: list[str], not_x: str
+    ) -> list[str]:
+        """Join the model's paper titles (``model.title_flags``) to *flags*, the flags of
+        the gated own names in *group*. A title the name never occurs with gates
+        nothing. Returns the flags with the titles that joined."""
+        if not self._settings.ai_model_title_flag_enabled or not model.title_flags:
+            return list(flags)
+        out = list(flags)
+        taken = {f.casefold() for f in flags}
+        decided = {
+            d.term.casefold() for d in model.decisions
+            if d.kind == "flag" and d.reason.startswith("model paper title")
+        }
+        for title, why in model.title_flags:
+            key = title.casefold()
+            if key in taken:
+                continue
+            admitted = await self._clause_count(
+                f"({_or_group(group)} AND {_or_group([title])}){not_x}"
+            )
+            if not admitted:
+                if key not in decided:
+                    decided.add(key)
+                    model.decide(
+                        title, "flag", "rejected",
+                        f"model paper title ({why}): "
+                        + (f"never occurs with {group}" if admitted == 0
+                           else "not measured (Dimensions call budget)"),
+                        admitted,
+                    )
+                continue
+            taken.add(key)
+            out.append(title)
+            if key not in decided:
+                decided.add(key)
+                model.decide(
+                    title, "flag", "flag",
+                    f"model paper title ({why}); admits {admitted} papers with {group}",
+                    admitted, admitted=admitted,
+                )
+        return out
+
+    async def _title_only_note(
+        self, model: _ModelRun, alias: str, titles: list[str], excludes: list[str], ev: dict
+    ) -> str:
+        """Note for a name gated by the paper title alone: what it keeps of the name's
+        papers and the genuine papers lost, estimated from the abstract check."""
+        not_x = f" NOT {_or_group(excludes)}" if excludes else ""
+        n = await self._clause_count(f"{_or_group([alias])}{not_x}")
+        kept = await self._clause_count(f"({_or_group([alias])} AND {_or_group(titles)}){not_x}")
+        note = f"{alias!r} gated by the model paper title only"
+        if not n or kept is None:
+            return note + "; the recall loss was not measured"
+        note += f": keeps {kept} of {n} papers with the name"
+        genuine = int(ev.get("genuine_count") or 0)
+        judged = genuine + int(ev.get("fp_count") or 0)
+        if genuine and judged:
+            est = n * genuine / judged
+            loss = max(0.0, 1.0 - kept / est)
+            note += (
+                f"; the abstract check puts genuine use at about {round(est)} papers, so "
+                f"about {loss:.0%} of genuine papers are lost (estimate from {judged} abstracts)"
+            )
+        return note
+
     async def _refine_model_terms(
         self,
         model: _ModelRun,
@@ -1368,26 +1436,42 @@ class QueryOptimizationUseCase:
                 # Flags were never measured for this name: measure them now, against
                 # the papers that do not depend on it.
                 await self._measure_reserve_flags(model, alias, safe, excludes)
+            gate_flags: list[str] = []
+            if key in model.own_keys and not exclude_accepted:
+                gate_flags = await self._add_title_flags(
+                    model, [alias], new_flags or list(model.reserve_flags),
+                    f" NOT {_or_group(excludes)}" if excludes else "",
+                )
             if key in model.own_keys and exclude_accepted:
                 new_safe.append(alias)
                 notes_parts.append(
                     f"gate_iter{iteration}: {alias!r} not re-gated: an exclude was accepted "
                     "first, the next abstract check judges it"
                 )
-            elif key in model.own_keys and (new_flags or model.reserve_flags):
+            elif key in model.own_keys and gate_flags:
                 changed = True
                 regated.add(key)
                 new_risky.append(alias)
-                if new_flags:
+                measured = new_flags or list(model.reserve_flags)
+                titles = [f for f in gate_flags if f not in measured]
+                if new_flags and not titles:
                     notes_parts.append(
                         f"gate_iter{iteration}: {alias!r} flag-gated ({n_fp} false positives in abstracts)"
                     )
-                else:
-                    new_flags = list(model.reserve_flags)
+                elif measured:
                     notes_parts.append(
-                        f"gate_iter{iteration}: {alias!r} flag-gated with reserve flags "
-                        f"{new_flags} ({n_fp} false positives in abstracts)"
+                        f"gate_iter{iteration}: {alias!r} flag-gated with "
+                        + ("flags" if new_flags else "reserve flags") + f" {measured}"
+                        + (f" and the model paper title {titles}" if titles else "")
+                        + f" ({n_fp} false positives in abstracts)"
                     )
+                else:
+                    notes_parts.append(
+                        f"gate_iter{iteration}: "
+                        + await self._title_only_note(model, alias, titles, excludes, ev)
+                        + f" ({n_fp} false positives in abstracts)"
+                    )
+                new_flags = gate_flags
             elif key in model.base_keys:
                 # Dropping the model's own name would ship only its rare variants.
                 new_safe.append(alias)
@@ -1537,6 +1621,10 @@ class QueryOptimizationUseCase:
                         titles.append(title)
                         model.decide(title, "paper_title", "anchor",
                                      f"not cited on the model card; {reason}", c)
+                        if contains_word(title, name) or contains_word(title, family):
+                            model.title_flags.append(
+                                (title, "names the model; confirmed by the model-aware check")
+                            )
                     else:
                         model.decide(title, "paper_title", "rejected", reason, c)
                     continue
@@ -1548,6 +1636,7 @@ class QueryOptimizationUseCase:
                 names_model = contains_word(title, name) or contains_word(title, family)
                 if names_model:
                     reason = "cited on the model card; the title names the model"
+                    flag_why = "cited on the model card and names the model"
                 else:
                     if c > s.ai_model_title_max_hits:
                         model.decide(title, "paper_title", "rejected",
@@ -1571,6 +1660,8 @@ class QueryOptimizationUseCase:
                         f"cited on the model card; {share:.0%} of the papers quoting it "
                         f"name {name!r}"
                     )
+                    flag_why = reason
+                model.title_flags.append((title, flag_why))
                 titles.append(title)
                 model.decide(title, "paper_title", "anchor", reason, c)
             decided = {_stem_text(t) for t in cands.paper_titles} | {
@@ -1578,6 +1669,9 @@ class QueryOptimizationUseCase:
             }
             for title, _reason, _c in await self._top_cited_titles(model, coined_bases, decided):
                 titles.append(title)
+                model.title_flags.append(
+                    (title, "a top-cited title naming the model; confirmed by the model-aware check")
+                )
             # Joined version spellings ("FourCastNetv2") seen in the texts pulled above:
             # candidates like any name, within the name limit.
             searched = {_stem_text(n) for n, _k in cands.names} | {
@@ -1745,6 +1839,8 @@ class QueryOptimizationUseCase:
                     reserve=reserve, not_x=not_x,
                 )
                 model.reserve_measured = reserve
+                if gated:
+                    flags = await self._add_title_flags(model, gated, flags, not_x)
 
             # 6. Keep only excludes that remove something from the query as built.
             positive = build_for_clause(

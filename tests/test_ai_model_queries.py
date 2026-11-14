@@ -219,7 +219,7 @@ def _decision(out, term: str, kind: str | None = None):
 
 
 def test_aurora_bare_name_is_gated_never_safe(tmp_path, patched) -> None:
-    out, dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request())
+    out, dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request(), ai_model_title_flag_enabled=False)
 
     assert out.success, out.errors
     assert out.entity_type == "ai_model"
@@ -240,7 +240,7 @@ def test_aurora_bare_name_is_gated_never_safe(tmp_path, patched) -> None:
 
 
 def test_aurora_decisions_explain_every_term(tmp_path, patched) -> None:
-    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request())
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request(), ai_model_title_flag_enabled=False)
 
     aurora = _decision(out, "Aurora", "alias")
     assert aurora.decision == "gated" and aurora.count == 515
@@ -288,7 +288,8 @@ def test_aurora_decisions_explain_every_term(tmp_path, patched) -> None:
 
 def test_aurora_seed_for_extraction(tmp_path, patched) -> None:
     out, _dsl, _agent = _run(
-        tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request(years_end=2026)
+        tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request(years_end=2026),
+        ai_model_title_flag_enabled=False,
     )
 
     assert out.ai_model_seed == {
@@ -331,7 +332,8 @@ def test_aurora_without_a_precise_flag_drops_the_bare_name(tmp_path, patched) ->
     seed's model_name becomes a safe name (the pipeline always searches model_name)."""
     llm = dict(AURORA_LLM, context_terms=["Microsoft Research", "ECMWF", "Microsoft"])
     out, dsl, _agent = _run(
-        tmp_path, _aurora_corpus(), llm, _aurora_request(), ai_model_max_mined_context_terms=0
+        tmp_path, _aurora_corpus(), llm, _aurora_request(), ai_model_max_mined_context_terms=0,
+        ai_model_title_flag_enabled=False,
     )
 
     assert out.success, out.errors
@@ -350,7 +352,7 @@ def test_aurora_without_a_precise_flag_drops_the_bare_name(tmp_path, patched) ->
 
 def test_aurora_without_llm_terms_stays_precise(tmp_path, patched) -> None:
     """The LLM returns nothing: Hub evidence, name heuristics and abstract mining remain."""
-    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), {}, _aurora_request())
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), {}, _aurora_request(), ai_model_title_flag_enabled=False)
 
     assert out.success, out.errors
     assert "Aurora" not in out.aliases.safe
@@ -365,6 +367,7 @@ def test_caller_flags_and_excludes_are_measured_not_trusted(tmp_path, patched) -
         tmp_path, _aurora_corpus(), {},
         _aurora_request(flag_terms=["Microsoft", "atmosphere"], exclude_terms=["Microsoft Aurora", "GraphCast"]),
         ai_model_max_mined_context_terms=0,
+        ai_model_title_flag_enabled=False,
     )
 
     assert out.success, out.errors
@@ -818,6 +821,7 @@ def test_coined_name_failing_the_abstract_check_is_regated_with_a_reserve_flag(t
     patched.eval = _fake_eval([PHASENET_FP])
     out, _dsl, _agent = _phasenet_run(
         tmp_path, _phasenet_regate_docs(), ["STEAD"], optimize_max_iterations=1,
+        ai_model_title_flag_enabled=False,
     )
 
     assert out.success, out.errors
@@ -840,6 +844,7 @@ def test_coined_name_without_a_passing_reserve_flag_is_kept_and_the_seed_withhel
     patched.eval = _fake_eval([PHASENET_FP, PHASENET_FP])
     out, _dsl, _agent = _phasenet_run(
         tmp_path, _phasenet_regate_docs(flag_in_namesakes=True), ["GaMMA"],
+        ai_model_title_flag_enabled=False,
     )
 
     assert out.success, out.errors
@@ -862,7 +867,7 @@ WELL_ANCHORED_FP = {
 def test_well_anchored_own_name_is_regated_with_flags_measured_at_regate_time(tmp_path, patched) -> None:
     patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
     patched.eval = _fake_eval([WELL_ANCHORED_FP])
-    out, _dsl, _agent = _phasenet_run(tmp_path, _phasenet_regate_docs(namesakes=69), ["STEAD"])
+    out, _dsl, _agent = _phasenet_run(tmp_path, _phasenet_regate_docs(namesakes=69), ["STEAD"], ai_model_title_flag_enabled=False)
 
     assert out.success, out.errors
     assert _decision(out, "PhaseNet", "alias").stats["title_confirmation"] == 0.42
@@ -882,6 +887,7 @@ def test_well_anchored_own_name_without_a_passing_flag_is_withheld_naming_the_fl
     patched.eval = _fake_eval([WELL_ANCHORED_FP, WELL_ANCHORED_FP])
     out, _dsl, _agent = _phasenet_run(
         tmp_path, _phasenet_regate_docs(flag_in_namesakes=True, namesakes=69), ["GaMMA"],
+        ai_model_title_flag_enabled=False,
     )
 
     assert out.success, out.errors
@@ -911,6 +917,7 @@ def test_regate_that_reuses_the_existing_flags_gets_one_more_check(tmp_path, pat
     out, _dsl, _agent = _run(
         tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request(dataset_names=["Microsoft Aurora"]),
         optimize_max_iterations=1,
+        ai_model_title_flag_enabled=False,
     )
 
     assert out.success, out.errors
@@ -930,6 +937,79 @@ def test_coined_name_with_clean_abstracts_keeps_reserve_flags_out_of_the_query(t
     assert stead.decision == "context" and stead.reason.startswith("reserve flag for ['PhaseNet']")
     assert out.flag_terms == [] and "STEAD" not in out.for_clause
     assert out.ai_model_seed["flag_terms"] == []
+    # The paper title never gates a name that is safe and passes the check.
+    assert not [d for d in out.term_decisions if d.kind == "flag" and d.term == PHASENET_TITLE]
+
+
+TITLE_ONLY = "We fine-tune Aurora for air quality. Ref: A Foundation Model for the Earth System."
+EARTH_TITLE = "A Foundation Model for the Earth System"
+
+
+def test_card_title_joins_the_flags_of_a_gated_own_name(tmp_path, patched) -> None:
+    """The card title is quoted by papers that name 'Aurora' (>= 25%), so it gates the
+    bare name like a measured flag: papers holding the name and the title are found
+    without a peer-model flag, and the seed finds what the query finds."""
+    docs = _aurora_corpus() + [TITLE_ONLY] * 20
+    out, _dsl, _agent = _run(tmp_path, docs, AURORA_LLM, _aurora_request())
+
+    assert out.success, out.errors
+    assert out.aliases.risky == ["Aurora"]
+    assert out.flag_terms == ["GraphCast", "Pangu-Weather", EARTH_TITLE]
+    title = _decision(out, EARTH_TITLE, "flag")
+    assert title.decision == "flag" and title.reason.startswith("model paper title")
+    assert title.count == 60
+    hits = [d for d in docs if _matches(out.for_clause, d)]
+    assert TITLE_ONLY in hits and POLAR not in hits and KINASE not in hits
+    assert out.ai_model_query_count == len(hits) == 70
+    assert out.ai_model_seed_count == 70
+    assert EARTH_TITLE in out.ai_model_seed["flag_terms"]
+
+
+def test_title_flag_can_be_switched_off(tmp_path, patched) -> None:
+    docs = _aurora_corpus() + [TITLE_ONLY] * 20
+    out, _dsl, _agent = _run(
+        tmp_path, docs, AURORA_LLM, _aurora_request(), ai_model_title_flag_enabled=False
+    )
+
+    assert out.flag_terms == ["GraphCast", "Pangu-Weather"]
+    assert not [d for d in out.term_decisions if d.kind == "flag" and d.term == EARTH_TITLE]
+
+
+def test_own_name_without_a_passing_flag_is_regated_by_the_paper_title(tmp_path, patched) -> None:
+    """No measured flag passes; the model's own paper title names it, so it gates the
+    name instead of the seed being withheld, and the note states the recall loss."""
+    patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
+    patched.eval = _fake_eval([WELL_ANCHORED_FP])
+    out, _dsl, _agent = _phasenet_run(
+        tmp_path, _phasenet_regate_docs(flag_in_namesakes=True, namesakes=69), ["GaMMA"],
+    )
+
+    assert out.success, out.errors
+    assert _decision(out, "GaMMA", "flag").decision == "rejected"
+    assert out.aliases.safe == [] and out.aliases.risky == ["PhaseNet"]
+    assert out.flag_terms == [PHASENET_TITLE]
+    title = _decision(out, PHASENET_TITLE, "flag")
+    assert title.decision == "flag" and title.reason.startswith("model paper title")
+    assert out.selected_variant == "V4~gate1"
+    assert "'PhaseNet' gated by the model paper title only" in out.notes
+    assert "keeps 50 of 119 papers" in out.notes
+    assert "about 45% of genuine papers are lost" in out.notes
+    assert "seed withheld" not in out.notes
+    assert out.ai_model_seed is not None and out.ai_model_seed["flag_terms"] == [PHASENET_TITLE]
+    assert out.ai_model_seed_count == out.ai_model_query_count == 50
+
+
+def test_reserve_flags_and_the_paper_title_gate_together(tmp_path, patched) -> None:
+    patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
+    patched.eval = _fake_eval([WELL_ANCHORED_FP])
+    out, _dsl, _agent = _phasenet_run(tmp_path, _phasenet_regate_docs(namesakes=69), ["STEAD"])
+
+    assert out.aliases.risky == ["PhaseNet"]
+    assert out.flag_terms == ["STEAD", PHASENET_TITLE]
+    assert (
+        f"'PhaseNet' flag-gated with reserve flags ['STEAD'] and the model paper title "
+        f"[{PHASENET_TITLE!r}]" in out.notes
+    )
 
 
 def test_reserve_flags_cannot_be_verified_without_an_independent_reference(tmp_path, patched) -> None:
