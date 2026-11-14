@@ -1405,10 +1405,12 @@ class QueryOptimizationUseCase:
                 await self._clause_count(model.reference_clause) or 0 if reference else 0
             )
             # A safe name containing another safe name adds no papers to the query.
+            # Compared the way Dimensions searches: punctuation folded.
             covered: set[str] = set()
             for a in safe:
                 cover = next((b for b in safe
-                              if b.casefold() != a.casefold() and contains_word(a, b)), None)
+                              if _stem_text(b) != _stem_text(a)
+                              and contains_word(_stem_text(a), _stem_text(b))), None)
                 if cover:
                     covered.add(a)
                     d = next(d for d in model.decisions if d.kind == "alias" and d.term == a)

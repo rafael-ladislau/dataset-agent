@@ -753,6 +753,34 @@ def test_hub_repo_id_is_not_a_name_candidate() -> None:
     assert "Prithvi-WxC-1.0-2300M" not in every
 
 
+def test_a_name_nested_after_punctuation_folding_is_covered(tmp_path, patched) -> None:
+    """Dimensions folds hyphens: 'Prithvi-WxC-1.0-2300M' searches as 'prithvi wxc 1 0
+    2300m', so every hit of it is a hit of 'Prithvi WxC' and it adds no paper."""
+    title = "Prithvi WxC: Foundation Model for Weather and Climate"
+    patched.hub = HubEvidence(hugging_face_id="ibm/prithvi-wxc", found=True, paper_titles=[title])
+    docs = (
+        [f"{title} || Prithvi WxC downscaling y2024"] * 20
+        + [f"We fine-tune Prithvi WxC. Ref: {title}"] * 20
+        + [f"We load Prithvi-WxC-1.0-2300M weights. Ref: {title}"]
+    )
+    llm = {
+        "description": "Prithvi WxC is a weather and climate foundation model.",
+        "names": [{"name": "Prithvi-WxC-1.0-2300M", "kind": "checkpoint"}],
+        "paper_titles": [], "context_terms": [], "other_meanings": [],
+    }
+    out, _dsl, _agent = _run(
+        tmp_path, docs, llm,
+        OptimizeRequest(dataset_name="Prithvi WxC", entity_type="ai_model", hugging_face_id="ibm/prithvi-wxc"),
+    )
+
+    assert out.success, out.errors
+    hub_id = _decision(out, "Prithvi-WxC-1.0-2300M", "alias")
+    assert hub_id.decision == "rejected" and "covered by 'Prithvi WxC'" in hub_id.reason
+    assert out.aliases.safe == ["Prithvi WxC"]
+    assert "Prithvi-WxC-1.0-2300M" not in out.ai_model_seed["model_aliases"]
+    assert out.ai_model_seed_count == out.ai_model_query_count == 41
+
+
 def test_assemble_candidates_orders_and_caps_titles() -> None:
     hub = HubEvidence(paper_titles=["A Geometric Approach to Weather Forecasting", "FourCastNet 3: A Geometric Approach"])
     llm = {"paper_titles": [
