@@ -634,6 +634,10 @@ def assemble_candidates(
     with_joined: list[tuple[str, str]] = []
     for raw, kind in names:
         with_joined.append((raw, kind))
+        direct = version_sibling(raw, own_bases) if version_siblings and kind != "former" else None
+        if direct:
+            # Already written joined ("FourCastNet2"): add the other spelling.
+            with_joined.append((direct, "former"))
         if kind != "former" and _versioned_base(raw, own_bases):
             joined = _joined_form(raw, out.developer)
             if joined:

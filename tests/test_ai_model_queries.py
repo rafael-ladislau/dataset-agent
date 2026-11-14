@@ -1928,3 +1928,12 @@ def test_a_paper_title_proposed_as_a_name_stays_a_title() -> None:
     assert title in c.paper_titles
     assert title not in [n for n, _k in c.names]
 
+
+def test_a_joined_llm_version_gets_its_sibling() -> None:
+    c = assemble_candidates(
+        model_name="FourCastNet", family=None, given_aliases=[], hub=HubEvidence(developer="NVIDIA"),
+        llm={"names": [{"name": "FourCastNet2", "kind": "version"}]},
+        max_names=20, max_context=12, max_excludes=8,
+    )
+    names = [n for n, _k in c.names]
+    assert "FourCastNet2" in names and "FourCastNetv2" in names
