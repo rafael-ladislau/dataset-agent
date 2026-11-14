@@ -529,6 +529,34 @@ def test_top_cited_titles_of_a_safe_coined_name_are_checked_as_anchors(tmp_path,
     assert "where year in [2019:" in out.dsl_query
 
 
+def test_punctuation_variants_of_one_title_are_one_anchor(tmp_path, patched) -> None:
+    """Dimensions folds punctuation: 'Arrival Time' and 'Arrival-Time' are one paper.
+    The second spelling is not judged again, so the second top-cited slot stays free
+    for another title; the judge sees the title with the start of its abstract."""
+    patched.hub = HubEvidence()
+    spaced = "PhaseNet: A Deep-Neural-Network-Based Seismic Arrival Time Picking Method"
+    hyphen = "PhaseNet: A Deep-Neural-Network-Based Seismic Arrival-Time Picking Method"
+    other = "PhaseNet-TF: Seismic Phase Picking in the Time-Frequency Domain"
+    docs = (
+        [f"{spaced} || PhaseNet picks P and S waves y2019"] * 10
+        + [f"{hyphen} || PhaseNet picks P and S waves y2019"] * 10
+        + [f"{other} || PhaseNet-TF picks phases in spectrograms y2023"] * 5
+        + ["We pick arrivals with PhaseNet. Ref: " + spaced] * 30
+    )
+    llm = dict(PHASENET_LLM, paper_titles=[])
+    out, _dsl, agent = _run(
+        tmp_path, docs, llm, OptimizeRequest(dataset_name="PhaseNet", entity_type="ai_model"),
+        judge=_seismic_judge,
+    )
+
+    assert out.success, out.errors
+    anchors = [d.term for d in out.term_decisions if d.kind == "paper_title" and d.decision == "anchor"]
+    assert anchors == [spaced, other]
+    assert not [d for d in out.term_decisions if d.term == hyphen]
+    judged = [c.args[0] for c in agent.get_structured.call_args_list if c.args[0].startswith("AI model:")]
+    assert any(f"{spaced}. {spaced} || PhaseNet picks P and S waves" in p for p in judged)
+
+
 @pytest.mark.parametrize(
     ("model_name", "family", "joined"),
     [

@@ -60,7 +60,7 @@ from dataset_agent.adapters.fulltext_recall import (
     recall_candidates,
 )
 from dataset_agent.adapters.fulltext_refiner import refine_candidate
-from dataset_agent.adapters.literature import evaluate_for_clause_sync
+from dataset_agent.adapters.literature import _stem_text, evaluate_for_clause_sync
 from dataset_agent.adapters.name_grounding import (
     GROUNDING_TOOL,
     content_tokens,
@@ -234,7 +234,7 @@ class _ModelRun:
     reference_count: int = 0
     decisions: list[TermDecision] = dataclasses.field(default_factory=list)
     #: Anchor paper titles, and the first publication year of those already known
-    #: (from the top-cited pull).
+    #: (from the top-cited pull), keyed by the punctuation-folded title.
     anchors: list[str] = dataclasses.field(default_factory=list)
     anchor_years: dict[str, int] = dataclasses.field(default_factory=dict)
     #: The model's own base names (request name and family), case-folded.
@@ -877,11 +877,12 @@ class QueryOptimizationUseCase:
         return True, f"removes {hit} of {model.reference_count} precise matches ({loss:.1%})", stats
 
     async def _model_title_check(
-        self, model: _ModelRun, title: str, bases: list[str]
+        self, model: _ModelRun, title: str, bases: list[str], snippet: str = ""
     ) -> tuple[bool, str, int | None]:
         """A title not cited on the model card anchors only when it names a coined base
         name of the model, has Dimensions hits, and the model-aware mention check (the
-        title as the snippet, the model description as context) calls it this model."""
+        title, or *snippet* when given, with the model description as context) calls it
+        this model."""
         unverified = "not cited on the model card: an unverified title cannot be an anchor"
         base = next((b for b in bases if contains_word(title, b)), None)
         if base is None:
@@ -893,7 +894,7 @@ class QueryOptimizationUseCase:
             return False, f"{unverified} (no model description to check it against)", c
         genuine = await asyncio.to_thread(
             classify_alias_mention, self._agent, dataset_name=model.name, alias=base,
-            snippet=title, entity_context=model.context,
+            snippet=snippet or title, entity_context=model.context,
         )
         if genuine is None:
             return False, f"{unverified} (the model-aware check failed)", c
@@ -916,7 +917,7 @@ class QueryOptimizationUseCase:
                 break
             try:
                 result = await self._counted_execute(build_search_publications_paged_dsl(
-                    _or_group([base]), limit=sample, fields="title+year",
+                    _or_group([base]), limit=sample, fields="title+year+abstract",
                 ))
                 total = parse_total_count(result)
             except DimensionsDslError as exc:
@@ -935,24 +936,30 @@ class QueryOptimizationUseCase:
             pubs = publications_from_result(result)
             years: dict[str, int] = {}
             for pub in pubs:
-                t, y = (publication_title(pub) or "").casefold(), pub.get("year")
+                # Dimensions folds punctuation: "Arrival Time" and "arrival-time" are one key.
+                t, y = _stem_text(publication_title(pub) or ""), pub.get("year")
                 if t and isinstance(y, int):
                     years[t] = min(y, years.get(t, y))
             for pub in pubs:
                 title = sanitize_term(publication_title(pub))
+                key = _stem_text(title or "")
                 if (
-                    not title or title.casefold() in decided or len(title.split()) < 4
+                    not title or key in decided or len(title.split()) < 4
                     or not contains_word(title, base)
                 ):
                     continue
-                decided.add(title.casefold())
-                ok, reason, c = await self._model_title_check(model, title, [base])
+                decided.add(key)
+                abstract = str(pub.get("abstract") or "").strip()
+                ok, reason, c = await self._model_title_check(
+                    model, title, [base],
+                    snippet=f"{title}. {abstract[:600]}" if abstract else "",
+                )
                 judged += 1
                 reason = f"top-cited hit of {base!r}; {reason}"
                 if ok:
                     out.append((title, reason, c))
-                    if title.casefold() in years:
-                        model.anchor_years[title.casefold()] = years[title.casefold()]
+                    if key in years:
+                        model.anchor_years[key] = years[key]
                     model.decide(title, "paper_title", "anchor", reason, c)
                 else:
                     model.decide(title, "paper_title", "rejected", reason, c)
@@ -968,7 +975,7 @@ class QueryOptimizationUseCase:
         for title in model.anchors:
             if not (contains_word(title, model.name) or contains_word(title, model.family)):
                 continue
-            known = model.anchor_years.get(title.casefold())
+            known = model.anchor_years.get(_stem_text(title))
             if known is None and self._budget_left():
                 try:
                     result = await self._counted_execute(build_search_publications_paged_dsl(
@@ -1322,8 +1329,8 @@ class QueryOptimizationUseCase:
                     )
                 titles.append(title)
                 model.decide(title, "paper_title", "anchor", reason, c)
-            decided = {t.casefold() for t in cands.paper_titles} | {
-                d.term.casefold() for d in model.decisions if d.kind == "paper_title"
+            decided = {_stem_text(t) for t in cands.paper_titles} | {
+                _stem_text(d.term) for d in model.decisions if d.kind == "paper_title"
             }
             for title, _reason, _c in await self._top_cited_titles(model, coined_bases, decided):
                 titles.append(title)
