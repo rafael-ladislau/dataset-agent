@@ -195,3 +195,18 @@ def test_failed_home_page_falls_back_to_more_searches():
     text, sources = gather_pages_with_sources("X", "http://h", search=lambda q: f"[{q}]",
                                               fetch=lambda u: "home")
     assert sources[0] == "http://h" and len(sources) == 4
+
+
+def test_a_remainder_needs_half_of_its_hits_with_the_program():
+    from dataset_agent.adapters.resource_map import check_data_names
+
+    def count(clause):
+        if "AND" in clause:
+            return 100
+        return 2000 if "Research Hub" in clause else 120
+
+    found: dict = {}
+    hits, _ = check_data_names(["Example Program Research Hub", "Example Workbench"],
+                               ["Example Program", "Example Cohort"], count=count, found=found)
+    assert "Research Hub" not in hits and "Example Workbench" in hits
+    assert found["research hub"]["reason"] == "only 100 of 2000 hits carry a program name"

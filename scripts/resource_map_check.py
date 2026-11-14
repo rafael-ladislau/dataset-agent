@@ -44,6 +44,10 @@ def _cache(dir_):
 
 
 def main(out_path: str, paths: list[str]) -> None:
+    import logging
+
+    logging.basicConfig(level=logging.WARNING, format="%(name)s %(levelname)s %(message)s")
+    logging.getLogger("dataset_agent.adapters.resource_map").setLevel(logging.INFO)
     from dataset_agent.bootstrap import _build_agent
     from dataset_agent.settings import Settings
 
@@ -66,15 +70,21 @@ def main(out_path: str, paths: list[str]) -> None:
         rec = DatasetRecord.model_validate(json.loads(Path(p).read_text()))
         f = pages_dir / (hashlib.sha256(rec.main_dataset_name.encode()).hexdigest()[:12] + ".txt")
         src = f.with_suffix(".sources.json")
+        part_file = f.with_suffix(".parts.json")
         if f.exists():
             pages = f.read_text()
             sources = json.loads(src.read_text()) if src.exists() else [f"saved: {f.name}"]
+            parts = ([tuple(x) for x in json.loads(part_file.read_text())]
+                     if part_file.exists() else None)
         else:
-            pages, sources = gather_pages_with_sources(rec.main_dataset_name, rec.home_url)
+            parts = []
+            pages, sources = gather_pages_with_sources(rec.main_dataset_name, rec.home_url,
+                                                       parts_out=parts)
             f.write_text(pages)
             src.write_text(json.dumps(sources))
+            part_file.write_text(json.dumps(parts))
         m = map_for_record(agent, rec, count=count_where, pages=pages, sources=sources,
-                           count_where=count_where, **map_options(s))
+                           parts=parts, count_where=count_where, **map_options(s))
         out[rec.main_dataset_name] = m.model_dump() if m else None
         print(rec.main_dataset_name, "->", "map" if m else "no map", file=sys.stderr)
     Path(out_path).write_text(json.dumps(out, indent=1) + "\n")

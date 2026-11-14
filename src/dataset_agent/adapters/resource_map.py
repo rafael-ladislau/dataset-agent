@@ -282,7 +282,10 @@ def check_data_names(data: list[str], programs: list[str], *,
                   reason="count failed" if n is None else f"{n} hits with the program names")
             continue
         a = count(_quoted(d))
-        if min_share is not None and (not a or n / a < min_share):
+        # A remainder ("Research Hub" from "<program> Research Hub") is derived, not
+        # read: it must carry a program name in at least half of its own hits.
+        share = min_share if d not in rests else max(min_share or 0.0, 0.5)
+        if share and (not a or n / a < share):
             logger.info("resource map: %r rejected: %s of %s hits with the program", d, n, a)
             _note(found, d, hits_with_program=n, hits_alone=a, kept=False,
                   reason=f"only {n} of {a} hits carry a program name")
@@ -710,15 +713,16 @@ def map_for_record(agent, record, *, count: Callable[[str], int | None],
                    count_where: Callable[[str, str], int | None] | None = None,
                    max_share_before: float = 0.05, specific_min_share: float = 0.5,
                    max_hits: int = 500_000, sources: list[str] | None = None,
-                   discover: bool = False, search=None, fetch=None) -> ResourceMap | None:
+                   discover: bool = False, search=None, fetch=None,
+                   parts: list | None = None) -> ResourceMap | None:
     """Research the resource map of a DatasetRecord (pages fetched unless given). With
     *discover*, a split dataset also gets the web discovery step (``discover_from_web``)."""
     name = record.main_dataset_name
-    parts: list = []
     if pages is None:
+        parts = []
         pages, sources = gather_pages_with_sources(name, record.home_url, parts_out=parts)
-    else:
-        parts = [((sources or ["given pages"])[0], pages)]
+    elif parts is None:
+        parts = [("pages given", pages)]
     names = list(dict.fromkeys([name, *record.dataset_names, *record.flag_terms]))
     raw = propose(agent, dataset_name=name, description=record.description, names=names,
                   pages=pages)
