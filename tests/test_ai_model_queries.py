@@ -813,6 +813,70 @@ def test_refine_exclude_keeps_the_old_check_when_the_reference_without_the_name_
     assert "would remove 15 of 100 precise matches" in excl.reason
 
 
+def _senses_run(tmp_path, patched, docs, suggested, fp_snippets, **over):
+    patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
+    fp = {"fp_rate_pct": 25.0, "fp_count": len(fp_snippets), "genuine_by_alias": {"PhaseNet": 9},
+          "fp_hits": [{"matched_alias": "PhaseNet", "snippet": sn} for sn in fp_snippets]}
+    patched.eval = _fake_eval([fp])
+    llm = dict(PHASENET_LLM, paper_titles=[], exclude_terms=suggested)
+    return _run(
+        tmp_path, docs, llm,
+        OptimizeRequest(dataset_name="PhaseNet", entity_type="ai_model", hugging_face_id="x/phasenet"),
+        ai_model_plain_word_max_safe_hits=20_000, ai_model_max_mined_context_terms=0, **over,
+    )
+
+
+def test_refine_skips_a_phrase_holding_an_accepted_exclude_and_decides_the_next_sense(
+    tmp_path, patched
+) -> None:
+    """'Two-Dimensional Phase Unwrapping' adds nothing once 'Phase Unwrapping' is
+    accepted: it is skipped with no Dimensions call and takes no slot, so with three
+    slots the third sense ('surgical phase') is still decided."""
+    docs = _namesake_docs() + ["PhaseNet for two-dimensional phase unwrapping"] * 10 + [
+        "PhaseNet surgical phase recognition in videos"] * 10
+    suggested = ["phase unwrapping", "two-dimensional phase unwrapping", "frame interpolation",
+                 "surgical phase"]
+    snippets = ["PhaseNet for two-dimensional phase unwrapping",
+                "PhaseNet for video frame interpolation",
+                "PhaseNet surgical phase recognition in videos"]
+    out, dsl, _agent = _senses_run(tmp_path, patched, docs, suggested, snippets)
+
+    assert out.success, out.errors
+    two_d = _decision(out, "two-dimensional phase unwrapping", "exclude")
+    assert two_d.decision == "rejected"
+    assert "contains the accepted exclude 'phase unwrapping'" in two_d.reason
+    assert not [c for c in dsl.clauses if "two-dimensional phase unwrapping" in c.casefold()]
+    assert _decision(out, "surgical phase", "exclude").decision == "exclude"
+    assert out.exclusion_terms == ["phase unwrapping", "frame interpolation", "surgical phase"]
+
+
+def test_refine_exclude_loss_bound_covers_the_set(tmp_path, patched) -> None:
+    """Each phrase removes 2 of 100 title-citing papers (2%); together they remove 4%,
+    over the 3% bound, so the second is rejected."""
+    cite = "We pick arrivals with PhaseNet. Ref: " + PHASENET_TITLE
+    docs = (
+        [cite] * 96 + [cite + " alpha noise"] * 2 + [cite + " beta noise"] * 2
+        + ["PhaseNet alpha noise video"] * 10 + ["PhaseNet beta noise speech"] * 10
+    )
+    out, _dsl, _agent = _senses_run(
+        tmp_path, patched, docs, ["alpha noise", "beta noise"],
+        ["PhaseNet alpha noise video", "PhaseNet beta noise speech"],
+    )
+    assert _decision(out, "alpha noise", "exclude").decision == "exclude"
+    beta = _decision(out, "beta noise", "exclude")
+    assert beta.decision == "rejected" and "would remove 4 of 100 precise matches" in beta.reason
+    assert out.exclusion_terms == ["alpha noise"]
+
+
+def test_refine_exclude_removal_is_counted_inside_the_window(tmp_path, patched) -> None:
+    docs = _namesake_docs() + ["PhaseNet for video frame interpolation y2010"] * 20
+    out, _dsl, _agent = _senses_run(
+        tmp_path, patched, docs, ["frame interpolation"], ["PhaseNet for video frame interpolation"],
+    )
+    excl = _decision(out, "frame interpolation", "exclude")
+    assert excl.decision == "exclude" and excl.stats["removed"] == 15
+
+
 def test_coined_name_failing_the_abstract_check_is_regated_with_a_reserve_flag(tmp_path, patched) -> None:
     """The coined name is safe (20% title share), so nothing is gated, yet its flags are
     measured and held in reserve. 60% false positives in the last iteration re-gate it

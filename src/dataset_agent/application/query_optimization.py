@@ -257,6 +257,8 @@ class _ModelRun:
     years: tuple[int, int] | None = None
     #: Anchor titles that may flag a gated own name, with why: ``(title, reason)``.
     title_flags: list[tuple[str, str]] = dataclasses.field(default_factory=list)
+    #: Excludes accepted from abstract false positives in this run (set-wide loss bound).
+    refine_excludes: list[str] = dataclasses.field(default_factory=list)
     #: Context-flag candidates of the run, kept for a measurement at re-gate time.
     context_terms: list[str] = dataclasses.field(default_factory=list)
     #: Why the seed must be withheld when the abstract check fails (names kept unsafe).
@@ -879,15 +881,18 @@ class QueryOptimizationUseCase:
             return None
 
     async def _model_exclude_check(
-        self, model: _ModelRun, term: str, reference: tuple[str, int] | None = None
+        self, model: _ModelRun, term: str, reference: tuple[str, int] | None = None,
+        also: list[str] | None = None,
     ) -> tuple[bool, str, dict]:
         """An exclude is kept only when it removes (almost) none of the papers that
         certainly refer to the model; *reference* ``(clause, count)`` replaces the
-        model's reference set."""
+        model's reference set. With *also* (excludes already accepted) the bound covers
+        the set: *term* OR any of them."""
         ref_clause, ref_count = reference or (model.reference_clause, model.reference_count)
         if not ref_clause or ref_count <= 0:
             return False, "no precise name or paper title to validate it against", {}
-        hit = await self._clause_count(f"{ref_clause} AND {_or_group([term])}")
+        group = dedupe_strings_ci_preserve_order([term, *(also or [])])
+        hit = await self._clause_count(f"{ref_clause} AND {_or_group(group)}")
         if hit is None:
             return False, "not measured (Dimensions call budget or unparseable term)", {}
         loss = hit / ref_count
@@ -1358,13 +1363,20 @@ class QueryOptimizationUseCase:
         total = int(ev.get("publications_total") or 0)
         max_removed = max(1, int(total * s.ai_model_refine_exclude_max_share))
         added = 0
+        accepted_now: list[str] = []
         for term in suggested[: s.ai_model_max_exclude_terms]:
             key = term.casefold()
             if key in taken or key in tried or is_short_acronym(term):
                 continue
-            tried.add(key)
             if added >= s.ai_model_refine_max_excludes:
                 break
+            tried.add(key)
+            holder = next((e for e in new_excl if contains_word(term, e)), None)
+            if holder is not None:
+                # Every paper it matches is already excluded: no call, no slot.
+                model.decide(term, "exclude", "rejected",
+                             f"from abstract false positives; contains the accepted exclude {holder!r}")
+                continue
             if key not in snippets:
                 model.decide(term, "exclude", "rejected",
                              "from abstract false positives; not a phrase of any of them")
@@ -1380,16 +1392,29 @@ class QueryOptimizationUseCase:
                 clause, count, _label = await self._reference_without(model, refined)
                 if count >= s.ai_model_refine_reference_min_papers:
                     reference = (clause, count)
-            ok, reason, stats = await self._model_exclude_check(model, term, reference)
             if reference is not None:
+                # The loss bound covers every exclude accepted this way in the run.
+                ok, reason, stats = await self._model_exclude_check(
+                    model, term, reference, also=model.refine_excludes
+                )
                 stats["reference_without"] = sorted(refined)
+                if model.refine_excludes:
+                    stats["loss_set"] = [*model.refine_excludes, term]
+            else:
+                ok, reason, stats = await self._model_exclude_check(model, term, reference)
             if ok and for_clause:
-                removed = await self._clause_count(f"({for_clause}) AND {_or_group([term])}")
+                beyond = f" NOT {_or_group(accepted_now)}" if accepted_now else ""
+                removed = await self._clause_count(
+                    f"(({for_clause}){beyond}) AND {_or_group([term])}", where=model.where
+                )
                 stats["removed"] = removed
                 if removed is None:
                     ok, reason = False, "effect not measured"
                 elif removed == 0:
-                    ok, reason = False, "removes nothing from the query"
+                    ok, reason = False, (
+                        "removes nothing beyond the excludes already accepted"
+                        if accepted_now else "removes nothing from the query"
+                    )
                 elif reference is None and removed > max_removed:
                     ok = False
                     reason = (
@@ -1405,6 +1430,9 @@ class QueryOptimizationUseCase:
             )
             if ok:
                 new_excl.append(term)
+                accepted_now.append(term)
+                if reference is not None:
+                    model.refine_excludes.append(term)
                 changed = True
         exclude_accepted = added > 0
 
