@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
+import sys
 import time
 from typing import Any, cast
 
@@ -577,7 +579,9 @@ class AsyncThrottledDimensionsDsl(DimensionsDslPort):
                     ) from exc
                 dsl_client = dimcli_login_dsl(self._settings, key)
                 logger.debug("Dimensions DSL: %s", dsl[:500] + ("..." if len(dsl) > 500 else ""))
-                return dsl_client.query(dsl)
+                # dimcli prints a summary per query; keep stdout for the caller's output.
+                with contextlib.redirect_stdout(sys.stderr):
+                    return dsl_client.query(dsl)
             retry_extra = 0.0
             rate_retries_left = 1
             transient_left = TRANSIENT_RETRIES

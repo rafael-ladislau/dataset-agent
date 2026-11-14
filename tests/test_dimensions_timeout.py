@@ -157,3 +157,22 @@ def test_real_dimcli_login_makes_only_timeout_bound_calls(
     assert calls, "expected at least the auth call"
     assert all(t is not None for _, _, t in calls), calls
     assert not any("pypi" in u for _, u, _ in calls)
+
+
+@pytest.mark.asyncio
+async def test_query_summary_goes_to_stderr_not_stdout(
+    fake_dimcli: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """dimcli prints 'Returned Publications ...' per query; on stdout it broke the JSON
+    a CLI run writes there."""
+
+    def _query(q: str) -> dict:
+        print("Returned Publications: 1 (total = 692)")
+        return {"_stats": {"total_count": 692}}
+
+    sys.modules["dimcli"].Dsl = lambda: types.SimpleNamespace(query=_query)  # type: ignore[attr-defined]
+    s = Settings(dimensions_api_key="k", dimensions_rate_limit_seconds=0)
+    await dd.AsyncThrottledDimensionsDsl(s).execute_dsl("search publications return publications")
+    out = capsys.readouterr()
+    assert "Returned Publications" not in out.out
+    assert "Returned Publications" in out.err

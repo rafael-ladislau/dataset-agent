@@ -7,6 +7,10 @@ like the dataset probe (``ExtractionClient.run_probe_topup(entity="ai_model")``)
 the evidence from ``llm-results`` and prints one JSON object. The probe task is always
 cleaned up and the cleanup items are reported.
 
+``--from-result <result.json>`` probes the shipped ``ai_model_seed`` of an
+``optimize-model`` result verbatim (names, flags, excludes, years) and records the seed
+clause; a withheld seed or a file that is not JSON is refused.
+
 Seed JSON: at least ``{"model_name": ..., "description": ...}``. Missing start fields
 are defaulted (``model_family`` = model_name, ``hugging_face_id`` null, empty
 alias/flag/exclude lists, ``years_range`` from ``DATASET_AGENT_DEFAULT_YEARS_START`` /
@@ -35,8 +39,10 @@ A failed model probe can stay WAITING on extraction, so keep ``--poll-timeout`` 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -79,6 +85,32 @@ def build_seed(raw: dict[str, Any], settings: Settings) -> dict[str, Any]:
         "dimensions_limit": raw.get("dimensions_limit"),
         "filter_us_affiliation": bool(raw.get("filter_us_affiliation", False)),
     }
+
+
+def seed_from_result(path: Path, settings: Settings) -> tuple[dict[str, Any], str | None]:
+    """The shipped seed of an ``optimize-model`` result file, verbatim (start defaults
+    added for the keys it lacks), and the seed clause it was counted with."""
+    try:
+        record = json.loads(Path(path).read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path} is not valid JSON: {exc}") from exc
+    shipped = record.get("ai_model_seed")
+    if not isinstance(shipped, dict):
+        raise ValueError(f"{path} has no ai_model_seed (the seed was withheld)")
+    seed = build_seed(shipped, settings)
+    seed.update({k: shipped[k] for k in shipped})
+    return seed, record.get("ai_model_seed_clause")
+
+
+def write_seed_file(seed: dict[str, Any], out_dir: Path) -> tuple[Path, str]:
+    """Write ``<out_dir>/<model>.json`` holding *seed* verbatim; return the path and its
+    sha256."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    slug = re.sub(r"[^a-z0-9]+", "-", str(seed["model_name"]).casefold()).strip("-")
+    path = out_dir / f"{slug}.json"
+    path.write_text(json.dumps(seed, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path, hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def wilson_interval(k: int, n: int, z: float = 1.96) -> tuple[float | None, float | None]:
@@ -200,7 +232,10 @@ def run_probe(
 
 def parse_args(argv: list[str] | None, settings: Settings) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("seed", help="hand-built seed JSON file ({model_name, description, ...})")
+    ap.add_argument("seed", nargs="?",
+                    help="hand-built seed JSON file ({model_name, description, ...})")
+    ap.add_argument("--from-result", type=Path,
+                    help="probe the shipped ai_model_seed of an optimize-model result file")
     ap.add_argument("--target", type=int, default=settings.fulltext_target_delivered,
                     help="papers with delivered full text to aim for")
     ap.add_argument("--max-batches", type=int, default=4)
@@ -218,7 +253,13 @@ def parse_args(argv: list[str] | None, settings: Settings) -> argparse.Namespace
 def main(argv: list[str] | None = None) -> int:
     settings = Settings()
     args = parse_args(argv, settings)
-    seed = build_seed(json.loads(Path(args.seed).read_text(encoding="utf-8")), settings)
+    clause = None
+    if args.from_result:
+        seed, clause = seed_from_result(args.from_result, settings)
+    elif args.seed:
+        seed = build_seed(json.loads(Path(args.seed).read_text(encoding="utf-8")), settings)
+    else:
+        raise SystemExit("give a seed file or --from-result")
     settings = settings.model_copy(update={"probe_poll_timeout_seconds": float(args.poll_timeout)})
     client = ExtractionClient.for_target(settings, args.extraction)
     try:
@@ -228,6 +269,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     finally:
         client.close()
+    if args.from_result:
+        report["seed_source"] = str(args.from_result)
+        report["clause_probed"] = clause
     print(json.dumps(report, indent=2, ensure_ascii=False))
     if report["error"]:
         return 1

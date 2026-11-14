@@ -138,3 +138,50 @@ def test_parse_args_defaults(tmp_path):
     args = probe.parse_args(["seed.json"], _settings(tmp_path))
     assert args.seed == "seed.json" and args.target == 30 and args.max_batches == 4
     assert args.poll_timeout == 900.0 and args.extraction == "dev"
+
+
+SHIPPED = {
+    "model_name": "Aurora", "model_family": "Aurora",
+    "description": "Aurora is a foundation model for the Earth system developed by Microsoft.",
+    "hugging_face_id": "microsoft/aurora",
+    "model_aliases": ["Microsoft Aurora", "Aurora foundation model"],
+    "flag_terms": ["GraphCast", "A Foundation Model for the Earth System"],
+    "exclude_terms": ["aurora borealis"],
+    "years_range": {"start_year": 2024, "end_year": 2026},
+}
+
+
+def _result(tmp_path, seed=SHIPPED, prefix=""):
+    record = {"success": True, "ai_model_seed": seed,
+              "ai_model_seed_clause": '(\\"Aurora\\") AND (\\"GraphCast\\")',
+              "for_clause": "q", "ai_model_seed_count": 601, "ai_model_query_count": 601}
+    path = tmp_path / "result.json"
+    path.write_text(prefix + json.dumps(record), encoding="utf-8")
+    return path
+
+
+def test_seed_from_result_is_the_shipped_seed_key_for_key(tmp_path):
+    seed, clause = probe.seed_from_result(_result(tmp_path), _settings(tmp_path))
+    assert {k: seed[k] for k in SHIPPED} == SHIPPED
+    assert clause == '(\\"Aurora\\") AND (\\"GraphCast\\")'
+
+
+def test_seed_from_result_refuses_a_withheld_seed_and_unknown_keys(tmp_path):
+    with pytest.raises(ValueError, match="no ai_model_seed"):
+        probe.seed_from_result(_result(tmp_path, seed=None), _settings(tmp_path))
+    with pytest.raises(ValueError, match="refuse"):
+        probe.seed_from_result(_result(tmp_path, seed={**SHIPPED, "probe": True}), _settings(tmp_path))
+
+
+def test_seed_from_result_refuses_a_file_that_is_not_json(tmp_path):
+    with pytest.raises(ValueError, match="not valid JSON"):
+        probe.seed_from_result(_result(tmp_path, prefix="Returned Publications: 1\n"),
+                               _settings(tmp_path))
+
+
+def test_write_seed_file_holds_the_seed_verbatim(tmp_path):
+    path, digest = probe.write_seed_file(SHIPPED, tmp_path / "seeds")
+    assert path.name == "aurora.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == SHIPPED
+    import hashlib
+    assert digest == hashlib.sha256(path.read_bytes()).hexdigest()
