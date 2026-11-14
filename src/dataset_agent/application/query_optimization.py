@@ -237,6 +237,15 @@ class _ModelRun:
     #: (from the top-cited pull).
     anchors: list[str] = dataclasses.field(default_factory=list)
     anchor_years: dict[str, int] = dataclasses.field(default_factory=dict)
+    #: The model's own base names (request name and family), case-folded.
+    base_keys: set[str] = dataclasses.field(default_factory=set)
+    #: Own coined base names that are safe by shape or by a partial title share only.
+    weak_bases: list[str] = dataclasses.field(default_factory=list)
+    #: Measured flags held out of the query; they gate a weak base name that fails the
+    #: abstract check.
+    reserve_flags: list[str] = dataclasses.field(default_factory=list)
+    #: Why the seed must be withheld when the abstract check fails (names kept unsafe).
+    withhold_reasons: list[str] = dataclasses.field(default_factory=list)
     #: for clause -> (safe, risky, flags, excludes) it was built from.
     states: dict[str, tuple[list[str], list[str], list[str], list[str]]] = dataclasses.field(
         default_factory=dict
@@ -980,19 +989,21 @@ class QueryOptimizationUseCase:
         return min(years) if years else None
 
     async def _mine_model_context(
-        self, model: _ModelRun, model_names: list[str]
+        self, model: _ModelRun, model_names: list[str], clause: str | None = None
     ) -> list[tuple[str, int]]:
-        """Context-term candidates from the abstracts of the precise matches (one call)."""
+        """Context-term candidates from the abstracts of the precise matches (one call);
+        *clause* replaces the model's reference clause."""
         s = self._settings
         n = int(s.ai_model_context_mining_sample)
-        if not model.reference_clause or n <= 0 or s.ai_model_max_mined_context_terms <= 0:
+        clause = model.reference_clause if clause is None else clause
+        if not clause or n <= 0 or s.ai_model_max_mined_context_terms <= 0:
             return []
         if not self._budget_left():
             return []
         try:
             result = await self._counted_execute(
                 build_search_publications_paged_dsl(
-                    model.reference_clause, limit=n, fields="title+abstract"
+                    clause, limit=n, fields="title+abstract"
                 )
             )
         except DimensionsDslError as exc:
@@ -1020,16 +1031,18 @@ class QueryOptimizationUseCase:
         notes_parts: list[str],
         iteration: int,
         for_clause: str = "",
-    ) -> tuple[list[str], list[str], list[str]] | None:
+    ) -> tuple[list[str], list[str], list[str], list[str]] | None:
         """One refinement step from the abstract check's false positives.
 
         A safe name with two or more false positives, and no more genuine mentions than
-        false ones, stops being safe: it becomes
-        flag-gated when it is the model's own name and flags exist, and is dropped
-        otherwise. An exclude phrase the LLM derives from the false positives is kept only
+        false ones, stops being safe: it becomes flag-gated when it is the model's own
+        name and flags (or measured reserve flags) exist. An own base name is never
+        dropped: with no flag to gate it, it is kept and the seed is withheld. Other
+        names are dropped. "X model" forms follow their base name. An exclude phrase the LLM derives from the false positives is kept only
         if it occurs in one of their snippets, passes ``_model_exclude_check`` and removes
         a small part of the current result (a phrase that removes much is describing the
-        topic, not the false positive). Returns ``None`` when nothing changes."""
+        topic, not the false positive). Returns ``(safe, risky, flags, excludes)``, or ``None``
+        when nothing changes."""
         fp_hits = [h for h in (ev.get("fp_hits") or []) if isinstance(h, dict)]
         if not fp_hits:
             return None
@@ -1044,23 +1057,62 @@ class QueryOptimizationUseCase:
         }
         new_safe: list[str] = []
         new_risky = list(risky)
+        new_flags = list(flags)
         changed = False
-        for alias in safe:
-            n_fp = per_alias.get(alias.casefold(), 0)
+        regated: set[str] = set()
+
+        def _base_of(alias: str) -> str | None:
+            key = alias.casefold()
+            return next((b for b in model.base_keys
+                         if key in (f"{b} model", f"{b} foundation model")), None)
+
+        followers = [a for a in safe if _base_of(a)]
+        for alias in [a for a in safe if not _base_of(a)]:
+            key = alias.casefold()
+            n_fp = per_alias.get(key, 0)
             # At least two false positives and at least as many as genuine mentions.
-            if n_fp < 2 or n_fp < genuine.get(alias.casefold(), 0):
+            if n_fp < 2 or n_fp < genuine.get(key, 0):
                 new_safe.append(alias)
                 continue
-            changed = True
-            if flags and alias.casefold() in model.own_keys:
+            if key in model.own_keys and (new_flags or model.reserve_flags):
+                changed = True
+                regated.add(key)
                 new_risky.append(alias)
-                notes_parts.append(
-                    f"gate_iter{iteration}: {alias!r} flag-gated ({n_fp} false positives in abstracts)"
+                if new_flags:
+                    notes_parts.append(
+                        f"gate_iter{iteration}: {alias!r} flag-gated ({n_fp} false positives in abstracts)"
+                    )
+                else:
+                    new_flags = list(model.reserve_flags)
+                    notes_parts.append(
+                        f"gate_iter{iteration}: {alias!r} flag-gated with reserve flags "
+                        f"{new_flags} ({n_fp} false positives in abstracts)"
+                    )
+            elif key in model.base_keys:
+                # Dropping the model's own name would ship only its rare variants.
+                new_safe.append(alias)
+                measured = [
+                    f"{d.term} {d.stats['anchor_precision']:.0%}" for d in model.decisions
+                    if d.kind == "flag" and "anchor_precision" in d.stats
+                ]
+                why = (
+                    f"{alias!r} kept: no measured flag can gate it "
+                    f"({', '.join(measured) or 'no flag candidate was measured'})"
                 )
+                if why not in model.withhold_reasons:
+                    model.withhold_reasons.append(why)
+                notes_parts.append(f"gate_iter{iteration}: {why}; {n_fp} false positives in abstracts")
             else:
+                changed = True
                 notes_parts.append(
                     f"gate_iter{iteration}: {alias!r} dropped ({n_fp} false positives in abstracts)"
                 )
+        for alias in followers:
+            if _base_of(alias) in regated:
+                changed = True
+                new_risky.append(alias)
+            else:
+                new_safe.append(alias)
         try:
             suggested = await asyncio.to_thread(
                 derive_exclude_terms_from_fps,
@@ -1112,7 +1164,7 @@ class QueryOptimizationUseCase:
                 changed = True
         if not changed:
             return None
-        return new_safe, dedupe_strings_ci_preserve_order(new_risky), new_excl
+        return new_safe, dedupe_strings_ci_preserve_order(new_risky), new_flags, new_excl
 
     async def _execute_ai_model(
         self, request: OptimizeRequest, notes_parts: list[str], run_id: str, t0: float
@@ -1204,6 +1256,7 @@ class QueryOptimizationUseCase:
             )
 
         base_keys = {name.casefold(), family.casefold()}
+        model.base_keys = set(base_keys)
         given_keys = {a.casefold() for a in request.dataset_names}
         try:
             # 1. Paper titles: anchors for everything measured below.
@@ -1274,6 +1327,7 @@ class QueryOptimizationUseCase:
             gate: list[tuple[str, int, str]] = []
             counts: dict[str, int] = {}
             for nm, _kind in cands.names:
+                both: int | None = None
                 c = await self._clause_count(q(nm))
                 if c is None:
                     model.decide(nm, "alias", "rejected", "not measured (budget or unparseable)")
@@ -1297,6 +1351,15 @@ class QueryOptimizationUseCase:
                     coined_min_share=s.ai_model_coined_min_title_share,
                 )
                 stats = {} if confirmation is None else {"title_confirmation": round(confirmation, 3)}
+                if nm.casefold() in base_keys and title_group and both is not None:
+                    # Recorded only: hits of the base name that also quote an anchor.
+                    stats["with_anchor_titles"] = both
+                if (
+                    verdict == "safe" and nm.casefold() in base_keys and is_distinctive(nm)
+                    and (confirmation is None
+                         or confirmation < s.ai_model_safe_min_context_share / 2)
+                ):
+                    model.weak_bases.append(nm)
                 own = nm.casefold() in base_keys or nm.casefold() in given_keys
                 if own:
                     model.own_keys.add(nm.casefold())
@@ -1337,42 +1400,72 @@ class QueryOptimizationUseCase:
                     excludes.append(term)
             not_x = f" NOT {q(*excludes)}" if excludes else ""
 
-            # 5. Context flags, only when a name needs gating.
+            # 5. Context flags, only when a name needs gating. When nothing is gated but
+            # an own coined base name is safe on weak evidence (shape, or a partial title
+            # share), flags are still measured, against a reference that does not
+            # contain that name, and held in reserve for the abstract check.
             flags: list[str] = []
             mined: dict[str, int] = {}
             gated = [g for g, _c, _r in gate]
-            if not gated:
+            weak = [] if gated else [b for b in model.weak_bases if b in safe]
+            reserve = bool(weak)
+            group = gated or weak
+            if not group:
                 for term in cands.context_terms:
                     model.decide(term, "flag", "rejected", "not needed: no name requires gating")
             else:
-                g_group = q(*gated)
+                if reserve:
+                    ref_terms = dedupe_strings_ci_preserve_order(titles + [
+                        n for n in safe if not any(contains_word(n, b) for b in weak)
+                    ])
+                    ref_clause = q(*ref_terms) if ref_terms else ""
+                    ref_ok = bool(ref_terms)
+                    unverified = (
+                        f"cannot be verified: no cited paper title or precise name without {weak}"
+                    )
+                else:
+                    ref_clause = model.reference_clause
+                    ref_ok = bool(model.reference_clause) and model.reference_count > 0
+                    unverified = "cannot be verified: no precise name or cited paper title"
+                g_group = q(*group)
                 context_terms = list(cands.context_terms)
                 taken = {t.casefold() for t in context_terms} | {
                     d.term.casefold() for d in model.decisions if d.kind == "flag"
                 }
-                for term, n_docs in await self._mine_model_context(model, gated + safe):
-                    if term.casefold() not in taken:
-                        taken.add(term.casefold())
-                        context_terms.append(term)
-                        mined[term.casefold()] = n_docs
+                if ref_ok:
+                    for term, n_docs in await self._mine_model_context(
+                        model, group + safe, ref_clause
+                    ):
+                        if term.casefold() not in taken:
+                            taken.add(term.casefold())
+                            context_terms.append(term)
+                            mined[term.casefold()] = n_docs
+                n_measured = n_passed = 0
                 for term in context_terms:
-                    if not model.reference_clause or model.reference_count <= 0:
+                    if not ref_ok:
                         # Nothing certain to measure against: an unverified flag would
                         # let the ambiguous name through on trust.
-                        model.decide(term, "flag", "rejected",
-                                     "cannot be verified: no precise name or cited paper title")
+                        model.decide(term, "flag", "rejected", unverified)
                         continue
+                    if reserve and (
+                        n_measured >= s.ai_model_reserve_flag_max_candidates
+                        or n_passed >= s.ai_model_reserve_flag_max_passing
+                    ):
+                        model.decide(term, "flag", "rejected",
+                                     "not measured: the reserve-flag limit was reached")
+                        continue
+                    n_measured += 1
                     admitted = await self._clause_count(f"({g_group} AND {q(term)}){not_x}")
                     if not admitted:
                         model.decide(
                             term, "flag", "rejected",
-                            f"never occurs with {gated}" if admitted == 0
+                            f"never occurs with {group}" if admitted == 0
                             else "not measured (Dimensions call budget or unparseable term)",
                             admitted,
                         )
                         continue
                     confirmed = await self._clause_count(
-                        f"({model.reference_clause} AND {g_group} AND {q(term)}){not_x}"
+                        f"({ref_clause} AND {g_group} AND {q(term)}){not_x}"
                     )
                     if confirmed is None:
                         model.decide(term, "flag", "rejected",
@@ -1382,7 +1475,7 @@ class QueryOptimizationUseCase:
                     stats = {"admitted": admitted, "confirmed": confirmed,
                              "anchor_precision": round(precision, 3)}
                     detail = (
-                        f"admits {admitted} papers with {gated}; {confirmed} "
+                        f"admits {admitted} papers with {group}; {confirmed} "
                         f"({precision:.0%}) are precise matches"
                     )
                     if term.casefold() in mined:
@@ -1408,6 +1501,16 @@ class QueryOptimizationUseCase:
                                 else "its own hit count was not measured, so it gates nothing"
                             ),
                             admitted, **stats, own_hits=own_hits,
+                        )
+                    elif passes and reserve:
+                        stats["own_hits"] = own_hits
+                        n_passed += 1
+                        model.reserve_flags.append(term)
+                        model.decide(
+                            term, "flag", "context",
+                            f"reserve flag for {group}: {detail}; kept out of the query "
+                            "unless the name fails the abstract check",
+                            admitted, **stats,
                         )
                     elif passes:
                         stats["own_hits"] = own_hits
@@ -1509,6 +1612,7 @@ class QueryOptimizationUseCase:
         safe_k = {a.casefold() for a in safe}
         risky_k = {a.casefold() for a in risky}
         excl_k = {a.casefold() for a in excludes}
+        flag_k = {a.casefold() for a in flags}
         for d in model.decisions:
             key = d.term.casefold()
             if d.kind == "alias" and d.decision in ("safe", "gated"):
@@ -1521,6 +1625,9 @@ class QueryOptimizationUseCase:
                 else:
                     d.decision = "rejected"
                     d.reason += "; not in the selected query"
+            elif d.kind == "flag" and d.decision == "context" and key in flag_k:
+                d.decision = "flag"
+                d.reason += "; flag-gates the name after false positives in abstracts"
             elif d.kind == "exclude" and d.decision == "exclude" and key not in excl_k:
                 d.decision = "rejected"
                 d.reason += "; not in the selected query"
@@ -1559,6 +1666,8 @@ class QueryOptimizationUseCase:
                     f"positives (limit {threshold:.0f}%)"
                 )
             out.confidence = ConfidenceLevel.LOW
+            if model.withhold_reasons:
+                why += "; " + "; ".join(model.withhold_reasons)
             notes.append(f"seed withheld: {why}; review term_decisions before using this query")
             out.notes = " ".join(notes)
             return out
@@ -2054,7 +2163,10 @@ class QueryOptimizationUseCase:
             current_for_clause = candidate_clause(ft_candidate)
             current_variant_label = "V4"
 
-        for iteration in range(max_iters):
+        iter_limit = max_iters
+        iteration = -1
+        while iteration + 1 < iter_limit:
+            iteration += 1
             logger.info(
                 "optimize_phase run_id=%s gate_iter=%s for_clause=%s",
                 run_id,
@@ -2228,7 +2340,15 @@ class QueryOptimizationUseCase:
                 if refined is None:
                     notes_parts.append(f"gate_iter{iteration}: nothing to refine; stopping.")
                     break
-                current_safe, current_risky, exc_work = refined
+                regate = refined[2] != current_flags
+                current_safe, current_risky, current_flags, exc_work = refined
+                if regate and iteration == iter_limit - 1 and iter_limit == max_iters:
+                    # A re-gated query must not be selected unchecked: one more check.
+                    iter_limit += 1
+                    notes_parts.append(
+                        f"gate_iter{iteration}: re-gated in the last iteration; "
+                        "one more abstract check"
+                    )
                 new_fc = build_for_clause(
                     safe=current_safe, variant="V4", risky=current_risky,
                     flag_terms=current_flags, exclusion_terms=exc_work,

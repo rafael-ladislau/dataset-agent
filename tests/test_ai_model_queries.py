@@ -509,6 +509,108 @@ def test_top_cited_titles_of_a_safe_coined_name_are_checked_as_anchors(tmp_path,
     assert "where year in [2019:" in out.dsl_query
 
 
+def test_same_dimensions_search_is_one_candidate() -> None:
+    c = assemble_candidates(
+        model_name="PhaseNet", family=None, given_aliases=["PhaseNet+"], hub=HubEvidence(),
+        llm={"names": [{"name": "Phase-Net", "kind": "version"}]},
+        max_names=14, max_context=12, max_excludes=8,
+    )
+    names = [n for n, _k in c.names]
+    assert "PhaseNet" in names and "PhaseNet+" not in names
+    reasons = {t: r for k, t, r in c.rejected if k == "alias"}
+    assert reasons["PhaseNet+"] == "same search as 'PhaseNet' for Dimensions"
+    assert "Phase-Net" in names  # a hyphen splits the token: another search
+
+
+def _phasenet_regate_docs(*, flag_in_namesakes: bool = False) -> list[str]:
+    namesake = "PhaseNet video interpolation of frames" + (" with GaMMA" if flag_in_namesakes else "")
+    return (
+        [f"{PHASENET_TITLE} || PhaseNet picks P and S waves on STEAD with GaMMA y2019"] * 2
+        + [f"{PHASENET_TITLE} || PhaseNet picks P and S waves on STEAD y2019"] * 18
+        + ["We pick arrivals with PhaseNet on STEAD. Ref: " + PHASENET_TITLE] * 30
+        + [namesake] * 200
+        + ["The STEAD benchmark of seismograms."] * 10
+    )
+
+
+def _phasenet_run(tmp_path, docs, context_terms, **over):
+    llm = dict(PHASENET_LLM, paper_titles=[], context_terms=context_terms)
+    return _run(
+        tmp_path, docs, llm,
+        OptimizeRequest(dataset_name="PhaseNet", entity_type="ai_model", hugging_face_id="x/phasenet",
+                        dataset_names=["PhaseNet+"]),
+        ai_model_plain_word_max_safe_hits=20_000, ai_model_max_mined_context_terms=0, **over,
+    )
+
+
+PHASENET_FP = {
+    "fp_rate_pct": 60.0, "fp_count": 6, "genuine_by_alias": {"PhaseNet": 4},
+    "fp_hits": [{"matched_alias": "PhaseNet", "snippet": "PhaseNet video interpolation"}] * 6,
+}
+
+
+def test_coined_name_failing_the_abstract_check_is_regated_with_a_reserve_flag(tmp_path, patched) -> None:
+    """The coined name is safe (20% title share), so nothing is gated, yet its flags are
+    measured and held in reserve. 60% false positives in the last iteration re-gate it
+    with the reserve flag, and one more abstract check clears the gated query."""
+    patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
+    patched.eval = _fake_eval([PHASENET_FP])
+    out, _dsl, _agent = _phasenet_run(
+        tmp_path, _phasenet_regate_docs(), ["STEAD"], optimize_max_iterations=1,
+    )
+
+    assert out.success, out.errors
+    assert len(patched.eval.calls) == 2  # the re-gated query was checked again
+    assert out.selected_variant == "V4~gate1"
+    assert out.aliases.safe == [] and out.aliases.risky == ["PhaseNet"]
+    assert out.flag_terms == ["STEAD"]
+    stead = _decision(out, "STEAD", "flag")
+    assert stead.decision == "flag" and stead.stats["anchor_precision"] == 1.0
+    assert "flag-gated" in _decision(out, "PhaseNet", "alias").reason
+    assert "'PhaseNet' flag-gated with reserve flags ['STEAD']" in out.notes
+    assert out.ai_model_seed is not None and out.ai_model_seed["flag_terms"] == ["STEAD"]
+    assert not any("not needed" in d.reason for d in out.term_decisions if d.kind == "flag")
+    # Recorded, not acted on: how many hits of the bare name also quote an anchor title.
+    assert _decision(out, "PhaseNet", "alias").stats["with_anchor_titles"] == 50
+
+
+def test_coined_name_without_a_passing_reserve_flag_is_kept_and_the_seed_withheld(tmp_path, patched) -> None:
+    patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
+    patched.eval = _fake_eval([PHASENET_FP, PHASENET_FP])
+    out, _dsl, _agent = _phasenet_run(
+        tmp_path, _phasenet_regate_docs(flag_in_namesakes=True), ["GaMMA"],
+    )
+
+    assert out.success, out.errors
+    assert out.aliases.safe == ["PhaseNet"]  # an own base name is never dropped
+    assert _decision(out, "GaMMA", "flag").decision == "rejected"
+    assert out.ai_model_seed is None
+    assert "seed withheld" in out.notes
+    assert "'PhaseNet' kept: no measured flag can gate it (GaMMA 1%)" in out.notes
+    assert "dropped" not in out.notes
+
+
+def test_coined_name_with_clean_abstracts_keeps_reserve_flags_out_of_the_query(tmp_path, patched) -> None:
+    patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
+    out, _dsl, _agent = _phasenet_run(tmp_path, _phasenet_regate_docs(), ["STEAD"])
+
+    assert out.success, out.errors
+    stead = _decision(out, "STEAD", "flag")
+    assert stead.decision == "context" and stead.reason.startswith("reserve flag for ['PhaseNet']")
+    assert out.flag_terms == [] and "STEAD" not in out.for_clause
+    assert out.ai_model_seed["flag_terms"] == []
+
+
+def test_reserve_flags_cannot_be_verified_without_an_independent_reference(tmp_path, patched) -> None:
+    patched.hub = HubEvidence()
+    out, _dsl, _agent = _run(
+        tmp_path, ["PhaseNet picks arrivals on STEAD."] * 20, dict(PHASENET_LLM, paper_titles=[], context_terms=["STEAD"]),
+        OptimizeRequest(dataset_name="PhaseNet", entity_type="ai_model"),
+    )
+    assert out.success, out.errors
+    assert _decision(out, "STEAD", "flag").reason.startswith("cannot be verified")
+
+
 def test_year_window_starts_at_the_first_name_bearing_anchor(tmp_path, patched) -> None:
     """A re-uploaded card (2022) must not cut the model's own 2018 paper from the seed."""
     patched.hub = HubEvidence(

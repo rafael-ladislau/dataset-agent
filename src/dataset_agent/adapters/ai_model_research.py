@@ -32,6 +32,7 @@ from typing import Any
 
 import httpx
 
+from dataset_agent.adapters.literature import _stem_text
 from dataset_agent.adapters.name_grounding import content_tokens
 from dataset_agent.adapters.query_heuristics import is_short_acronym
 from dataset_agent.adapters.term_sanitizer import sanitize_term, sanitize_terms
@@ -557,6 +558,8 @@ def assemble_candidates(
         names.append((hub.hugging_face_id.split("/", 1)[1], "checkpoint"))
 
     seen: set[str] = set()
+    #: Dimensions folds punctuation: "PhaseNet+" and "PhaseNet" are one search.
+    searched: dict[str, str] = {}
     for raw, kind in names:
         name = sanitize_term(raw)
         if not name:
@@ -565,6 +568,12 @@ def assemble_candidates(
         if key in seen:
             continue
         seen.add(key)
+        stem = _stem_text(name)
+        if stem in searched:
+            out.rejected.append(
+                ("alias", name, f"same search as {searched[stem]!r} for Dimensions")
+            )
+            continue
         if _only_generic(name):
             out.rejected.append(("alias", name, "generic words only"))
         elif not any(ch.isupper() or ch.isdigit() for ch in name):
@@ -576,6 +585,7 @@ def assemble_candidates(
         elif len(out.names) >= max_names:
             out.rejected.append(("alias", name, "over the candidate limit"))
         else:
+            searched[stem] = name
             out.names.append((name, kind))
 
     titles = list(hub.paper_titles)

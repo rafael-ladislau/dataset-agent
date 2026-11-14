@@ -320,6 +320,10 @@ class Settings(BaseSettings):
     #: cite the model's papers; a partial share above it is not evidence against the name
     #: (a versioned card's papers are cited by only part of the family's literature).
     ai_model_coined_min_title_share: float = Field(default=0.05, ge=0.0, le=1.0)
+    #: Reserve flags for a coined base name that is safe on weak evidence: at most this
+    #: many candidates are measured, stopping once this many pass the flag bar.
+    ai_model_reserve_flag_max_candidates: int = Field(default=10, ge=0, le=30)
+    ai_model_reserve_flag_max_passing: int = Field(default=3, ge=0, le=10)
     #: A plain word ("Aurora") with more hits than this is never a safe alias.
     ai_model_plain_word_max_safe_hits: int = Field(default=20_000, ge=0)
     #: An exclude is kept only if it removes at most this share of the precise matches.
