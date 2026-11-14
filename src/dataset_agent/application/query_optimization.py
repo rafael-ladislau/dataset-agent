@@ -49,7 +49,7 @@ from dataset_agent.adapters.extraction_client import (
     ExtractionClient,
     ExtractionError,
 )
-from dataset_agent.adapters.fulltext_evidence import Evidence, _phrase_in, build_evidence
+from dataset_agent.adapters.fulltext_evidence import Evidence, _phrase_in, _tokens, build_evidence
 from dataset_agent.adapters.fulltext_recall import (
     MAX_ADDED_HITS,
     RecallCandidate,
@@ -346,23 +346,31 @@ class QueryOptimizationUseCase:
         whole-word phrase inside another kept flag ("EarthScope" in "EarthScope
         Consortium") is dropped too: the refiner refuses that pair for its own proposals."""
         s = self._settings
-        kept = list(flags)
+        kept: list[str] = []
         dropped: list[str] = []
+        # Flags with the same words ("O*NET" / "O-NET", "UNAVCO Inc." / "UNAVCO, Inc"):
+        # keep the first one only, so neither is read as the other's broader form.
+        for f in flags:
+            same = next((k for k in kept if _tokens(k) == _tokens(f)), None)
+            if same is None:
+                kept.append(f)
+            else:
+                dropped.append(f"{f} (same words as {same})")
         broader: list[tuple[str, str]] = []
         for f in kept:
             g = next(
                 (
                     g
                     for g in kept
-                    if g.casefold() != f.casefold() and _phrase_in(f, g, plural_ok=False)
+                    if _tokens(g) != _tokens(f) and _phrase_in(f, g, plural_ok=False)
                 ),
                 None,
             )
             if g is not None:
                 broader.append((f, g))
-        if broader:
-            drop_keys = {f.casefold() for f, _g in broader}
-            kept = [f for f in kept if f.casefold() not in drop_keys]
+        if broader and len(broader) < len(kept):
+            drop = {f for f, _g in broader}
+            kept = [f for f in kept if f not in drop]
             dropped += [f"{f} (broader form of {g})" for f, g in broader]
         if s.optimize_drop_short_acronym_flags:
             short = [f for f in kept if is_short_acronym(f)]

@@ -267,10 +267,10 @@ def test_phase1_checks_keep_the_refiner_reserve(tmp_path, monkeypatch):
     assert last_share + 1 <= cap - reserve - 2
 
 
-def _screen(flags):
+def _screen(flags, short_guard=False):
     settings = Settings(
         tasks_db="t.db", output_dir="out", dimensions_api_key="k",
-        optimize_flag_max_hits=0, optimize_drop_short_acronym_flags=False,
+        optimize_flag_max_hits=0, optimize_drop_short_acronym_flags=short_guard,
     )
     uc = QueryOptimizationUseCase(
         dsl_port=MagicMock(), research=MagicMock(), agent=MagicMock(), settings=settings
@@ -285,7 +285,22 @@ def test_research_flag_that_is_a_broader_form_of_another_is_dropped():
     assert notes == ["dropped research flag(s): EarthScope (broader form of EarthScope Consortium)"]
 
 
-def test_flags_differing_only_in_case_are_not_dropped_as_broader():
+def test_flags_differing_only_in_case_keep_the_first_and_are_not_dropped_as_broader():
     kept, notes = _screen(["EarthScope", "earthscope"])
-    assert kept == ["EarthScope", "earthscope"]
-    assert notes == []
+    assert kept == ["EarthScope"]
+    assert notes == ["dropped research flag(s): earthscope (same words as EarthScope)"]
+
+
+def test_flags_with_equal_tokens_keep_one():
+    kept, notes = _screen(["O*NET", "O-NET"])
+    assert kept == ["O*NET"]
+    assert notes == ["dropped research flag(s): O-NET (same words as O*NET)"]
+
+
+def test_equal_token_flags_then_short_acronym_guard():
+    kept, notes = _screen(["UNAVCO Inc.", "UNAVCO, Inc", "IRIS"], short_guard=True)
+    assert kept == ["UNAVCO Inc."]
+    assert notes == [
+        "dropped research flag(s): UNAVCO, Inc (same words as UNAVCO Inc.); IRIS (bare short acronym)"
+    ]
+
