@@ -1,4 +1,4 @@
-"""OpenAI-compatible adapter specifics: structured tiers, tier cache, reasoning output."""
+"""OpenAI-compatible adapter specifics: structured tiers, last-tier tracking, reasoning output."""
 
 from __future__ import annotations
 
