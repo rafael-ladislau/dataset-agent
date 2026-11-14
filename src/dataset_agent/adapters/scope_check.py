@@ -26,6 +26,7 @@ General rules only: the names come from the resource map, never from constants h
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 from dataset_agent.adapters.fulltext_evidence import Evidence, PubVerdict, _phrase_in
@@ -47,6 +48,40 @@ EMIT_SCOPE_CLASSIFICATION = {
         "required": ["scope"],
     },
 }
+
+
+#: Head nouns that make a name (or a list entry) a data reference.
+DATA_NOUNS = frozenset({
+    "data", "dataset", "datasets", "database", "databases", "databank", "commons", "survey",
+    "surveys", "repository", "repositories", "archive", "archives", "cohort", "cohorts",
+    "biobank", "biobanks", "registry", "registries", "resource", "resources",
+})
+# Words that make a name denote data wherever they stand ("X Data Commons", "Y Survey 2020").
+_STRONG_DATA_WORDS = frozenset({
+    "data", "dataset", "datasets", "database", "databases", "databank", "commons", "survey",
+    "surveys", "repository", "repositories",
+})
+
+
+def _words(name: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", (name or "").lower())
+
+
+def head_noun(name: str) -> str:
+    """The last word of a name, lower-cased ("All of Us Cohort" -> "cohort")."""
+    w = _words(name)
+    return w[-1] if w else ""
+
+
+def carries_data_noun(name: str) -> bool:
+    """The name's head noun is a data noun (noun test)."""
+    return head_noun(name) in DATA_NOUNS
+
+
+def name_denotes_data(name: str) -> bool:
+    """A name that is itself a data noun ("X Data Commons", "Y Survey", "Z Cohort"): a
+    dataset with such a name is never split into program and data."""
+    return carries_data_noun(name) or any(w in _STRONG_DATA_WORDS for w in _words(name))
 
 
 def generated_data_phrases(program_names: list[str]) -> list[str]:

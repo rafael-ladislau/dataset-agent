@@ -10,11 +10,13 @@ One structured LLM step proposes a kind for each research name (``program``,
 fetched pages, former or parent names of the program, and the year the data was first
 released. The split itself is deterministic; there is a map only when ALL hold:
 
-* the dataset's main name is classified ``program``;
+* the dataset's main name is classified ``program`` and is not itself a data noun
+  (``scope_check.name_denotes_data``: commons, survey, database, data, cohort ...);
 * at least one data resource name occurs literally in the fetched pages and is not
   contained in a program name;
-* that data resource name has Dimensions hits together with the program names
-  (``min_cooccurrence``).
+* that data resource name has Dimensions hits together with the program names that it
+  does not contain (``min_cooccurrence``): "<program> Workbench" AND "<program>" would
+  count the data name alone.
 
 Otherwise there is no map and nothing changes. Former and parent names are kept only
 when they occur literally in the pages; the release year only with a quote found in the
@@ -30,6 +32,7 @@ from collections.abc import Callable
 import httpx
 
 from dataset_agent.adapters.fulltext_evidence import _phrase_in
+from dataset_agent.adapters.scope_check import name_denotes_data
 from dataset_agent.domain.models import ResourceMap
 
 logger = logging.getLogger(__name__)
@@ -149,6 +152,9 @@ def candidates(raw: dict, *, dataset_name: str, pages: str) -> tuple[list[str], 
     kind = {" ".join(str(r.get("name") or "").split()).lower(): r.get("kind") for r in rows}
     if kind.get(" ".join(dataset_name.split()).lower()) != "program":
         return None
+    if name_denotes_data(dataset_name):
+        logger.info("resource map: %r is itself a data name; no split", dataset_name)
+        return None
     programs = [str(r["name"]).strip() for r in rows if r.get("kind") == "program"]
     programs += [n.strip() for n in (raw.get("former_or_parent_program_names") or [])
                  if isinstance(n, str) and _in_pages(n, pages)]
@@ -202,7 +208,12 @@ def build_map(raw: dict, *, dataset_name: str, pages: str,
     programs, data = cand
     hits: dict[str, int] = {}
     for d in data:
-        n = count(cooccurrence_clause(programs, d))
+        others = [p for p in programs if not _contained(p, d)]
+        if not others:
+            logger.info("resource map: %r contains every program name; co-occurrence not "
+                        "measurable", d)
+            continue
+        n = count(cooccurrence_clause(others, d))
         if n is not None and n >= min_cooccurrence:
             hits[d] = n
     if not hits:

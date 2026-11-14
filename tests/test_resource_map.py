@@ -125,3 +125,28 @@ def test_release_year_is_confirmed_by_counts():
                   count=_count({"Example Workbench": 40}), count_where=where(30))
     assert m.proposed_release_year == 2020 and m.first_release_year is None
     assert m.share_before_release == 0.3
+
+
+def test_main_name_that_is_a_data_noun_is_never_split():
+    for name in ("Example Data Commons", "Example Survey", "Example Cohort", "Example Database"):
+        raw = _raw(names=[{"name": name, "kind": "program"},
+                          {"name": "Example Workbench", "kind": "data_resource"}])
+        assert candidates(raw, dataset_name=name, pages=PAGES + " " + name) is None
+
+
+def test_cooccurrence_leaves_out_program_names_inside_the_data_name():
+    raw = _raw(names=[{"name": "Example Program", "kind": "program"},
+                      {"name": "Example Program Cohort", "kind": "program"},
+                      {"name": "Example Program Workbench", "kind": "data_resource"}],
+               data_resource_names_in_pages=[], former_or_parent_program_names=[])
+    pages = PAGES + " Use the Example Program Workbench."
+    count = _count({"Example Program Workbench": 9})
+    m = build_map(raw, dataset_name="Example Program", pages=pages, count=count)
+    assert m.data_resource_names == ["Example Program Workbench"]
+    assert all('\\"Example Program\\" OR' not in c for c in count.calls)
+    assert '(\\"Example Program Cohort\\") AND (\\"Example Program Workbench\\")' in count.calls[0]
+    only = _raw(names=[{"name": "Example Program", "kind": "program"},
+                       {"name": "Example Program Workbench", "kind": "data_resource"}],
+                data_resource_names_in_pages=[], former_or_parent_program_names=[])
+    assert build_map(only, dataset_name="Example Program", pages=pages,
+                     count=_count({"Workbench": 9})) is None
