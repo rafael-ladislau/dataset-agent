@@ -643,11 +643,22 @@ def assemble_candidates(
                 if sibling:
                     with_joined.append((sibling, "former"))
     names = with_joined
+    # A paper title proposed as a name is measured as a title (an anchor), never as a
+    # name: taking it as a name here would drop it from the titles below.
+    raw_titles_all = list(hub.paper_titles) + [
+        t for t in (llm.get("paper_titles") if isinstance(llm.get("paper_titles"), list) else [])
+        if isinstance(t, str)
+    ]
+    title_keys = {t.casefold() for t in sanitize_terms(raw_titles_all, "paper title")
+                  if len(t.split()) >= 4}
     for raw, kind in names:
         name = sanitize_term(raw)
         if not name:
             continue
         key = name.casefold()
+        if key in title_keys:
+            out.rejected.append(("alias", name, "a paper title of the model: measured as a title"))
+            continue
         if key in seen:
             continue
         seen.add(key)

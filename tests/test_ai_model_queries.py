@@ -1915,3 +1915,16 @@ def test_profile_without_an_anchor_is_the_description(tmp_path, patched) -> None
                              OptimizeRequest(dataset_name="FourCastNet", entity_type="ai_model"))
     assert out.ai_model_judge_context == "FourCastNet is NVIDIA's weather model."
     assert out.ai_model_seed["description"] == "FourCastNet is NVIDIA's weather model."
+
+
+def test_a_paper_title_proposed_as_a_name_stays_a_title() -> None:
+    title = "Prithvi WxC: Foundation Model for Weather and Climate"
+    c = assemble_candidates(
+        model_name="Prithvi WxC", family=None, given_aliases=[],
+        hub=HubEvidence(developer="IBM", paper_titles=[title]),
+        llm={"names": [{"name": title, "kind": "qualified"}]},
+        max_names=20, max_context=12, max_excludes=8,
+    )
+    assert title in c.paper_titles
+    assert title not in [n for n, _k in c.names]
+
