@@ -135,6 +135,15 @@ def _alias_risk_label(c_alias: int, c_full: int, has_full_name: bool) -> Literal
     return "safe"
 
 
+def _recall_target_max() -> int:
+    """Upper bound of ``fulltext_recall_target_delivered``; a re-probe's doubled target is
+    clamped to it."""
+    from dataset_agent.settings import Settings as _Settings
+
+    field = _Settings.model_fields["fulltext_recall_target_delivered"]
+    return int(next(m.le for m in field.metadata if getattr(m, "le", None) is not None))
+
+
 def _fp_better(new: float | None, best: float | None) -> bool:
     """True when abstract FP rate *new* beats *best*. Unknown (None) is the worst rate and
     never beats anything; a measured 0.0 is the best rate, not a missing value."""
@@ -751,13 +760,15 @@ class QueryOptimizationUseCase:
                 notes.append(f"recall check: '{term}' not evaluated: {exc}")
                 continue
             ok, reason, stats = judge_complement(term, evidence, k, s, base_count=base_count)
-            if not ok and stats.get("rejected_on_lower_bound") and self._budget_left():
+            first_lb = bool(stats.get("rejected_on_lower_bound"))
+            if not ok and first_lb and self._budget_left():
                 # Only the interval rejected it: probe the same complement once more on a
                 # larger sample and judge on that probe alone (it re-reads the same
                 # top-cited head, so the two probes are never added together).
                 try:
                     evidence2 = await self._probe_candidate(
-                        complement_candidate(term, current), request, target=2 * target
+                        complement_candidate(term, current), request,
+                        target=min(2 * target, _recall_target_max()),
                     )
                 except (ExtractionError, ValueError) as exc:
                     notes.append(f"recall check: '{term}' not re-probed: {exc}")
@@ -772,7 +783,9 @@ class QueryOptimizationUseCase:
                      "complement_clause": complement_clause(term, current)}
             if not ok:
                 notes.append(f"recall check: '{term}' rejected: {reason}")
-                if stats.get("rejected_on_lower_bound"):
+                # A re-probe that rejects on the point or on too few papers does not erase
+                # the first probe's lower-bound rejection (the confidence cap needs it).
+                if first_lb or stats.get("rejected_on_lower_bound"):
                     lower_bound_only.append(term)
                 continue
             was_gated = any(r.lower() == term.lower() for r in current.risky)

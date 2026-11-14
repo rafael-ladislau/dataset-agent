@@ -853,3 +853,39 @@ def test_recall_promotes_risky_alias_out_of_the_flag_gate(tmp_path):
     assert risky in out2.aliases.safe and risky not in out2.aliases.risky
     d = next(d for d in out2.proposal.diffs if d.term == risky)
     assert d.action == "add" and d.reason.endswith("(was flag-gated)") and d.stats["source"] == "alias"
+
+
+def test_lower_bound_rejection_survives_a_reprobe_that_rejects_on_the_point(tmp_path):
+    # First probe fails only the interval; the re-probe reads 28 of 40 (0.70) and fails the
+    # point. The first lower-bound rejection still caps confidence at MEDIUM.
+    out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs(10)},
+                                           {"publications": comp_pubs(PROGRAM, 27, 23)},
+                                           {"publications": comp_pubs(PROGRAM, 40, 28)}],
+                                dsl=RecallDSL(not_total=500),
+                                request_settings=dict(fulltext_recall_max_candidates=1))
+    assert f"recall check: '{PROGRAM}' re-probed on 40 papers after a lower-bound rejection" in out.notes
+    assert f"recall check: '{PROGRAM}' rejected: complement precision 0.70 on 40 papers" in out.notes
+    assert PROGRAM not in out.aliases.safe
+    assert out.confidence.value == "medium"
+    assert "confidence capped at MEDIUM: the recall check measured a precise addition" in out.notes
+
+
+def test_lower_bound_rejection_kept_when_the_reprobe_fails(tmp_path):
+    out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs(10)},
+                                           {"publications": comp_pubs(PROGRAM, 27, 23)},
+                                           ValueError("probe failed")],
+                                dsl=RecallDSL(not_total=500),
+                                request_settings=dict(fulltext_recall_max_candidates=1))
+    assert f"recall check: '{PROGRAM}' not re-probed: probe failed" in out.notes
+    assert "too uncertain" in out.notes
+    assert out.confidence.value == "medium"
+
+
+def test_reprobe_target_is_clamped_to_the_settings_maximum(tmp_path):
+    out, client, _ = run_recall(tmp_path, [{"publications": gate_pubs(10)},
+                                           {"publications": comp_pubs(PROGRAM, 27, 23)},
+                                           {"publications": comp_pubs(PROGRAM, 40, 33)}],
+                                dsl=RecallDSL(not_total=500),
+                                request_settings=dict(fulltext_recall_max_candidates=1,
+                                                      fulltext_recall_target_delivered=400))
+    assert [k["target"] for k in client.kwargs[1:]] == [400, 500]
