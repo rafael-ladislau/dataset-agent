@@ -2339,6 +2339,23 @@ class QueryOptimizationUseCase:
                 fp_hits += 1
         return 100.0 * fp_hits / float(len(sample))
 
+    @staticmethod
+    def _apply_resource_map(rmap, safe: list[str], risky: list[str], flag_terms: list[str],
+                            notes_parts: list[str]) -> tuple[list[str], list[str], list[str]]:
+        """Program names go to the gated group; the gate is the data resource names, and
+        organisation flags leave it. ``build_for_clause`` is unchanged."""
+        programs = sanitize_terms(list(rmap.program_names), "alias")
+        prog = {p.casefold() for p in programs}
+        moved = [a for a in safe if a.casefold() in prog]
+        safe = [a for a in safe if a.casefold() not in prog]
+        risky = [*risky, *moved, *programs]
+        gate = sanitize_terms(list(rmap.data_resource_names), "flag term")
+        notes_parts.append(
+            f"resource map: program names {programs} gated by data resource names {gate}; "
+            f"flags {flag_terms} leave the gate"
+        )
+        return safe, risky, gate
+
     def _dataset_years(self) -> tuple[int, int]:
         """The dataset window: it starts at the first data release year when research
         found one and counts confirmed it (never before the default start)."""
@@ -2467,6 +2484,15 @@ class QueryOptimizationUseCase:
             logger.warning("optimize: dropped generic alias(es) %s", generic)
         flag_terms = sanitize_terms(flag_terms, "flag term")
         exclude_terms = sanitize_terms(exclude_terms, "exclude term")
+        rmap = self._resource_map
+        if rmap is not None:
+            # Generated data phrases are ordinary alias candidates: counted and probed.
+            have = {a.casefold() for a in aliases}
+            extra = [p for p in sanitize_terms(generated_data_phrases(list(rmap.program_names)),
+                                               "alias") if p.casefold() not in have]
+            aliases += extra
+            if extra:
+                notes_parts.append(f"resource map: generated data phrases {extra}")
 
         if not aliases:
             return QueryOptimizationRecord(
@@ -2585,6 +2611,9 @@ class QueryOptimizationUseCase:
                     note = f"suffix_risky: {s_alias!r} kept risky (short acronym)"
                     if note not in notes_parts:
                         notes_parts.append(note)
+            if rmap is not None:
+                safe, risky, flag_terms = self._apply_resource_map(
+                    rmap, safe, risky, flag_terms, notes_parts)
             risky = dedupe_strings_ci_preserve_order(risky)
             r_low = {r.lower() for r in risky}
             safe = dedupe_strings_ci_preserve_order([s for s in safe if s.lower() not in r_low])

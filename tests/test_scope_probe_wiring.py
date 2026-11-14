@@ -80,3 +80,45 @@ def test_window_starts_at_a_confirmed_first_release_year(tmp_path):
     assert uc._dataset_years()[0] == uc._settings.default_years_start
     uc._resource_map = MAP.model_copy(update={"first_release_year": 1990})
     assert uc._dataset_years()[0] == uc._settings.default_years_start  # never earlier
+
+
+def test_with_a_map_program_names_are_gated_by_the_data_names(tmp_path, monkeypatch):
+    from dataset_agent.application import query_optimization as qopt_mod
+    from dataset_agent.domain.models import DatasetRecord, Group, YearsRange
+
+    clauses: list[str] = []
+
+    def fake_eval(*a, **k):
+        clauses.append(k.get("for_clause", ""))
+        return {"fp_rate_pct": 5.0, "genuine_count": 10, "fp_count": 0, "matched_count": 10,
+                "total_pubs": 100, "coverage_pct": 100.0, "for_clause": k.get("for_clause", ""),
+                "publications_total": 100, "fp_hits": []}
+
+    monkeypatch.setattr(qopt_mod, "evaluate_for_clause_sync", fake_eval)
+    rec = DatasetRecord(
+        engine="dimensions", group=Group(name="default"), main_dataset_name="Example Program NIH",
+        description="A cohort.", dataset_names=["Example Program NIH", "Example Cohort Study"],
+        flag_terms=["Example Program", "National Agency"],
+        years_range=YearsRange(start_year=2015, end_year=2026),
+        resource_map=ResourceMap(program_names=["Example Program NIH", "Example Program"],
+                                 data_resource_names=["Example Workbench", "Controlled Tier"]),
+    )
+    dsl = CountDSL()
+    uc = QueryOptimizationUseCase(dsl_port=dsl, research=MagicMock(), agent=MagicMock(),
+                                  settings=make_settings(tmp_path), extraction_client=FakeClient([{}]))
+
+    async def stored(_req):
+        return rec.model_copy(deep=True)
+
+    uc._run_research = stored
+    out = asyncio.run(uc.execute(OptimizeRequest(dataset_name="Example Program NIH")))
+    assert out.success
+    assert out.flag_terms == ["Example Workbench", "Controlled Tier"]
+    assert "Example Program NIH" in out.aliases.risky and "Example Program" in out.aliases.risky
+    assert "Example Program NIH" not in out.aliases.safe
+    assert "Example Cohort Study" in out.aliases.safe
+    counted = " ".join(dsl.queries)
+    assert "Example Program data" in counted and "data from the Example Program" in counted
+    assert "National Agency" not in out.for_clause
+    assert out.resource_map is not None and out.scope_check_calls == 0
+    assert "resource map: program" in out.notes
