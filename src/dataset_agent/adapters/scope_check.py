@@ -5,7 +5,10 @@ rule: a paper counts when its text outside the reference list refers to the data
 (the data, the access platform, the repository, a tier, a release, an existing data type,
 data availability; a bare listing among data resources counts too). Use is not required.
 A paper that only discusses the program (goals, plans to collect data, recruitment, ethics,
-policy, funding) is ``program_only`` and is not genuine for precision.
+policy, funding) is ``program_only``. The label never changes the judge's verdict: for a
+split dataset the query is broad on the program name, the release bar counts program-only
+papers as genuine (the paper is about this program or its data), and the data, program-only
+and used shares are reported next to it.
 
 Only papers judged ``mentioned`` are checked; ``used`` papers are ``data`` without a call.
 A checked paper whose name contexts all sit in the reference list falls under the
@@ -18,9 +21,9 @@ nor a quote it is kept (``unclear``).
   means ``data``;
 * stage 1: one narrow question on up to three passages outside the reference list
   (passages holding a data term first) plus the judge's quote, asked ``votes`` times.
-  A majority of ``program_only`` turns the paper to ``not_mentioned`` (``overridden_from``
-  keeps the judge's verdict); a majority of ``data`` confirms it; anything else (failed
-  calls, ``unclear``, no majority) keeps the paper as ``unclear``.
+  A majority of ``program_only`` labels the paper ``program_only`` (verdict unchanged); a
+  majority of ``data`` labels it ``data``; anything else (failed calls, ``unclear``, no
+  majority) labels it ``unclear``.
 
 General rules only: the names come from the resource map, never from constants here.
 """
@@ -290,7 +293,7 @@ def check_scope(
             cast.append(answer)
         need = max(1, votes) // 2 + 1
         if cast.count("program_only") >= need:
-            v.overridden_from, v.verdict, v.scope = v.verdict, "not_mentioned", "program_only"
+            v.scope = "program_only"  # a label: the verdict stays genuine
             res.n_program_only += 1
         elif cast.count("data") >= need:
             v.scope = "data"

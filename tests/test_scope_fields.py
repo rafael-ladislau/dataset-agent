@@ -1,4 +1,5 @@
-"""Scope fields: a paper that only discusses a program is not a genuine dataset paper."""
+"""Scope fields: a paper that only discusses a program carries a label and its own share;
+it stays genuine for the release bar (round 3)."""
 
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ def _ev(*verdicts):
 
 
 def _program_only(v):
-    v.overridden_from, v.verdict, v.scope = v.verdict, "not_mentioned", "program_only"
+    v.scope = "program_only"
 
 
 def test_defaults_unchanged_when_the_check_did_not_run():
@@ -37,19 +38,20 @@ def test_defaults_unchanged_when_the_check_did_not_run():
     assert m.scope_unclear_count is None and m.raw_fulltext_precision is None
 
 
-def test_program_only_papers_are_not_genuine_and_get_their_own_share():
+def test_program_only_papers_stay_genuine_and_get_their_own_share():
     ev = _ev("used", "mentioned", "mentioned", "mentioned", "not_mentioned")
     ev.verdicts[0].scope = "data"
     _program_only(ev.verdicts[1])
     _program_only(ev.verdicts[2])
     ev.verdicts[3].scope = "unclear"
-    assert not ev.verdicts[1].genuine and ev.verdicts[3].genuine
+    assert ev.verdicts[1].genuine and ev.verdicts[3].genuine
     assert ev.n_program_only == 2 and ev.n_scope_unclear == 1
     assert ev.raw_precision == pytest.approx(4 / 5)
-    assert ev.corrected_precision == pytest.approx(2 / 5)
+    assert ev.corrected_precision == pytest.approx(4 / 5)
     m = ev.metrics(0, "q", None)
-    assert m.fulltext_precision == pytest.approx(2 / 5)
+    assert m.fulltext_precision == pytest.approx(4 / 5)
     assert m.raw_fulltext_precision == pytest.approx(4 / 5)
+    assert m.data_share == pytest.approx(2 / 5)
     assert m.program_only_count == 2 and m.program_only_rate == pytest.approx(2 / 5)
     assert m.scope_unclear_count == 1
 

@@ -3118,6 +3118,12 @@ class QueryOptimizationUseCase:
                         f"gate_iter{iteration}: full-text precision={prec:.2f} "
                         f"(n_evaluated={metrics.n_evaluated})"
                     )
+                if metrics.data_share is not None:
+                    notes_parts.append(
+                        f"gate_iter{iteration}: split dataset, program-only counted genuine; "
+                        f"shares: data {metrics.data_share:.2f}, program-only "
+                        f"{(metrics.program_only_rate or 0):.2f}, used {(metrics.used_rate or 0):.2f}"
+                    )
                 if iteration == 0 and iteration < max_iters - 1:
                     found = await self._discover_from_literature(
                         evidence, ft_candidate, notes_parts, iteration)

@@ -53,6 +53,17 @@ def _fold(text: str) -> str:
     return _stem_text(unicodedata.normalize("NFKC", text or "").replace("_", " "))
 
 
+def _wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Wilson 95% interval of k / n."""
+    import math
+
+    p = k / n
+    d = 1 + z * z / n
+    c = p + z * z / (2 * n)
+    r = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+    return (max(0.0, (c - r) / d), min(1.0, (c + r) / d))
+
+
 @dataclass
 class PubVerdict:
     publication_id: str
@@ -84,9 +95,9 @@ class PubVerdict:
     #: ``rejected`` | ``unclear``; None when not checked.
     referent: str | None = None
     #: Datasets only, set by the scope check when the resource map split a program from
-    #: its data: ``data`` | ``program_only`` | ``unclear``; None when not checked. A
-    #: ``program_only`` paper is turned to ``not_mentioned`` (``overridden_from`` keeps
-    #: the judge's verdict), so it is not genuine for precision.
+    #: its data: ``data`` | ``program_only`` | ``unclear``; None when not checked. A label
+    #: only: a ``program_only`` paper keeps the judge's verdict (genuine for the release
+    #: bar) and is counted in the program-only share.
     scope: str | None = None
     #: Datasets: the full-text validator's own ``mention_scope`` label when served
     #: (``data`` | ``program_only`` | ``not_applicable``); a label only, never decisive.
@@ -192,12 +203,19 @@ class Evidence:
 
     @property
     def raw_precision(self) -> float | None:
-        """Judge precision before the referent and scope checks (an upper bound): every
-        paper either check removed counts again."""
+        """Judge precision before the referent check and the references-only rule (an upper
+        bound): every paper either removed counts again. Program-only papers are already
+        genuine (a label only)."""
         n = self.n_evaluated
-        extra = (self.n_referent_rejected + (self.n_program_only or 0)
-                 + (self.n_scope_references_only or 0))
+        extra = self.n_referent_rejected + (self.n_scope_references_only or 0)
         return (len(self.genuine) + extra) / n if n else None
+
+    @property
+    def n_data(self) -> int | None:
+        """Genuine papers not labelled program-only; None when the scope check did not run."""
+        if not self.scope_checked:
+            return None
+        return sum(1 for v in self.verdicts if v.genuine and v.scope != "program_only")
 
     @property
     def corrected_precision(self) -> float | None:
@@ -281,6 +299,13 @@ class Evidence:
                 self.raw_precision if self.entity == "ai_model" or self.scope_checked else None
             ),
             program_only_count=self.n_program_only,
+            data_share=(self.n_data / n if self.n_data is not None and n else None),
+            fulltext_precision_wilson95=(_wilson(matched, n) if self.scope_checked and n else None),
+            data_share_wilson95=(_wilson(self.n_data, n)
+                                 if self.n_data is not None and n else None),
+            program_only_wilson95=(_wilson(self.n_program_only, n)
+                                   if self.n_program_only is not None and n else None),
+            used_share_wilson95=(_wilson(used, n) if self.scope_checked and n else None),
             program_only_rate=(
                 self.n_program_only / n if self.n_program_only is not None and n else None
             ),

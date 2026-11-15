@@ -70,8 +70,8 @@ def test_owned_name_only_in_the_reference_list_goes_to_the_question():
     res = _check(ev, judge)
     assert res.calls == 1 and res.n_program_only == 1
     v = ev.verdicts[0]
-    assert v.scope == "program_only" and v.verdict == "not_mentioned"
-    assert v.overridden_from == "mentioned" and not v.genuine
+    assert v.scope == "program_only" and v.verdict == "mentioned"
+    assert v.overridden_from is None and v.genuine  # a label only
     assert "Example Program Workbench. 2023." not in judge.prompts[0]
 
 

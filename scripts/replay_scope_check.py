@@ -95,8 +95,8 @@ def evidence_from_labels(entries: list[dict], terms: list[str]) -> Evidence:
 
 
 def score(entries: list[dict], ev: Evidence) -> dict:
-    """Per label group (firm, borderline, close): papers and papers no longer genuine
-    (rejected for program_only labels, lost for data labels)."""
+    """Per label group (firm, borderline, close): papers labelled program-only or no longer
+    genuine (rejected for program_only labels, lost for data labels)."""
     lab = {e["id"]: e for e in entries}
     rows: dict[str, list[int]] = {}
     decisions = {}
@@ -109,7 +109,7 @@ def score(entries: list[dict], ev: Evidence) -> dict:
         for g in groups:
             row = rows.setdefault(g, [0, 0])
             row[0] += 1
-            row[1] += not v.genuine
+            row[1] += (not v.genuine) or v.scope == "program_only"
     out: dict = {"decisions": decisions}
     for g in ("program_only", "data", "program_only_borderline", "data_borderline",
               "program_only_close", "data_close"):

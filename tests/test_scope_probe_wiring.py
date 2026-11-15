@@ -52,7 +52,7 @@ def test_with_a_map_the_probe_runs_the_scope_check(tmp_path):
     uc = _uc(tmp_path, judge, MAP)
     ev = _probe(uc)
     assert len(judge.prompts) == 1 and "Example Workbench" in judge.prompts[0]
-    assert ev.n_program_only == 1 and ev.corrected_precision == 0.5
+    assert ev.n_program_only == 1 and ev.corrected_precision == 1.0  # a label only
     assert uc._scope_calls == 1
 
 

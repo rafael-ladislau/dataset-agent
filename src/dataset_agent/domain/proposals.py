@@ -30,7 +30,7 @@ class IterationMetrics(BaseModel):
     n_fulltext_delivered: int = 0
     n_evaluated: int = 0
     fulltext_precision: Optional[float] = Field(
-        default=None, description="match precision: papers mentioning the dataset / evaluated (0-1)"
+        default=None, description="match precision: papers mentioning the dataset / evaluated (0-1); for a split dataset program-only papers count as genuine (the release bar)"
     )
     usage_rate: Optional[float] = Field(default=None, description="used / mentioned-or-used (0-1)")
     mention_rate: Optional[float] = Field(default=None, description="(used|mentioned) / evaluated (0-1)")
@@ -67,7 +67,7 @@ class IterationMetrics(BaseModel):
     )
     raw_fulltext_precision: Optional[float] = Field(
         default=None,
-        description="Judge precision before the referent check (AI models) or the scope check (datasets with a program map); an upper bound",
+        description="Judge precision before the referent check (AI models) or the references-only rule (datasets with a program map); an upper bound",
     )
     referent_rejected_count: Optional[int] = Field(
         default=None, description="AI models: genuine papers the referent check turned down"
@@ -77,8 +77,26 @@ class IterationMetrics(BaseModel):
     )
     program_only_count: Optional[int] = Field(
         default=None,
-        description="Datasets with a program separate from its data: papers that discuss only "
-        "the program (not genuine); None when the scope check did not run",
+        description="Datasets with a program separate from its data: papers labelled as "
+        "discussing only the program (still genuine for the release bar); None when the scope "
+        "check did not run",
+    )
+    data_share: Optional[float] = Field(
+        default=None,
+        description="Split datasets: genuine papers not labelled program-only / papers "
+        "evaluated (0-1); None when the scope check did not run",
+    )
+    fulltext_precision_wilson95: Optional[tuple[float, float]] = Field(
+        default=None, description="Split datasets: Wilson 95% interval of fulltext_precision"
+    )
+    data_share_wilson95: Optional[tuple[float, float]] = Field(
+        default=None, description="Split datasets: Wilson 95% interval of data_share"
+    )
+    program_only_wilson95: Optional[tuple[float, float]] = Field(
+        default=None, description="Split datasets: Wilson 95% interval of program_only_rate"
+    )
+    used_share_wilson95: Optional[tuple[float, float]] = Field(
+        default=None, description="Split datasets: Wilson 95% interval of used_rate"
     )
     program_only_rate: Optional[float] = Field(
         default=None, description="program-only papers / papers evaluated (0-1); None when not run"
