@@ -518,3 +518,23 @@ def test_body_sentence_sharing_title_words_keeps_the_verdict():
              "of adults.")
     ev = build_evidence({"publications": [_title_refpub(quote, _SNIPPET)]})
     assert ev.verdicts[0].verdict == "mentioned" and ev.verdicts[0].overridden_from is None
+
+
+def test_a_body_piece_with_the_name_keeps_the_verdict_next_to_a_cited_title():
+    # A review quotes a cited study's title and then its own table of included studies:
+    # the table text names the data resource and matches no reference piece.
+    cited = ("De-Black-Boxing Health AI: Demonstrating Reproducible Machine Learning "
+             "Computable Phenotypes Using the N3C-RECOVER Long COVID Model in the All of Us "
+             "Data Repository")
+    snippet = (f"…Long COVID after SARS-CoV-2 infection in adults | {cited} | Machine learning "
+               "for clinical prediction…")
+    quote = f"{cited}... AUROCs (N3C= 0.83 and All of Us = 0.72)"
+    p = _pub("r", 1, vd=_vd(False, quote=quote))
+    p["term_contexts"] = [{"term": "All of Us", "role": "alias", "part": "references",
+                           "text": snippet}]
+    ev = build_evidence({"publications": [p]})
+    assert ev.verdicts[0].verdict == "mentioned" and ev.verdicts[0].overridden_from is None
+    # The cited title alone is a citer: the override applies.
+    p["validated_datasets"][0]["text_quote"] = cited
+    ev = build_evidence({"publications": [p]})
+    assert ev.verdicts[0].overridden_from == "mentioned"

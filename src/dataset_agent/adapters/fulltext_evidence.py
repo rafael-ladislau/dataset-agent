@@ -552,33 +552,46 @@ def _longest_run(a: list[str], b: list[str]) -> tuple[int, int, int]:
     return best
 
 
+def _piece_matches(want: list[str], have: list[str], term: list[str]) -> bool:
+    """The longest shared token run covers *term* and is the whole of either piece."""
+    i, _j, n = _longest_run(want, have)
+    if not n or (term and not _in_tokens(term, want[i:i + n], False)):
+        return False
+    return n == len(want) or n == len(have)
+
+
 def quote_allows_references_only(quote: str | None, contexts: list[dict]) -> bool:
     """The references-only override may apply: the validator's quote is empty (once citation
-    markers are stripped), or it quotes a cited entry from a ``references`` snippet.
+    markers are stripped), or every piece of it that names the dataset quotes a cited entry
+    from a ``references`` snippet.
 
     Both sides are normalized (folded tokens; citation markers, entry numbers and
     superscript digits removed) and cut into pieces: the quote's authors, title and
-    journal/year tail, the snippet's cited titles. A quote piece and a snippet piece match
+    journal/year tail, the snippet's cited titles. A quote piece matches a snippet piece
     when their longest shared token run covers the snippet's name term and is the whole of
     one of them: the quoted title holds the whole cited piece (a title the window cut
-    short too) or the quoted piece lies inside the cited title. A sentence from the text
-    that only shares a few title words around the name keeps the judge's verdict. General
-    rule: no dataset names."""
+    short too) or the quoted piece lies inside the cited title. Quote pieces without a name
+    term (authors, journal and year) are ignored; a quote with no name piece, or with one
+    name piece that matches no cited piece (a sentence from the text, e.g. a review's
+    table next to a cited title), keeps the judge's verdict. General rule: no dataset
+    names."""
     pieces = _quote_pieces(quote or "")
     if not pieces:
         return True
-    for c in contexts:
-        if c.get("part") != "references":
-            continue
-        term = _tokens(str(c.get("term") or ""))
-        for have in _snippet_pieces(str(c.get("text") or "")):
-            for want in pieces:
-                i, j, n = _longest_run(want, have)
-                if not n or (term and not _in_tokens(term, want[i:i + n], False)):
-                    continue
-                if n == len(want) or n == len(have):
-                    return True
-    return False
+    refs = [(_tokens(str(c.get("term") or "")), _snippet_pieces(str(c.get("text") or "")))
+            for c in contexts if c.get("part") == "references"]
+    terms = [t for t, _ in refs if t]
+    if not terms:
+        # No name term to anchor on: any piece quoting a cited piece will do.
+        return any(_piece_matches(w, h, []) for _t, hs in refs for h in hs for w in pieces)
+    named = [w for w in pieces if any(_in_tokens(t, w, False) for t in terms)]
+    if not named:
+        return False
+    return all(
+        any(_in_tokens(t, w, False) and _piece_matches(w, h, t) for t, hs in refs if t
+            for h in hs)
+        for w in named
+    )
 
 
 _ENTITIES = ("dataset", "ai_model")
