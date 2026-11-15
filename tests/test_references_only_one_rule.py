@@ -1,6 +1,6 @@
 """One references-only rule on both sides: a paper the scope check turns to
 not_mentioned as references-only is references-only in the four-way split,
-one rule shared with fulltext_evidence._references_only."""
+and the name-only quote guard ignores leading articles."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import pytest
 from dataset_agent.adapters.fulltext_evidence import (
     Evidence,
     PubVerdict,
+    quote_allows_references_only,
 )
 from dataset_agent.adapters.scope_check import check_scope
 
@@ -48,3 +49,13 @@ def test_a_paper_the_scope_check_turns_is_references_only(contexts):
 
 def test_a_snippet_only_in_the_references_is_turned():
     assert _run([REF]).scope_references_only
+
+
+@pytest.mark.parametrize("quote", ["the Example Program", "The Example Program",
+                                   "an Example Program", "the  Example Program."])
+def test_a_leading_article_does_not_make_the_name_longer(quote):
+    assert quote_allows_references_only(quote, [REF]) is False
+
+
+def test_a_longer_reference_fragment_still_allows_the_override():
+    assert quote_allows_references_only("The Example Program cohort profile", [REF]) is True

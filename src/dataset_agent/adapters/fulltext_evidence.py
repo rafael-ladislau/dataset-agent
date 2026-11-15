@@ -527,6 +527,8 @@ _CITATION_MARKER = re.compile(
 _LEAD_NUMBER = re.compile(r"^\s*\d+\s*[.)]\s+")
 #: Joiners between excerpts or cited titles: "|", "…", "..." and spaced ". . .".
 _JOINER = re.compile(r"\||\u2026|\.(?:\s*\.){2,}")
+#: Leading articles of a normalized quote ("the", "a", "an").
+_LEAD_ARTICLES = re.compile(r"^(?:(?:the|a|an)\s+)+")
 #: Digits glued to the end of a word ("Us41" -> "Us").
 _GLUED_DIGITS = re.compile(r"(?<=[^\W\d_])\d+\b")
 
@@ -552,12 +554,15 @@ def quote_allows_references_only(quote: str | None, contexts: list[dict]) -> boo
     snippet (whole words, after the same normalization) and has strictly more words than
     every context term it matches (holds it, or lies inside it). Anything else (an author
     or journal line the snippet does not hold, a body sentence, a quote spanning two
-    snippets, a quote that is only the name or a piece of it) keeps the judge's verdict.
-    General rule: no dataset names."""
+    snippets, a quote that is only the name or a piece of it, with or without leading
+    articles) keeps the judge's verdict. Known limit: the context terms are the only names
+    known here, so a quote that is the dataset's spelled-out name (no context term) counts
+    as longer than the name. General rule: no dataset names."""
     q = _ref_norm(quote or "")
     if not q:
         return True
-    n_words = len(q.split())
+    # Leading articles do not make a quote longer than the name ("the NHANES").
+    n_words = len(_LEAD_ARTICLES.sub("", q).split())
     for c in contexts:
         t = _ref_norm(str(c.get("term") or ""))
         if t and (_whole_words_in(t, q) or _whole_words_in(q, t)) and n_words <= len(t.split()):

@@ -85,7 +85,7 @@ def test_used_papers_are_data_and_never_asked():
 
 def test_a_paper_with_no_contexts_is_asked_on_the_quote_never_dropped():
     ev = _ev(_pub("a", contexts=[_c("references", "The Example Program. 2019.")],
-                  quote="The Example Program"),
+                  quote="The Example Program. 2019"),
              _pub("b", contexts=[]))
     judge = FakeJudge(default="data")
     res = _check(ev, judge)
@@ -209,7 +209,7 @@ def test_references_only_rule_keeps_the_verdict_when_the_quote_is_from_the_text(
 
 
 def test_references_only_rule_applies_on_an_empty_or_reference_quote():
-    for quote in ("", "The Example Program"):
+    for quote in ("", "The Example Program. 2019"):
         ev = _ref_only_verdict(quote)
         res = _check(ev, FakeJudge())
         assert res.n_references_only == 1 and ev.verdicts[0].verdict == "not_mentioned"

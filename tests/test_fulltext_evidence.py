@@ -161,14 +161,15 @@ def test_metrics_store_a_verdict_per_evaluated_paper():
 
 
 def _refpub(pid, contexts, used=False):
-    # A quote one word longer than the name (a name-only quote keeps the verdict).
-    p = _pub(pid, 1, vd=_vd(used, quote="the Precision Medicine Initiative Cohort"))
+    # A quote longer than the name (a name-only quote, with or without a leading
+    # article, keeps the verdict).
+    p = _pub(pid, 1, vd=_vd(used, quote="the Precision Medicine Initiative Cohort data brief"))
     p["term_contexts"] = contexts
     return p
 
 
 def _c(part, role="alias", term="Precision Medicine Initiative Cohort"):
-    return {"term": term, "role": role, "part": part, "text": f"... the {term} ..."}
+    return {"term": term, "role": role, "part": part, "text": f"... the {term} data brief ..."}
 
 
 def test_references_only_alias_is_not_mentioned():
@@ -466,7 +467,7 @@ def test_references_only_override_keeps_the_verdict_when_the_quote_is_a_body_sen
     assert v.verdict == "used" and v.overridden_from is None
 
 
-@pytest.mark.parametrize("quote", ["", "  ", "[62]", "The Example Research Program",
+@pytest.mark.parametrize("quote", ["", "  ", "[62]", "The Example Research Program. N Engl J Med",
                                    "Investigators. The Example Research Program. N Engl J Med 2019"])
 def test_references_only_override_applies_on_an_empty_or_reference_quote(quote):
     ev = build_evidence({"publications": [_quoted_refpub(quote)]})
@@ -512,7 +513,7 @@ _CUT = "…Drug-induced liver injury | The Example Research Program: design, rec
     f"Dupilumab in atopic dermatitis … {_TITLE}",  # joiners are whitespace
     f"Dupilumab in atopic dermatitis... {_TITLE} | Drug-induced liver injury",
     f"DUPILUMAB IN ATOPIC   DERMATITIS | {_TITLE}",
-    "The Example Research Program",
+    "The Example Research Program: a national cohort",
 ])
 def test_references_only_override_applies_when_the_quote_lies_inside_one_cited_snippet(quote):
     ev = build_evidence({"publications": [_title_refpub(quote, _SNIPPET)]})
