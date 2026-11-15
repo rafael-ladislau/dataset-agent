@@ -68,6 +68,33 @@ class ExtractionError(RuntimeError):
     """Extraction API call failed or timed out."""
 
 
+class ProbeUnsupportedError(ExtractionError):
+    """The extraction target does not declare probe support, so nothing was started.
+
+    Extraction main accepts ``probe: true`` on POST /pipelines/start and ignores it: a
+    "probe" there would start a real pipeline with real analyses and write-backs.
+    """
+
+
+def openapi_declares_probe(spec: Any, route: str) -> bool:
+    """The server's own OpenAPI document declares probe support for *route*: the route's
+    request schema has a ``probe`` property, and the cleanup and llm-results routes exist.
+    A 200 on start is never taken as support."""
+    if not isinstance(spec, dict):
+        return False
+    paths = spec.get("paths") or {}
+    if "/pipelines/cleanup" not in paths or "/pipelines/{task_id}/llm-results" not in paths:
+        return False
+    try:
+        schema = paths[route]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    except (KeyError, TypeError):
+        return False
+    ref = str(schema.get("$ref") or "") if isinstance(schema, dict) else ""
+    if ref.startswith("#/components/schemas/"):
+        schema = (spec.get("components") or {}).get("schemas", {}).get(ref.rsplit("/", 1)[-1])
+    return isinstance(schema, dict) and "probe" in (schema.get("properties") or {})
+
+
 def _pubs(results: dict[str, Any]) -> list[dict[str, Any]]:
     return [p for p in (results.get("publications") or []) if isinstance(p, dict) and p.get("publication_id")]
 
@@ -162,6 +189,8 @@ class ExtractionClient:
         self._poll_max_interval = poll_max_interval
         #: One entry per :meth:`cleanup` call: task_id, ok, items (the 202 body), error.
         self.cleanup_log: list[dict[str, Any]] = []
+        #: The server's /openapi.json, read once (None: not read yet; {}: unavailable).
+        self._openapi: dict[str, Any] | None = None
 
     @classmethod
     def for_target(cls, settings: Settings, target: str, **kw: Any) -> "ExtractionClient":
@@ -196,6 +225,22 @@ class ExtractionClient:
         except ValueError:
             return {}
 
+    def require_probe_support(self, route: str) -> None:
+        """Refuse before any probe unless the server declares probe support for *route*
+        in its /openapi.json (read once per client). Fails closed."""
+        if self._openapi is None:
+            try:
+                r = self._http.request("GET", "/openapi.json")
+                self._openapi = r.json() if r.status_code < 400 else {}
+            except (httpx.HTTPError, ValueError):
+                self._openapi = {}
+        if not openapi_declares_probe(self._openapi, route):
+            raise ProbeUnsupportedError(
+                f"extraction target does not declare probe support for {route} "
+                "(its /openapi.json has no `probe` field or no probe cleanup/llm-results "
+                "routes); not probing, because a probe there would start a real pipeline"
+            )
+
     # -- probe lifecycle ---------------------------------------------------
     def start_search(self, seed: dict[str, Any], pull_cap: int, *, entity: str = "dataset") -> str:
         """Start a probe task and wait for its Dimensions search. Cleans up on failure.
@@ -203,6 +248,7 @@ class ExtractionClient:
         ``entity="ai_model"`` posts the seed to ``/ai-models/start`` (the body is the
         seed plus the probe fields, nothing else is added)."""
         route, _ = _entity_route(entity)
+        self.require_probe_support(route)
         body = dict(seed)
         body["probe"] = True
         body["probe_pull_cap"] = int(pull_cap)

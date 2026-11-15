@@ -2221,6 +2221,7 @@ class QueryOptimizationUseCase:
             ))
         except ExtractionError as exc:
             logger.warning("model full-text probe failed: %s", exc)
+            self._model_probe_error = str(exc)
             return None
         ev = build_evidence(top.results, entity="ai_model")
         ev.target, ev.batches = top.target, top.batches
@@ -2260,7 +2261,9 @@ class QueryOptimizationUseCase:
                     model, out.ai_model_seed, max_batches=2 * s.fulltext_max_batches
                 ) or ev
         if ev is None:
-            notes.append(f"full text probe {iteration + 1} failed; nothing measured")
+            why = getattr(self, "_model_probe_error", None)
+            notes.append(f"full text probe {iteration + 1} failed"
+                         + (f" ({why})" if why else "") + "; nothing measured")
             return None
         out.fulltext_iterations.append(
             ev.metrics(iteration, out.for_clause or "", out.fp_rate_pct)

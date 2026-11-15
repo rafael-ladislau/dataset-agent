@@ -13,6 +13,26 @@ from dataset_agent.adapters.extraction_client import (
 )
 
 
+def _openapi(probe: bool) -> dict:
+    """The parts of extraction's /openapi.json the probe capability check reads."""
+    props = {"main_dataset_name": {"type": "string"}}
+    if probe:
+        props["probe"] = {"type": "boolean"}
+    body = {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/S"}}}}
+    return {
+        "paths": {
+            "/pipelines/start": {"post": {"requestBody": body}},
+            "/ai-models/start": {"post": {"requestBody": body}},
+            "/pipelines/cleanup": {"post": {}},
+            "/pipelines/{task_id}/llm-results": {"get": {}},
+        },
+        "components": {"schemas": {"S": {"properties": props}}},
+    }
+
+
+PROBE_OPENAPI = _openapi(True)
+
+
 class _Server:
     def __init__(self, statuses, fail_analyze=False, cleanup_body=None):
         self.calls: list[tuple[str, str, object]] = []
@@ -21,6 +41,8 @@ class _Server:
         self.cleanup_body = [] if cleanup_body is None else cleanup_body
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/openapi.json":  # the probe capability read, not a pipeline call
+            return httpx.Response(200, json=PROBE_OPENAPI)
         body = json.loads(req.content) if req.content else None
         self.calls.append((req.method, req.url.path, body))
         p = req.url.path
@@ -117,6 +139,8 @@ class _PoolServer:
                 "validated_datasets": [{"name": "X", "is_used": True, "is_mentioned": True}] if delivered else []}
 
     def __call__(self, req):
+        if req.url.path == "/openapi.json":  # the probe capability read, not a pipeline call
+            return httpx.Response(200, json=PROBE_OPENAPI)
         body = json.loads(req.content) if req.content else None
         self.calls.append((req.method, req.url.path, body))
         p = req.url.path

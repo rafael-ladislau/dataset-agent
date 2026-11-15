@@ -54,7 +54,7 @@ def _zero_abstract_fp(monkeypatch):
     )
 
 
-def _run(tmp_path, pubs, *, split, results=None, **settings):
+def _run(tmp_path, pubs, *, split, results=None, client=None, **settings):
     llm = MagicMock()
     llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [],
                                        "reasoning": ""}
@@ -63,7 +63,7 @@ def _run(tmp_path, pubs, *, split, results=None, **settings):
         settings=make_settings(tmp_path, **{"fulltext_refinement_enabled": True,
                                             "optimize_max_iterations": 1,
                                             "fulltext_recall_enabled": False, **settings}),
-        extraction_client=FakeClient(results or [{"publications": pubs}]))
+        extraction_client=client or FakeClient(results or [{"publications": pubs}]))
 
     async def label(ev, _request):
         # Deterministic stand-in for the scope check: the label is in the paper id.
