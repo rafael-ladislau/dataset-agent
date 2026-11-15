@@ -31,13 +31,13 @@ def _c(part, text, term="Example Program"):
     return {"term": term, "role": "alias", "part": part, "text": text}
 
 
-def _pub(pid, *, verdict="mentioned", contexts=None):
+def _pub(pid, *, verdict="mentioned", contexts=None, quote="judge quote"):
     return {
         "publication_id": pid, "doi": None, "title": f"Title {pid}", "citation_count": 1,
         "fulltext": {"status": "delivered", "source": "pmc", "reason": None},
         "analyzed": True,
         "validated_datasets": [{"is_mentioned": verdict != "not_mentioned",
-                                "is_used": verdict == "used", "text_quote": "judge quote"}],
+                                "is_used": verdict == "used", "text_quote": quote}],
         "term_contexts": contexts if contexts is not None else [_c("body", "Example Program aims")],
     }
 
@@ -84,7 +84,8 @@ def test_used_papers_are_data_and_never_asked():
 
 
 def test_a_paper_with_no_contexts_is_asked_on_the_quote_never_dropped():
-    ev = _ev(_pub("a", contexts=[_c("references", "Example Program. 2019.")]),
+    ev = _ev(_pub("a", contexts=[_c("references", "Example Program. 2019.")],
+                  quote="Example Program"),
              _pub("b", contexts=[]))
     judge = FakeJudge(default="data")
     res = _check(ev, judge)
@@ -112,7 +113,7 @@ def test_contexts_only_in_the_reference_list_fall_under_the_references_only_rule
 
     ev = Evidence(entity="dataset")
     ev.verdicts.append(PubVerdict(publication_id="r", doi=None, title="", citation_count=0,
-                                  verdict="mentioned", quote="q",
+                                  verdict="mentioned", quote="",
                                   contexts=[_c("references", "Example Program. 2019.")]))
     judge = FakeJudge()
     res = _check(ev, judge)
@@ -178,3 +179,28 @@ def test_availability_acknowledgement_funding_or_annex_snippets_are_not_referenc
         v = ev.verdicts[0]
         assert res.n_references_only == 0, part
         assert v.verdict == "mentioned" and not v.scope_references_only, part
+
+
+def _ref_only_verdict(quote):
+    from dataset_agent.adapters.fulltext_evidence import Evidence, PubVerdict
+
+    ev = Evidence(entity="dataset")
+    ev.verdicts.append(PubVerdict(publication_id="r", doi=None, title="", citation_count=0,
+                                  verdict="mentioned", quote=quote,
+                                  contexts=[_c("references", "The Example Program. 2019.")]))
+    return ev
+
+
+def test_references_only_rule_keeps_the_verdict_when_the_quote_is_from_the_text():
+    ev = _ref_only_verdict("Participants of the EP41 cohort were enrolled.")
+    judge = FakeJudge(["data"])
+    res = _check(ev, judge)
+    assert res.n_references_only == 0 and len(judge.prompts) == 1
+    assert ev.verdicts[0].verdict == "mentioned" and ev.verdicts[0].scope == "data"
+
+
+def test_references_only_rule_applies_on_an_empty_or_reference_quote():
+    for quote in ("", "The Example Program"):
+        ev = _ref_only_verdict(quote)
+        res = _check(ev, FakeJudge())
+        assert res.n_references_only == 1 and ev.verdicts[0].verdict == "not_mentioned"

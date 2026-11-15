@@ -24,6 +24,7 @@ def _ev():
     ev = Evidence(verdicts=[_v("u", "used"), _v("p", "mentioned"), _v("n", "not_mentioned"),
                             _v("r", "mentioned")])
     ev.verdicts[3].contexts[0]["part"] = "references"
+    ev.verdicts[3].quote = ""  # no text quote: the references-only rule applies
     check_scope(ev, agent=Judge(), dataset_name="Example Program", description="",
                 program_names=["Example Program"], data_names=["Example Workbench"])
     return ev

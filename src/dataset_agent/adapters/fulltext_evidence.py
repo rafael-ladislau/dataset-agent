@@ -468,6 +468,24 @@ def _references_only(contexts: list[dict]) -> bool:
     return all(c.get("part") == "references" for c in contexts if c.get("role") == "flag")
 
 
+def quote_allows_references_only(quote: str | None, contexts: list[dict]) -> bool:
+    """The references-only override may apply: the validator's quote is empty, or it
+    matches one of the snippet texts in ``references`` (normalized tokens, contained
+    either way). A quote taken from the text (a short form or a glued citation number
+    the seeded-name snippets never matched) keeps the judge's verdict. General rule: no
+    dataset names."""
+    want = _tokens(quote or "")
+    if not want:
+        return True
+    for c in contexts:
+        if c.get("part") != "references":
+            continue
+        have = _tokens(str(c.get("text") or ""))
+        if have and (_in_tokens(want, have, False) or _in_tokens(have, want, False)):
+            return True
+    return False
+
+
 _ENTITIES = ("dataset", "ai_model")
 
 
@@ -544,7 +562,8 @@ def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evi
         if v is None:
             continue
         overridden_from = None
-        if v[0] != "not_mentioned" and _references_only(contexts):
+        if (v[0] != "not_mentioned" and _references_only(contexts)
+                and quote_allows_references_only(v[1], contexts)):
             overridden_from, v = v[0], ("not_mentioned", v[1])
         ev.verdicts.append(
             PubVerdict(

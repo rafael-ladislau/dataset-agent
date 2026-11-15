@@ -447,3 +447,27 @@ def test_v2_rows_without_location_give_paper_details_with_nulls():
         {"id": "r", "title": "T r", "verdict": "used", "location": None, "cited_only": None,
          "not_run": False, "matched_name": None},
     ]
+
+
+def _quoted_refpub(quote, used=True):
+    p = _pub("r", 1, vd=_vd(used, quote=quote))
+    p["term_contexts"] = [{"term": "Example Research Program", "role": "alias",
+                           "part": "references",
+                           "text": "Investigators. The Example Research Program. N Engl J Med 2019"}]
+    return p
+
+
+def test_references_only_override_keeps_the_verdict_when_the_quote_is_a_body_sentence():
+    # The seeded name is only in the bibliography, but the judge quotes a body sentence
+    # with a short form the snippets never searched: the judge's verdict stands.
+    ev = build_evidence({"publications": [_quoted_refpub("We analysed EXRP participants' records.")]})
+    v = ev.verdicts[0]
+    assert v.verdict == "used" and v.overridden_from is None
+
+
+@pytest.mark.parametrize("quote", ["", "  ", "The Example Research Program", "Investigators. "
+                                   "The Example Research Program. N Engl J Med 2019. Extra"])
+def test_references_only_override_applies_on_an_empty_or_reference_quote(quote):
+    ev = build_evidence({"publications": [_quoted_refpub(quote)]})
+    assert ev.verdicts[0].verdict == "not_mentioned"
+    assert ev.verdicts[0].overridden_from == "used"
