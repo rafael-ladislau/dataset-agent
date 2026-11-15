@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -281,6 +281,27 @@ class Settings(BaseSettings):
     #: also the sample needed for MEDIUM or HIGH confidence and the early-stop bar of the
     #: full-text loop.
     fulltext_recall_min_evidence: int = Field(default=10, ge=1)
+    #: Which sample the release decision reads (``adapters.release_sample``).
+    #: ``random_split`` (default): a split dataset is decided on a random, year-stratified
+    #: sample of the selected query's papers with full text; every other dataset keeps the
+    #: top-cited sample of the selected iteration (its figures were measured that way).
+    #: ``random_all``: every dataset is decided on the random sample. ``top_cited``: none
+    #: is. The refinement loop always probes top-cited papers (the refiner's input).
+    fulltext_release_sampling: Literal["random_split", "random_all", "top_cited"] = "random_split"
+    #: Also draw the random sample when the top-cited sample decides, and record it next to
+    #: the decision (``release_sample.shadow``) without changing it: measures the difference.
+    fulltext_release_shadow: bool = False
+    #: Seed of the random release sample; unset draws a fresh seed per run. The seed used is
+    #: always recorded (``release_sample.seed``), so a run can be reproduced.
+    fulltext_release_seed: Optional[int] = Field(default=None, ge=1)
+    #: Min evaluated papers for a split dataset's release bar. 21 is the smallest n from
+    #: which, for every larger n too, a true unrelated share of 0.10 passes the 0.20 limit
+    #: with probability >= 0.8 and a true 0.30 fails it with probability >= 0.8 (binomial).
+    #: The random sample aims at max(this, fulltext_target_delivered) papers.
+    fulltext_split_min_sample: int = Field(default=21, ge=1, le=500)
+    #: Analyze batches per year of the random release sample (each sends about twice the
+    #: papers the year still needs, within fulltext_batch_size).
+    fulltext_release_max_batches_per_year: int = Field(default=3, ge=1, le=20)
     #: A promotion adding more than ratio x the selected query's count is a large expansion.
     fulltext_recall_expansion_ratio: float = Field(default=1.0, ge=0.0)
     #: For a large expansion the Wilson 95% lower bound of complement precision must reach

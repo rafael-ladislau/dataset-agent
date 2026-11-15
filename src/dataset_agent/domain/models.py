@@ -469,8 +469,9 @@ class QueryOptimizationRecord(BaseModel):
     )
     release_bar_met: Optional[bool] = Field(
         default=None,
-        description="Datasets with full text: the selected iteration met release_bar on at "
-        "least fulltext_recall_min_evidence evaluated papers. MEDIUM or HIGH confidence "
+        description="Datasets with full text: the deciding sample (release_sample) met "
+        "release_bar on at least its minimum sample (fulltext_split_min_sample for a split "
+        "dataset, else fulltext_recall_min_evidence) evaluated papers. MEDIUM or HIGH confidence "
         "implies it, except a split dataset released with a warning below its data floor "
         "(data_floor_met false, MEDIUM)",
     )
@@ -495,6 +496,18 @@ class QueryOptimizationRecord(BaseModel):
         default=None,
         description="Split datasets: data-only precision of the selected iteration (data "
         "papers / evaluated), next to fulltext_precision which counts program-only papers",
+    )
+    release_sample: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Datasets with full text: the sample the release decision read. sampling "
+        "(random_year_stratified | top_cited), decides, seed, target, min_sample, year_counts, "
+        "allocation and years (per year: count, allocation, pull_cap, pool, pool_covers_year, "
+        "sent, delivered, kept, batches, stop_reason) for the random sample; iteration for "
+        "the top-cited one; n_sent, n_delivered, n_evaluated; precision, and for a split "
+        "dataset unrelated_share and data_share, each with count, value and wilson95; "
+        "four_way; papers; error when the random sample failed (the bar is then not met). "
+        "shadow: a random sample recorded next to a top-cited decision "
+        "(fulltext_release_shadow). None without full-text refinement",
     )
     proposal: Optional[QueryProposal] = Field(
         default=None, description="Full-text-backed query proposal awaiting human approval"

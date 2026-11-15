@@ -36,6 +36,7 @@ from dataset_agent.adapters.dimensions_dsl import (
     parse_total_count,
     publication_title,
     publications_from_result,
+    raise_for_dsl_errors,
     run_alias_count,
     short_dsl_error,
 )
@@ -2437,49 +2438,68 @@ class QueryOptimizationUseCase:
                     f"and confirmed data share >= {s.fulltext_split_data_min:.2f}")
         return f"precision >= {s.fulltext_recall_min_precision:.2f}"
 
-    def _meets_unrelated_bar(self, m: IterationMetrics) -> bool:
-        """Split dataset: unrelated share <= ``fulltext_split_unrelated_max`` on at least
-        ``fulltext_recall_min_evidence`` evaluated papers (data, program-only and
-        references-only papers all count toward it)."""
+    def _need(self, need: int | None) -> int:
+        """The minimum sample: *need* when given (the release decision passes
+        ``_release_min_sample``), else ``fulltext_recall_min_evidence`` (the loop)."""
+        return int(self._settings.fulltext_recall_min_evidence if need is None else need)
+
+    def _release_min_sample(self) -> int:
+        """Min evaluated papers for the release bar: ``fulltext_split_min_sample`` for a
+        split dataset, ``fulltext_recall_min_evidence`` for every other dataset."""
         s = self._settings
-        return (m.n_evaluated >= s.fulltext_recall_min_evidence
+        return int(s.fulltext_split_min_sample if self._split_release()
+                   else s.fulltext_recall_min_evidence)
+
+    def _random_release(self) -> bool:
+        """Whether the random release sample decides (``fulltext_release_sampling``)."""
+        mode = self._settings.fulltext_release_sampling
+        return mode == "random_all" or (mode == "random_split" and self._split_release())
+
+    def _meets_unrelated_bar(self, m: IterationMetrics, need: int | None = None) -> bool:
+        """Split dataset: unrelated share <= ``fulltext_split_unrelated_max`` on at least
+        *need* (default ``fulltext_recall_min_evidence``) evaluated papers (data,
+        program-only and references-only papers all count toward it)."""
+        s = self._settings
+        return (m.n_evaluated >= self._need(need)
                 and m.unrelated_share is not None
                 and m.unrelated_share <= s.fulltext_split_unrelated_max)
 
-    def _meets_data_floor(self, m: IterationMetrics) -> bool:
+    def _meets_data_floor(self, m: IterationMetrics, need: int | None = None) -> bool:
         """Split dataset: confirmed data share >= ``fulltext_split_data_min`` on at least
-        ``fulltext_recall_min_evidence`` evaluated papers (the unrelated bar's sample)."""
+        *need* evaluated papers (the unrelated bar's sample)."""
         s = self._settings
-        return (m.n_evaluated >= s.fulltext_recall_min_evidence
+        return (m.n_evaluated >= self._need(need)
                 and self._confirmed_data_share(m) >= s.fulltext_split_data_min)
 
-    def _meets_split_target(self, m: IterationMetrics) -> bool:
+    def _meets_split_target(self, m: IterationMetrics, need: int | None = None) -> bool:
         """Split dataset: the unrelated bar and the data floor; the full-text loop refines
         until this holds or ``optimize_max_iterations`` rounds have run."""
-        return self._meets_unrelated_bar(m) and self._meets_data_floor(m)
+        return self._meets_unrelated_bar(m, need) and self._meets_data_floor(m, need)
 
-    def _meets_release_bar(self, m: IterationMetrics, precision: float | None = None) -> bool:
+    def _meets_release_bar(self, m: IterationMetrics, precision: float | None = None,
+                           need: int | None = None) -> bool:
         """The release bar on at least ``fulltext_recall_min_evidence`` evaluated papers.
         A split dataset: the unrelated bar and the data floor (``fulltext_split_data_min``
         on the confirmed data share); any other dataset: precision (*precision*, else the
         iteration's) >= ``fulltext_recall_min_precision``. ``release_bar_met``."""
         s = self._settings
-        if m.n_evaluated < s.fulltext_recall_min_evidence:
+        if m.n_evaluated < self._need(need):
             return False
         if self._split_release():
-            return self._meets_split_target(m)
+            return self._meets_split_target(m, need)
         p = m.fulltext_precision if precision is None else precision
         return p is not None and p >= s.fulltext_recall_min_precision
 
-    def _released(self, m: IterationMetrics, precision: float | None = None) -> bool:
+    def _released(self, m: IterationMetrics, precision: float | None = None,
+                  need: int | None = None) -> bool:
         """Whether the selected iteration is released (MEDIUM confidence or above). Any
         dataset: the release bar. A split dataset that meets the unrelated bar but misses
         the data floor after the round limit is released with a warning unless
         ``fulltext_split_floor_required`` (default false: the owner's decision); it is
         never HIGH and ``release_bar_met`` stays false."""
-        if self._meets_release_bar(m, precision):
+        if self._meets_release_bar(m, precision, need):
             return True
-        return (self._split_release() and self._meets_unrelated_bar(m)
+        return (self._split_release() and self._meets_unrelated_bar(m, need)
                 and not self._settings.fulltext_split_floor_required)
 
     def _selection_key(self, m: IterationMetrics) -> tuple[bool, bool, float, float, int]:
@@ -2502,13 +2522,13 @@ class QueryOptimizationUseCase:
         return sum(1 for p in (m.paper_details or [])
                    if p.get("verdict") in ("used", "mentioned") and p.get("scope") == "data")
 
-    def _data_floor(self, m: IterationMetrics, rounds: int) -> dict:
+    def _data_floor(self, m: IterationMetrics, rounds: int, need: int | None = None) -> dict:
         """The data floor for *m*: min, share, wilson95, met, required, rounds."""
         s = self._settings
         k, n = self._confirmed_data_count(m), m.n_evaluated
         lo, hi = wilson_interval(k, n) if n else (0.0, 0.0)
         return {"min": s.fulltext_split_data_min, "share": round(k / n, 4) if n else 0.0,
-                "wilson95": [round(lo, 4), round(hi, 4)], "met": self._meets_data_floor(m),
+                "wilson95": [round(lo, 4), round(hi, 4)], "met": self._meets_data_floor(m, need),
                 "required": s.fulltext_split_floor_required, "rounds": rounds}
 
     @staticmethod
@@ -2520,19 +2540,20 @@ class QueryOptimizationUseCase:
         return QueryOptimizationUseCase._confirmed_data_count(m) / m.n_evaluated
 
     def _release_note(self, bar: str, met: bool, m: IterationMetrics | None,
-                      gate_error: bool, floor: dict | None = None) -> str:
+                      gate_error: bool, floor: dict | None = None,
+                      need: int | None = None) -> str:
         """The bar applied, whether it was met and why, and for a split dataset the
         four-way split with Wilson intervals and the data-only precision."""
-        need = self._settings.fulltext_recall_min_evidence
+        need = self._need(need)
         if m is None:
-            why = "not met: no full-text iteration reached the minimum sample"
+            why = "not met: no full-text sample reached the minimum sample"
         elif m.n_evaluated < need:
             why = f"not met: {m.n_evaluated} of {need} papers, below the minimum sample"
         elif gate_error:
             why = "not met: a gate evaluation failed"
         else:
             why = "met" if met else "not met"
-            if floor is not None and not floor["met"] and self._meets_unrelated_bar(m):
+            if floor is not None and not floor["met"] and self._meets_unrelated_bar(m, need):
                 rounds = floor["rounds"]
                 lo, hi = floor["wilson95"]
                 missed = (f"data floor {floor['min']:.2f} not reached after {rounds} "
@@ -2560,6 +2581,123 @@ class QueryOptimizationUseCase:
         else:
             note += ":"
         return note + f" precision {(m.fulltext_precision or 0):.2f} on {m.n_evaluated} papers"
+
+    # -- the release sample (adapters.release_sample) ------------------------------------
+
+    async def _year_counts(self, for_clause: str) -> dict[int, int]:
+        """Per-year Dimensions counts of *for_clause* in the dataset window (one facet call)."""
+        from dataset_agent.adapters.release_sample import year_counts_from_result
+
+        ys, ye = self._dataset_years()
+        dsl = (f'search publications in full_data for "{for_clause}" '
+               f'where year in [{ys}:{ye}] and type="article" return year limit 50')
+        result = await self._counted_execute(dsl)
+        raise_for_dsl_errors(result)
+        return year_counts_from_result(result)
+
+    def _sample_summary(self, m: IterationMetrics) -> dict:
+        """Point estimates with Wilson 95% intervals for a release sample's metrics."""
+        n = m.n_evaluated
+        k = sum(1 for _pid, v in m.papers if v in ("used", "mentioned"))
+
+        def est(count: int) -> dict:
+            lo, hi = wilson_interval(count, n) if n else (0.0, 0.0)
+            return {"count": count, "value": round(count / n, 4) if n else None,
+                    "wilson95": [round(lo, 4), round(hi, 4)]}
+
+        out: dict = {"n_sent": m.n_publications, "n_delivered": m.n_fulltext_delivered,
+                     "n_evaluated": n, "precision": est(k)}
+        if self._split_release():
+            unrel = (m.four_way or {}).get("unrelated", {}).get("count")
+            out["unrelated_share"] = est(int(unrel or 0)) if m.four_way else None
+            out["data_share"] = est(self._confirmed_data_count(m))
+            out["four_way"] = m.four_way
+        return out
+
+    async def _random_release_sample(self, candidate: QueryCandidate, request: OptimizeRequest,
+                                     for_clause: str, iteration: int, *, decides: bool
+                                     ) -> tuple[IterationMetrics | None, dict]:
+        """Draw the random, year-stratified release sample of *candidate* and measure it
+        (scope check included). Returns (metrics or None on failure, record)."""
+        from dataset_agent.adapters.release_sample import allocate, new_seed
+
+        s = self._settings
+        need = self._release_min_sample()
+        target = max(need, int(s.fulltext_target_delivered))
+        rng_seed = int(s.fulltext_release_seed or new_seed())
+        info: dict = {"sampling": "random_year_stratified", "decides": decides,
+                      "seed": rng_seed, "target": target, "min_sample": need,
+                      "year_counts": {}, "allocation": {}, "years": {}, "error": None}
+        try:
+            counts = await self._year_counts(for_clause)
+            alloc = allocate(counts, target)
+            info.update(year_counts=counts, allocation=alloc)
+            if not alloc:
+                raise ValueError("the Dimensions year facet returned no papers")
+            seed = candidate_to_seed(
+                candidate, group_name=s.default_group_name, years=self._dataset_years(),
+                publication_types=list(s.default_publication_types),
+                filter_us_affiliation=s.default_filter_us_affiliation,
+                extra={"home_url": request.dataset_url})
+            client = self._get_extraction()
+            out = await asyncio.to_thread(functools.partial(
+                client.run_year_sample, seed, allocation=alloc, year_counts=counts,
+                rng_seed=rng_seed, batch_size=s.fulltext_batch_size,
+                max_batches_per_year=s.fulltext_release_max_batches_per_year))
+        except (ExtractionError, ValueError, DimensionsDslError) as exc:
+            logger.warning("release sample failed: %s", exc)
+            info["error"] = str(exc)
+            return None, info
+        ev = build_evidence(out.results)
+        years = out.years
+        ev.target = target
+        ev.batches = sum(int(y.get("batches") or 0) for y in years.values())
+        short = [y for y in years.values() if y.get("stop_reason") not in (None, "target_met")]
+        ev.stop_reason = short[0]["stop_reason"] if short else "target_met"
+        await self._apply_scope_check(ev, request)
+        m = ev.metrics(iteration, for_clause, None)
+        year_of = {str(p.get("publication_id")): p.get("sample_year")
+                   for p in (out.results.get("publications") or []) if isinstance(p, dict)}
+        info.update(years=years, **self._sample_summary(m))
+        info["pool_capped_years"] = [y for y, v in sorted(years.items())
+                                     if not v.get("pool_covers_year", True)]
+        info["papers"] = [{"id": v.publication_id, "year": year_of.get(v.publication_id),
+                           "verdict": v.verdict, "four_way": v.four_way if ev.scope_checked
+                           else None} for v in ev.verdicts]
+        return m, info
+
+    def _top_cited_sample_info(self, m: IterationMetrics, *, decides: bool = True) -> dict:
+        return {"sampling": "top_cited", "decides": decides, "iteration": m.iteration,
+                "target": m.fulltext_target, "min_sample": self._release_min_sample(),
+                **self._sample_summary(m)}
+
+    @staticmethod
+    def _release_sample_note(info: dict) -> str:
+        def est(name: str, e: dict | None) -> str:
+            if not e or e.get("value") is None:
+                return ""
+            lo, hi = e["wilson95"]
+            return f"; {name} {e['value']:.2f} (Wilson 95% {lo:.2f}-{hi:.2f})"
+
+        role = "decides release" if info.get("decides") else "recorded only, does not decide"
+        if info["sampling"] == "top_cited":
+            head = (f"full-text release sample: top-cited papers of iteration "
+                    f"{info.get('iteration')} ({role}; {info.get('n_evaluated', 0)} evaluated, "
+                    f"minimum {info['min_sample']})")
+        elif info.get("error"):
+            return (f"full-text release sample: random year-stratified, seed {info['seed']} "
+                    f"({role}): release sample failed ({info['error']}); nothing measured")
+        else:
+            capped = info.get("pool_capped_years") or []
+            head = (f"full-text release sample: random year-stratified, seed {info['seed']} "
+                    f"({role}; allocation {info['allocation']} of year counts "
+                    f"{info['year_counts']}; {info.get('n_evaluated', 0)} evaluated of "
+                    f"{info['target']} aimed, minimum {info['min_sample']}"
+                    + (f"; years drawn from their 1,000 most-cited papers {capped}"
+                       if capped else "") + ")")
+        return (head + est("unrelated share", info.get("unrelated_share"))
+                + est("confirmed data share", info.get("data_share"))
+                + est("precision", info.get("precision")))
 
     @staticmethod
     def _own_program_names(rmap) -> list[str]:
@@ -3819,6 +3957,31 @@ class QueryOptimizationUseCase:
             else:
                 best = max(candidates, key=lambda x: (x[0], x[1], x[2]))[3]
 
+        # The release sample: the decision reads a random, year-stratified sample of the
+        # selected query's papers for split datasets (``fulltext_release_sampling``); the
+        # refinement iterations above stay on top-cited papers, the refiner's input.
+        release_sample: dict | None = None
+        rel_m: IterationMetrics | None = None
+        random_decides = False
+        release_need = self._release_min_sample()
+        if (ft_enabled and best_ft_iter is not None
+                and not (phase3_error is not None and phase3_error_iter == best_ft_iter)):
+            rel_cand = recall_final if recall_final is not None else ft_candidates[best_ft_iter]
+            sel0 = next(m for m in ft_iterations if m.iteration == best_ft_iter)
+            if self._random_release():
+                random_decides = True
+                rel_m, release_sample = await self._random_release_sample(
+                    rel_cand, request, best.for_clause, best_ft_iter, decides=True)
+                notes_parts.append(self._release_sample_note(release_sample))
+            else:
+                release_sample = self._top_cited_sample_info(sel0)
+                notes_parts.append(self._release_sample_note(release_sample))
+                if self._settings.fulltext_release_shadow:
+                    _m, shadow = await self._random_release_sample(
+                        rel_cand, request, best.for_clause, best_ft_iter, decides=False)
+                    release_sample["shadow"] = shadow
+                    notes_parts.append(self._release_sample_note(shadow))
+
         release_bar: str | None = None
         release_met: bool | None = None
         four_way: dict | None = None
@@ -3847,16 +4010,21 @@ class QueryOptimizationUseCase:
                     f"gate iteration {phase3_error_iter} could not be evaluated and no "
                     "full-text iteration could be selected; confidence LOW."
                 )
+            sel: IterationMetrics | None = None
             if not gate_failed_here and best_ft_iter is not None:
-                sel = next(m for m in ft_iterations if m.iteration == best_ft_iter)
+                # The deciding sample: the random release sample when it decides (None
+                # when it failed: fail closed), else the selected iteration's top-cited one.
+                sel = (rel_m if random_decides else
+                       next(m for m in ft_iterations if m.iteration == best_ft_iter))
+            if sel is not None:
                 prec = float(sel.fulltext_precision or 0.0)
                 if recall_min_precision is not None:
                     # A promoted complement may dominate the result set and was accepted
                     # at its own (possibly lower) bar; never report more than it supports.
                     prec = min(prec, recall_min_precision)
-                release_met = self._meets_release_bar(sel, prec)
-                released = self._released(sel, prec)
-                if sel.n_evaluated >= self._settings.fulltext_recall_min_evidence and released:
+                release_met = self._meets_release_bar(sel, prec, release_need)
+                released = self._released(sel, prec, release_need)
+                if sel.n_evaluated >= release_need and released:
                     # HIGH needs the release bar too: with optimize_fp_threshold_pct above
                     # 20 the threshold alone would grant HIGH below the 0.80 bar, and a split
                     # dataset released below its data floor is never HIGH.
@@ -3893,14 +4061,19 @@ class QueryOptimizationUseCase:
                         capped = True
                     if capped:
                         confidence = ConfidenceLevel.MEDIUM
-            sel_m = (next(m for m in ft_iterations if m.iteration == best_ft_iter)
-                     if best_ft_iter is not None else None)
+            if random_decides:
+                sel_m = rel_m
+            else:
+                sel_m = (next(m for m in ft_iterations if m.iteration == best_ft_iter)
+                         if best_ft_iter is not None else None)
             if sel_m is not None and self._split_release():
                 four_way, data_precision = sel_m.four_way, sel_m.data_share
-                data_floor = self._data_floor(sel_m, rounds=len(ft_iterations))
+                data_floor = self._data_floor(sel_m, rounds=len(ft_iterations),
+                                              need=release_need)
                 data_floor_met = data_floor["met"]
             notes_parts.append(self._release_note(
-                release_bar, bool(release_met), sel_m, gate_failed_here, data_floor))
+                release_bar, bool(release_met), sel_m, gate_failed_here, data_floor,
+                need=release_need))
         else:
             fp_sel = float(best.fp_rate_pct or 0.0)
             if best.fp_rate_pct is None:
@@ -4025,6 +4198,7 @@ class QueryOptimizationUseCase:
             fulltext_data_floor=data_floor,
             data_floor_met=data_floor_met,
             fulltext_data_precision=data_precision,
+            release_sample=release_sample,
             proposal=proposal,
             resource_map=self._resource_map,
             program_datasets=program_ds,

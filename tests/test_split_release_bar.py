@@ -60,9 +60,14 @@ def _run(tmp_path, pubs, *, split, results=None, client=None, **settings):
                                        "reasoning": ""}
     uc = QueryOptimizationUseCase(
         dsl_port=CountDSL(), research=MagicMock(), agent=llm,
+        # These tests pin the bar arithmetic on the selected iteration's own sample: the
+        # top-cited sampling and the old minimum of 10. The random release sample and the
+        # split minimum (21) are tested in test_release_sample.py.
         settings=make_settings(tmp_path, **{"fulltext_refinement_enabled": True,
                                             "optimize_max_iterations": 1,
-                                            "fulltext_recall_enabled": False, **settings}),
+                                            "fulltext_recall_enabled": False,
+                                            "fulltext_release_sampling": "top_cited",
+                                            "fulltext_split_min_sample": 10, **settings}),
         extraction_client=client or FakeClient(results or [{"publications": pubs}]))
 
     async def label(ev, _request):

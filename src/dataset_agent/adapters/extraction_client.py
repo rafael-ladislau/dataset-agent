@@ -122,6 +122,19 @@ def _citation_order(pubs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 @dataclass
+class YearSampleResult:
+    """Outcome of :meth:`ExtractionClient.run_year_sample` (the release sample)."""
+
+    #: ``{"publications": [...]}``: the kept papers with full text plus the papers sent
+    #: that did not deliver, each with ``sample_year``.
+    results: dict[str, Any]
+    #: Per year: count, allocation, pull_cap, pool, pool_covers_year, sent, delivered,
+    #: kept, batches, stop_reason.
+    years: dict[int, dict[str, Any]]
+    rng_seed: int
+
+
+@dataclass
 class TopupResult:
     """Outcome of :meth:`ExtractionClient.run_probe_topup`."""
 
@@ -416,6 +429,87 @@ class ExtractionClient:
             )
         finally:
             self.cleanup(task_id)
+
+    def run_year_sample(
+        self,
+        seed: dict[str, Any],
+        *,
+        allocation: dict[int, int],
+        year_counts: dict[int, int],
+        rng_seed: int,
+        batch_size: int,
+        max_batches_per_year: int,
+        entity: str = "dataset",
+        steps: dict[str, bool] | None = None,
+    ) -> YearSampleResult:
+        """The release sample (``adapters.release_sample``): one probe per year with an
+        allocation, papers drawn in the seeded random order of that year and sent for open
+        full text until the allocation has delivered (or the pool or the batch cap runs
+        out). The first delivered papers in draw order are kept; papers sent that did not
+        deliver stay in the result as attempted. Every probe task is cleaned up."""
+        from dataset_agent.adapters.release_sample import batch_size_for, draw_order, pull_cap
+
+        _, default_steps = _entity_route(entity)
+        steps = dict(steps) if steps else default_steps
+        pubs_out: list[dict[str, Any]] = []
+        years: dict[int, dict[str, Any]] = {}
+        for year, want in sorted(allocation.items()):
+            if want <= 0:
+                continue
+            body = dict(seed)
+            body["years_range"] = {"start_year": int(year), "end_year": int(year)}
+            count = int(year_counts.get(year, 0))
+            cap = pull_cap(count)
+            task_id = self.start_search(body, cap, entity=entity)
+            try:
+                results = self.get_llm_results(task_id)
+                pool = [str(p["publication_id"]) for p in _pubs(results)]
+                order = draw_order(pool, rng_seed, year)
+                sent: list[str] = []
+                delivered: set[str] = set()
+                batches, pos = 0, 0
+                while True:
+                    got = [i for i in sent if i in delivered]
+                    if len(got) >= want:
+                        stop = STOP_TARGET_MET
+                        break
+                    if pos >= len(order):
+                        stop = STOP_POOL_EXHAUSTED
+                        break
+                    if batches >= max_batches_per_year:
+                        stop = STOP_MAX_BATCHES
+                        break
+                    k = batch_size_for(want - len(got), batch_size)
+                    batch = order[pos:pos + k]
+                    pos += len(batch)
+                    batches += 1
+                    sent += batch
+                    logger.info("release sample %s year %d batch %d: %d id(s), %d/%d delivered",
+                                task_id, year, batches, len(batch), len(got), want)
+                    self.analyze_ids(task_id, batch, steps=steps)
+                    results = self.wait_batch_done(task_id, batch)
+                    delivered = {str(p["publication_id"]) for p in _pubs(results)
+                                 if is_delivered(p)}
+                if batches:
+                    results = self.get_llm_results(task_id, contexts=True)
+                    delivered = {str(p["publication_id"]) for p in _pubs(results)
+                                 if is_delivered(p)}
+                kept = [i for i in sent if i in delivered][:want]
+                keep = set(kept) | {i for i in sent if i not in delivered}
+                served = {str(p["publication_id"]): p for p in _pubs(results)}
+                for pid in sent:  # in draw order
+                    if pid in keep and pid in served:
+                        pubs_out.append({**served[pid], "sample_year": int(year)})
+                years[int(year)] = {
+                    "count": count, "allocation": int(want), "pull_cap": cap,
+                    "pool": len(pool), "pool_covers_year": len(pool) >= count,
+                    "sent": len(sent), "delivered": len([i for i in sent if i in delivered]),
+                    "kept": len(kept), "batches": batches, "stop_reason": stop,
+                }
+            finally:
+                self.cleanup(task_id)
+        return YearSampleResult(results={"publications": pubs_out}, years=years,
+                                rng_seed=int(rng_seed))
 
     def cleanup(self, task_id: str) -> bool:
         """Delete a probe task's data. Never raises (best effort).

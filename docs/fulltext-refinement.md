@@ -209,8 +209,8 @@ For a dataset the resource map splits (the broad program query), the release bar
 unrelated share and a data floor instead of precision: an unrelated share of at most
 `fulltext_split_unrelated_max` (0.20, a hard limit) and a confirmed data share (genuine papers
 the scope check labelled `data` / papers evaluated; `unclear` does not count) of at least
-`fulltext_split_data_min` (0.50), on at least `fulltext_recall_min_evidence` (10) evaluated
-papers. The floor is a target: while the unrelated limit is met but the floor is not, the
+`fulltext_split_data_min` (0.50), on at least `fulltext_split_min_sample` (21) evaluated
+papers of the release sample (below). The floor is a target: while the unrelated limit is met but the floor is not, the
 full-text loop does not stop early and keeps refining, within the same round limit as every
 full-text loop (`optimize_max_iterations`, default 2); it stops sooner only when the refiner
 finds nothing to change. At the limit the best iteration (highest precision, then confirmed
@@ -246,6 +246,32 @@ dataset keeps the precision bar unchanged. The record states the bar (`release_b
 `release_bar_met`), and for a split dataset the four-way split with counts, shares and Wilson
 95% intervals (`fulltext_four_way`) and the data-only precision (`fulltext_data_precision`);
 the note `full-text release bar: ...` repeats them.
+
+**Release sample.** The refinement iterations probe the most-cited papers (the refiner learns
+from their false positives), but a split dataset's release decision reads a random,
+year-stratified sample of the selected query's papers with open full text
+(`fulltext_release_sampling`, default `random_split`; `adapters/release_sample.py`). One
+Dimensions year facet of the query gives the per-year counts; the target (max of
+`fulltext_split_min_sample` and `fulltext_target_delivered`) is allocated to years in
+proportion (largest remainder); one probe per year pulls that year with a cap of count + 50 (at
+most 1,000, the extraction's limit; the probe API sorts by citations and a raw clause may not
+contain `skip`, so a year above 950 papers is drawn from its 1,000 most cited and the record
+says so); inside a year, papers are sent in a seeded random order until the year's allocation
+has delivered full text, and the first delivered ones in draw order are kept. The seed
+(`fulltext_release_seed`, else a fresh one per run) is recorded. The minimum of 21 evaluated
+papers is the smallest n from which a true unrelated share of 0.10 passes the 0.20 limit with
+probability at least 0.8 and a true 0.30 fails it with probability at least 0.8 (binomial; 14 is
+the first n where both hold, but 15–17 and 20 fail again). A failed release sample is not
+replaced by the top-cited one: the bar is not met (LOW). Every other dataset keeps the selected
+iteration's top-cited sample (its released figures were measured that way); `random_all` moves
+them too, `top_cited` moves none, and `fulltext_release_shadow` draws the random sample next to
+a top-cited decision without changing it. The output records `release_sample`: sampling,
+whether it decides, seed, year counts, allocation, per-year pool, sent, delivered and kept,
+and the point estimates with Wilson 95% intervals (precision; for a split dataset the unrelated
+and confirmed data shares), and the note `full-text release sample: ...` repeats them. Cost per
+split run: one facet call, one probe per year with an allocation, and about twice the target
+in papers sent for full text (about half deliver), each delivered paper judged once by the
+extraction validator, plus one scope question per `mentioned` paper.
 
 **Stored program/data decision.** A decided resource map (a split, or a firm "no split") is
 stored on the dataset's research record (`<output_dir>/<dataset name>_research.json`) with
