@@ -182,9 +182,11 @@ def _run(monkeypatch, tmp_path, settings, request):
         seen["research_agent"] = agent
         return Research()
 
-    def fake_build_optimize(_s, agent=None, dsl_port=None, referent_agent=None):
+    def fake_build_optimize(_s, agent=None, dsl_port=None, referent_agent=None,
+                            main_overridden=False):
         seen["optimize_agent"] = agent
         seen["referent_agent"] = referent_agent
+        seen["main_overridden"] = main_overridden
         return Optimize()
 
     monkeypatch.setattr(bootstrap, "build_use_case", fake_build_use_case)
@@ -206,6 +208,7 @@ def test_overrides_reach_research_and_optimize_but_not_the_referent_or_scope(
     assert seen["research_agent"]._temperature == 1.2
     ref = seen["referent_agent"]
     assert ref is not None and ref is not seen["research_agent"]
+    assert seen["main_overridden"] is True
     assert ref._model_name == s.llm_endpoint().model
     expected = bootstrap.build_referent_agent(s)
     assert (ref._temperature, ref._top_p, ref._top_k) == (
@@ -219,6 +222,6 @@ def test_without_overrides_the_pipeline_is_wired_as_before(monkeypatch, tmp_path
     s = _settings(llm_provider="lmstudio", llm_api_style="anthropic", output_dir=str(tmp_path),
                   dimensions_api_key="k", referent_thinking_budget=0)
     record, seen = _run(monkeypatch, tmp_path, s, ResearchRequest(dataset_name="X"))
-    assert seen["referent_agent"] is None
+    assert seen["referent_agent"] is None and seen["main_overridden"] is False
     assert record.llm_sampling.overridden == []
     assert record.llm_sampling.temperature == 0.6

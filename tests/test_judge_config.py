@@ -101,3 +101,30 @@ def test_ai_model_release_records_the_judge_and_flags_the_fallback(tmp_path, mon
     assert "not the measured judge configuration" in out.notes
     assert "fallback: the API style is not anthropic" in out.notes
     assert out.ai_model_seed is not None  # the fallback is kept: no error
+
+
+def test_with_request_overrides_the_checks_record_the_configured_agent(tmp_path):
+    """Request overrides stop at the research/optimize agent: the scope check and the
+    referent judge ran on the configured model, so the record does not say 'main'."""
+    s = make_settings(tmp_path, referent_thinking_budget=0)
+    uc = QueryOptimizationUseCase(dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(),
+                                  settings=s, extraction_client=FakeClient([{}]),
+                                  referent_agent=MagicMock(), main_overridden=True)
+    for cfg in (uc._judge_config(), uc._scope_check_config()):
+        assert cfg["agent"] == "configured"
+        assert cfg["model"] == s.llm_endpoint().model
+        assert cfg["measured_configuration"] is False
+    thinking = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(), settings=_anthropic(tmp_path),
+        extraction_client=FakeClient([{}]), referent_agent=MagicMock(), main_overridden=True)
+    cfg = thinking._scope_check_config()
+    assert cfg["agent"] == "referent" and cfg["model"] == thinking._settings.llm_endpoint().model
+
+
+def test_the_pipeline_tells_the_optimizer_when_the_request_overrode_the_agent(tmp_path):
+    from dataset_agent.bootstrap import build_optimize_use_case
+
+    s = make_settings(tmp_path, referent_thinking_budget=0)
+    assert build_optimize_use_case(s, agent=MagicMock(), referent_agent=MagicMock(),
+                                   main_overridden=True)._judge_config()["agent"] == "configured"
+    assert build_optimize_use_case(s, agent=MagicMock())._judge_config()["agent"] == "main"

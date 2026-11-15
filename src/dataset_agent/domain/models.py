@@ -395,7 +395,9 @@ class QueryOptimizationRecord(BaseModel):
     )
     scope_check_config: Optional[dict[str, Any]] = Field(
         default=None,
-        description="The scope check's configuration: agent (referent or main), api_style, "
+        description="The scope check's configuration: agent (referent, main, or configured: "
+        "the configured model when the request overrode the main agent; then model names "
+        "it), api_style, "
         "fallback, thinking_budget, temperature, top_p, top_k, votes, and "
         "measured_configuration (the configuration the reported figures were measured "
         "with); None when no resource map",
@@ -403,7 +405,8 @@ class QueryOptimizationRecord(BaseModel):
     referent_judge_config: Optional[dict[str, Any]] = Field(
         default=None,
         description="AI models: the full-text referent judge that decided release: agent "
-        "(referent or main), api_style, fallback (thinking and sampling dropped because the "
+        "(referent, main, or configured, as for scope_check_config; model when the request "
+        "overrode the main agent), api_style, fallback (thinking and sampling dropped because the "
         "API style is not anthropic), thinking_budget, temperature, top_p, top_k, votes, "
         "measured_configuration; None when full text did not run",
     )

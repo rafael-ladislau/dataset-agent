@@ -135,6 +135,7 @@ def build_optimize_use_case(
     agent: AgentPort | None = None,
     dsl_port: AsyncThrottledDimensionsDsl | None = None,
     referent_agent: AgentPort | None = None,
+    main_overridden: bool = False,
 ) -> QueryOptimizationUseCase:
     """Dimensions query optimization (aliases → variants → gate evaluation → selection).
 
@@ -153,6 +154,7 @@ def build_optimize_use_case(
         referent_agent=referent_agent or (
             build_referent_agent(settings) if settings.referent_thinking_budget else None
         ),
+        main_overridden=main_overridden,
     )
 
 
@@ -181,7 +183,8 @@ async def run_full_pipeline(
 
     # Optimization (seeded with research terms to avoid double research)
     optimize_uc = build_optimize_use_case(settings, agent=agent, dsl_port=dsl,
-                                          referent_agent=referent_agent)
+                                          referent_agent=referent_agent,
+                                          main_overridden=referent_agent is not None)
     # Flatten alias_collisions dict-of-lists into a single exclude list
     collision_excludes = []
     for terms in record.alias_collisions.values():

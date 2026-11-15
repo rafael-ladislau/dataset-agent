@@ -376,8 +376,12 @@ class QueryOptimizationUseCase:
         extraction_client: ExtractionClient | None = None,
         proposal_repo=None,
         referent_agent: AgentPort | None = None,
+        main_overridden: bool = False,
     ) -> None:
         self._proposal_repo = proposal_repo
+        #: The request overrode the main agent's model or sampling; the referent judge
+        #: and the scope check still run on the configured model (``referent_agent``).
+        self._main_overridden = main_overridden
         self._dsl = dsl_port
         self._research = research
         self._agent = agent
@@ -451,6 +455,12 @@ class QueryOptimizationUseCase:
         if self._referent_agent is None and cfg["agent"] == "referent":
             cfg.update(agent="main", thinking_budget=0, temperature=None, top_p=None,
                        top_k=None, measured_configuration=False)
+        if self._main_overridden and self._referent_agent is not None:
+            # The request's overrides apply to the main agent only: these questions ran
+            # on a separate agent with the configured model, not on that 'main' agent.
+            if cfg["agent"] == "main":
+                cfg["agent"] = "configured"
+            cfg["model"] = self._settings.llm_endpoint().model
         return cfg
 
     def _scope_check_config(self) -> dict:
