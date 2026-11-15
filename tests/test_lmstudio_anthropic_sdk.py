@@ -2,9 +2,18 @@
 """
 Test script: LM Studio via Anthropic Python SDK
 Requires LM Studio running on http://localhost:1234 with a model loaded.
+Skipped under pytest unless DATASET_AGENT_LIVE_LLM=1 (same switch as test_llm_live.py).
 """
 
+import os
+
 import anthropic
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("DATASET_AGENT_LIVE_LLM") != "1",
+    reason="live LM Studio test; set DATASET_AGENT_LIVE_LLM=1",
+)
 
 BASE_URL = "http://localhost:1234"
 MODEL = "gemma-4-31b-it-mlx"
