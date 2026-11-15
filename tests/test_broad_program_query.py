@@ -70,3 +70,51 @@ def test_screened_specific_names_do_not_stand_alone():
     safe, _, _ = QueryOptimizationUseCase._apply_resource_map(
         rmap, [], [], [], notes, max_hits=500_000)
     assert "Example Workbench" not in safe and "EW" not in safe
+
+
+FORMER = ["Old Example Name", "Parent Example Initiative", "Huge Parent Initiative"]
+FMAP = MAP.model_copy(update={
+    "program_names": ["All of Example Research Program", *FORMER],
+    "former_or_parent_names": list(FORMER),
+})
+
+
+def test_former_or_parent_names_never_stand_alone_unscreened():
+    safe, risky, _, notes = _apply(FMAP)
+    assert "All of Example Research Program" in safe
+    for name in FORMER:
+        assert name not in safe and name not in risky
+
+
+def test_former_or_parent_names_go_through_the_count_and_risk_path(tmp_path):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from dataset_agent.settings import Settings
+
+    hits = {"Old Example Name": 50, "Parent Example Initiative": 5_000,
+            "Huge Parent Initiative": 900_000}
+
+    class DSL:
+        async def execute_dsl(self, dsl):
+            n = next((c for k, c in hits.items() if k in dsl), 0)
+            return SimpleNamespace(count_total=n, publications=[])
+
+    s = Settings(tasks_db=tmp_path / "t.db", output_dir=tmp_path / "o", dimensions_api_key="k",
+                 optimize_max_dimensions_calls=100, optimize_flag_max_hits=500_000)
+    uc = QueryOptimizationUseCase(dsl_port=DSL(), research=MagicMock(), agent=MagicMock(),
+                                  settings=s)
+    entries: list = []
+    notes: list[str] = []
+    safe, risky = asyncio.run(uc._screen_former_program_names(
+        FMAP, [], [], entries, c_full=100, has_fn=True, notes_parts=notes))
+    assert safe == ["Old Example Name"]  # within 10x the title count
+    assert risky == ["Parent Example Initiative"]  # > 10x: gated by the research flags
+    assert "Huge Parent Initiative" not in safe + risky  # above max_hits: not searched
+    assert {e.alias: e.count for e in entries} == hits
+    assert any("Huge Parent Initiative" in n and "not searched" in n for n in notes)
+    # Then the broad step keeps them where the screen put them.
+    out_safe, out_risky, _, _ = _apply(FMAP, safe=safe, risky=risky)
+    assert "Old Example Name" in out_safe and "Parent Example Initiative" in out_risky
+    assert "Huge Parent Initiative" not in out_safe + out_risky

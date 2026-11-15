@@ -2357,12 +2357,60 @@ class QueryOptimizationUseCase:
         return 100.0 * fp_hits / float(len(sample))
 
     @staticmethod
-    def _standalone_data_phrases(rmap) -> list[str]:
-        """Generated data phrases that may stand alone: built from a program name that is
-        not a short acronym (acronym forms keep the acronym guards)."""
-        programs = list(rmap.program_names)
+    def _own_program_names(rmap) -> list[str]:
+        """The program's own names: program names minus former or parent names (those
+        go through the count and risk path, see ``_screen_former_program_names``)."""
+        former = {n.casefold() for n in (rmap.former_or_parent_names or [])}
+        return [p for p in rmap.program_names if p.casefold() not in former]
+
+    @classmethod
+    def _standalone_data_phrases(cls, rmap) -> list[str]:
+        """Generated data phrases that may stand alone: built from one of the program's own
+        names that is not a short acronym (acronym forms keep the acronym guards; phrases
+        of a former or parent name keep their phase-1 label)."""
+        programs = cls._own_program_names(rmap)
         return [p for p in generated_data_phrases(programs)
                 if not acronym_form(phrase_program(p, programs) or "")]
+
+    async def _screen_former_program_names(
+        self, rmap, safe: list[str], risky: list[str], alias_entries: list[AliasCountEntry],
+        *, c_full: int, has_fn: bool, notes_parts: list[str],
+    ) -> tuple[list[str], list[str]]:
+        """Former or parent program names take the normal path: a Dimensions count, the
+        phase-1 risk label (10x the title count), the ``optimize_flag_max_hits`` screen and
+        the ordinary-phrase/acronym guards. A safe name may stand alone, a risky one is
+        gated by the research flags; a name with no hits, above the screen or not counted
+        is not searched. Only the program's own names stand alone without a count."""
+        safe, risky = list(safe), list(risky)
+        keys = {a.casefold() for a in [*safe, *risky]}
+        max_hits = self._settings.optimize_flag_max_hits
+        not_searched: list[str] = []
+        for p in sanitize_terms(list(rmap.former_or_parent_names or []), "alias"):
+            if p.casefold() in keys:
+                continue
+            keys.add(p.casefold())
+            if not self._phase1_budget_left():
+                not_searched.append(f"{p} (not counted: Dimensions budget)")
+                continue
+            c = await self._count_alias(p, notes_parts)
+            if c is None:
+                not_searched.append(f"{p} (Dimensions could not parse it)")
+                continue
+            risk = _alias_risk_label(c, c_full, has_fn)
+            if is_short_acronym(p) or acronym_form(p) or detect_rhetorical_name(p):
+                risk = "risky"
+            alias_entries.append(AliasCountEntry(alias=p, count=c, risk=risk))
+            if c <= 0:
+                not_searched.append(f"{p} (no hits)")
+            elif max_hits and c > max_hits:
+                not_searched.append(f"{p} ({c} Dimensions hits)")
+            else:
+                (risky if risk == "risky" else safe).append(p)
+        if rmap.former_or_parent_names:
+            notes_parts.append(
+                "resource map: former or parent program names counted like aliases"
+                + (f"; not searched {not_searched}" if not_searched else ""))
+        return safe, risky
 
     @classmethod
     def _apply_resource_map(cls, rmap, safe: list[str], risky: list[str], flag_terms: list[str],
@@ -2382,7 +2430,7 @@ class QueryOptimizationUseCase:
         safe, risky = list(safe), list(risky)
         keys = {a.casefold() for a in [*safe, *risky]}
         added, guarded = [], []
-        for p in sanitize_terms(list(rmap.program_names), "alias"):
+        for p in sanitize_terms(cls._own_program_names(rmap), "alias"):
             if p.casefold() in keys:
                 continue
             if is_short_acronym(p) or acronym_form(p) or detect_rhetorical_name(p):
@@ -2789,6 +2837,9 @@ class QueryOptimizationUseCase:
                     if note not in notes_parts:
                         notes_parts.append(note)
             if rmap is not None:
+                safe, risky = await self._screen_former_program_names(
+                    rmap, safe, risky, alias_entries, c_full=c_full, has_fn=has_fn,
+                    notes_parts=notes_parts)
                 safe, risky, flag_terms = self._apply_resource_map(
                     rmap, safe, risky, flag_terms, notes_parts,
                     max_hits=self._settings.optimize_flag_max_hits)
