@@ -502,7 +502,7 @@ class ExtractionClient:
                         pubs_out.append({**served[pid], "sample_year": int(year)})
                 years[int(year)] = {
                     "count": count, "allocation": int(want), "pull_cap": cap,
-                    "pool": len(pool), "pool_covers_year": len(pool) >= count,
+                    "pool": len(pool), "pool_covers_year": len(pool) < cap,
                     "sent": len(sent), "delivered": len([i for i in sent if i in delivered]),
                     "kept": len(kept), "batches": batches, "stop_reason": stop,
                 }

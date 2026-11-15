@@ -12,8 +12,13 @@ learns from). The design follows the extraction probe API:
   remainder, so the allocation sums to the target exactly), and one probe per year pulls
   that year with a cap of ``count + 50`` (at most 1,000). When a year has at most 950
   papers the pool is the whole year and the draw inside it is uniformly random; above
-  that the pool is the year's 1,000 most cited and the record says so
-  (``pool_covers_year`` false);
+  that the pool is the year's 1,000 most cited. A pull that reaches its cap may have
+  left papers out, and the record says so (``pool_covers_year`` false); a pull below
+  its cap is the whole year, whatever the facet counted. The facet counts the probe
+  seed's population (its publication types and US-affiliation filter). This cap
+  deliberately replaces ``probe_pull_cap`` for these probes: one probe per year with an
+  allocation, each pulling up to ``count + 50`` records (at most 1,000), so a query of
+  11 years with about 400 papers each pulls about 4,950 records;
 * inside a year, papers are drawn in a seeded random order (the pool sorted by id, then
   shuffled with a generator seeded from the run seed and the year), sent for open full
   text in that order until the year's allocation has delivered full text; the first

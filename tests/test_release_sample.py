@@ -244,3 +244,49 @@ def test_top_cited_mode_still_needs_the_split_minimum(tmp_path):
     out, client = _run(tmp_path, _pubs(10, 1, 1, 0), [], fulltext_release_sampling="top_cited")
     assert client.sample_calls == [] and out.release_bar_met is False
     assert out.release_sample["sampling"] == "top_cited" and out.release_sample["min_sample"] == 21
+
+
+
+@pytest.mark.parametrize("shadow", [False, True])
+def test_the_release_facet_call_is_reserved_in_the_dimensions_budget(tmp_path, shadow):
+    """The recall check and the gates spend calls while ``_budget_left()``; they must leave
+    the year-facet call free, so a split dataset is not withheld (LOW) only because the
+    run spent its Dimensions cap before the release sample."""
+    uc = QueryOptimizationUseCase(
+        dsl_port=YearDSL(), research=MagicMock(), agent=MagicMock(),
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True,
+                               optimize_max_dimensions_calls=10,
+                               fulltext_release_shadow=shadow),
+        extraction_client=FakeClient([{}]))
+    uc._resource_map = None if shadow else MAP  # shadow: a non-split dataset
+    uc._reserve_release_calls()
+    while uc._budget_left():  # an elastic spender (recall check, gate variants)
+        uc._dims_calls += 1
+    assert uc._dims_calls == 9
+    assert asyncio.run(uc._year_counts('\\"Example Cohort Program\\"')) == {2020: 60, 2021: 40}
+    assert uc._dims_calls == 10
+
+
+def test_no_call_is_reserved_when_no_random_sample_is_drawn(tmp_path):
+    uc = QueryOptimizationUseCase(
+        dsl_port=YearDSL(), research=MagicMock(), agent=MagicMock(),
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True,
+                               optimize_max_dimensions_calls=10),
+        extraction_client=FakeClient([{}]))
+    uc._resource_map = None  # non-split, default random_split, no shadow
+    uc._reserve_release_calls()
+    while uc._budget_left():
+        uc._dims_calls += 1
+    assert uc._dims_calls == 10
+
+
+def test_the_year_facet_counts_the_probe_seed_population(tmp_path):
+    dsl = YearDSL()
+    uc = QueryOptimizationUseCase(
+        dsl_port=dsl, research=MagicMock(), agent=MagicMock(),
+        settings=make_settings(tmp_path, default_publication_types=["article", "preprint"],
+                               default_filter_us_affiliation=True),
+        extraction_client=FakeClient([{}]))
+    asyncio.run(uc._year_counts('\\"X\\"'))
+    (q,) = dsl.queries
+    assert 'type in ["article", "preprint"]' in q and 'research_org_countries = "US"' in q

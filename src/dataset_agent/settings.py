@@ -248,7 +248,9 @@ class Settings(BaseSettings):
     #: Hard stop on analyze batches per probe (batch_size x max_batches candidates).
     fulltext_max_batches: int = Field(default=8, ge=1, le=50)
     #: Max publications pulled from Dimensions by a probe task (extraction ``probe_pull_cap``).
-    #: This is the pool the top-up batches draw from.
+    #: This is the pool the top-up batches draw from. The random release sample does not
+    #: use it: its per-year probes pull up to the year's count + 50 (at most 1,000) so the
+    #: draw covers the whole year (``adapters.release_sample``).
     probe_pull_cap: int = Field(default=300, ge=1, le=1000)
     #: Wall-clock budget for the probe search and for each analyze batch (full text + LLM).
     probe_poll_timeout_seconds: float = Field(default=3600.0, gt=0.0)

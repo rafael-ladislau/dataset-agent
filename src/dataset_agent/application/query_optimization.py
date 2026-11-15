@@ -393,6 +393,7 @@ class QueryOptimizationUseCase:
         self._referent_agent = referent_agent
         self._dims_calls = 0
         self._cap_extra = 0
+        self._release_reserve = 0
         self._resource_map = None
         self._resource_map_error: str | None = None
         self._map_decision = None
@@ -405,9 +406,19 @@ class QueryOptimizationUseCase:
         return cap + self._cap_extra if cap > 0 else cap
 
     def _room(self, keep: int = 0) -> bool:
-        """Room for one more Dimensions call while keeping *keep* calls free (cap 0 = unlimited)."""
+        """Room for one more Dimensions call while keeping *keep* calls free (cap 0 = unlimited),
+        plus the calls reserved for the release sample (``_release_reserve``)."""
         cap = self._call_cap()
-        return cap <= 0 or self._dims_calls + 1 + keep <= cap
+        return cap <= 0 or self._dims_calls + 1 + keep + self._release_reserve <= cap
+
+    def _reserve_release_calls(self) -> None:
+        """Hold back the Dimensions call of the release sample (its year facet) when a
+        random sample will be drawn (it decides, or the shadow records it), so the recall
+        check and the gates cannot spend it. Released by ``_year_counts``."""
+        s = self._settings
+        will_draw = self._fulltext_enabled() and (
+            self._random_release() or bool(s.fulltext_release_shadow))
+        self._release_reserve = 1 if will_draw else 0
 
     def _fulltext_enabled(self) -> bool:
         return bool(self._settings.fulltext_refinement_enabled)
@@ -2585,12 +2596,22 @@ class QueryOptimizationUseCase:
     # -- the release sample (adapters.release_sample) ------------------------------------
 
     async def _year_counts(self, for_clause: str) -> dict[int, int]:
-        """Per-year Dimensions counts of *for_clause* in the dataset window (one facet call)."""
+        """Per-year Dimensions counts of *for_clause* in the dataset window (one facet call),
+        over the population the probe seed asks for: its publication types and, when set,
+        the US-affiliation filter (``research_org_countries = "US"``, as extraction applies)."""
+        import json
+
         from dataset_agent.adapters.release_sample import year_counts_from_result
 
+        s = self._settings
         ys, ye = self._dataset_years()
+        types = list(s.default_publication_types) or ["article"]
+        where = f"year in [{ys}:{ye}] and type in {json.dumps(types)}"
+        if s.default_filter_us_affiliation:
+            where += ' and research_org_countries = "US"'
         dsl = (f'search publications in full_data for "{for_clause}" '
-               f'where year in [{ys}:{ye}] and type="article" return year limit 50')
+               f'where {where} return year limit 50')
+        self._release_reserve = 0  # this is the call that was held back
         result = await self._counted_execute(dsl)
         raise_for_dsl_errors(result)
         return year_counts_from_result(result)
@@ -3070,6 +3091,7 @@ class QueryOptimizationUseCase:
         # Dimensions total and budget.
         self._dims_calls = 0
         self._cap_extra = 0
+        self._release_reserve = 0
         self._resource_map = None
         self._resource_map_error = None
         self._map_decision = None
@@ -3193,6 +3215,7 @@ class QueryOptimizationUseCase:
             )
         flag_terms = sanitize_terms(flag_terms, "flag term")
         exclude_terms = sanitize_terms(exclude_terms, "exclude term")
+        self._reserve_release_calls()
         rmap = self._resource_map
         if rmap is not None:
             # Generated data phrases are ordinary alias candidates: counted and probed.
