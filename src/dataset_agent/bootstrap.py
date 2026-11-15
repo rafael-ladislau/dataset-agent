@@ -208,8 +208,9 @@ async def run_full_pipeline(
     if not record.resource_map_checked:
         # Research could not decide the map and optimize drew it (and stored it): carry
         # the stored decision onto the record saved below, or that save would drop it.
-        stored = research_uc.stored_map_decision(record.main_dataset_name)
-        if stored is not None:
+        stored_fn = getattr(research_uc, "stored_map_decision", None)
+        stored = stored_fn(record.main_dataset_name) if callable(stored_fn) else None
+        if isinstance(stored, type(record)):
             record.resource_map = stored.resource_map
             record.resource_map_checked = True
             record.resource_map_error = None
