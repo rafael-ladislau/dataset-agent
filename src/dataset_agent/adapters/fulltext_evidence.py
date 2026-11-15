@@ -10,9 +10,12 @@ dataset is a correct match even when it does not use it):
   all are excluded from the full-text metrics (they only lower OA coverage);
 * a term is attributed to a paper when it appears in the paper's evidence quote,
   title or full-text snippets of the query's terms (``term_contexts``);
-* a dataset name found only in the paper's reference list is not a mention: when every
-  non-flag snippet is in ``references`` and no flag snippet lies outside it, the
-  verdict is ``not_mentioned`` whatever the validator said (see _references_only).
+* a dataset name found only in the paper's reference list is not a mention. When the
+  served row carries ``bibliography_excluded`` True the pipeline cut the reference list
+  before the judge read the paper and the judge's verdict stands. Otherwise, when every
+  non-flag snippet is in ``references``, no flag snippet lies outside it, and the
+  validator's quote is empty or lies inside one references snippet, the verdict is
+  ``not_mentioned`` (see references_only_override); anything else keeps the verdict.
 
 AI models (body ``seed_type == "ai_model"``, model task v2 / v2.1) read
 ``validated_ai_models`` rows instead, with these differences (owner decision: a model name
@@ -105,6 +108,9 @@ class PubVerdict:
     validator_scope: str | None = None
     #: Datasets: the scope check turned this paper under its references-only rule.
     scope_references_only: bool = False
+    #: Datasets: the pipeline cut the reference list before the judge read the paper
+    #: (served ``bibliography_excluded``); the references-only rules then never apply.
+    bibliography_excluded: bool = False
 
     @property
     def genuine(self) -> bool:
@@ -508,8 +514,7 @@ def _references_only(contexts: list[dict]) -> bool:
     return all(c.get("part") == "references" for c in contexts if c.get("role") == "flag")
 
 
-#: Citation markers in a quoted bibliography entry: "[62]", "[3, 5-7]", "(ref 62)",
-#: "(refs. 3,4)" and superscript-like digits.
+#: Citation markers: "[62]", "[3, 5-7]", "(ref 62)", "(refs. 3,4)" and superscript digits.
 _CITATION_MARKER = re.compile(
     r"\[\s*\d+(?:\s*[-\u2013,]\s*\d+)*\s*\]"
     r"|\(\s*(?:refs?|reference)\.?\s*\d+(?:\s*[-\u2013,]\s*\d+)*\s*\)"
@@ -518,126 +523,47 @@ _CITATION_MARKER = re.compile(
 )
 #: A leading entry number ("62. ", "62) ").
 _LEAD_NUMBER = re.compile(r"^\s*\d+\s*[.)]\s+")
-#: Pieces of a bibliography entry: authors, title, journal and year are separated by a
-#: full stop or semicolon; cited titles in a references snippet by " | ".
-_ENTRY_PIECE = re.compile(r"[.;]\s+|\s\|\s|\s*;\s*")
+#: Joiners between excerpts or cited titles: "|", "…", "..." and spaced ". . .".
+_JOINER = re.compile(r"\||\u2026|\.(?:\s*\.){2,}")
+#: Digits glued to the end of a word ("Us41" -> "Us").
+_GLUED_DIGITS = re.compile(r"(?<=[^\W\d_])\d+\b")
 
 
-def _quote_pieces(quote: str) -> list[list[str]]:
-    """Token lists of the quote's pieces, after citation markers are stripped (authors and
-    the journal/year tail become pieces of their own)."""
-    text = _LEAD_NUMBER.sub("", _CITATION_MARKER.sub(" ", quote or ""))
-    return [t for t in (_tokens(x) for x in _ENTRY_PIECE.split(text)) if t]
-
-
-def _snippet_pieces(snippet: str) -> list[list[str]]:
-    """Token lists of a references snippet's pieces (cited titles, a title's sub-parts),
-    without the window's ellipses."""
-    text = (snippet or "").replace("\u2026", " ")
-    return [t for t in (_tokens(x) for x in _ENTRY_PIECE.split(text)) if t]
-
-
-def _longest_run(a: list[str], b: list[str]) -> tuple[int, int, int]:
-    """(start in a, start in b, length) of the longest common contiguous token run."""
-    best = (0, 0, 0)
-    prev = [0] * (len(b) + 1)
-    for i in range(1, len(a) + 1):
-        cur = [0] * (len(b) + 1)
-        for j in range(1, len(b) + 1):
-            if a[i - 1] == b[j - 1]:
-                cur[j] = prev[j - 1] + 1
-                if cur[j] > best[2]:
-                    best = (i - cur[j], j - cur[j], cur[j])
-        prev = cur
-    return best
-
-
-#: Generic data or program words removed from the ends of a name term to get its core
-#: ("<name> data" -> "<name>"), as folded token runs; longer runs are tried first.
-GENERIC_TERM_ENDS: tuple[tuple[str, ...], ...] = tuple(sorted(
-    {tuple(w.split()) for w in (
-        "data", "dataset", "datasets", "database", "databases", "data set", "data sets",
-        "data repository", "data repositories", "repository", "repositories", "program",
-        "programs", "programme", "programmes", "cohort", "cohorts", "study", "studies",
-        "research program", "research programs", "research programme",
-        "research programmes", "initiative", "initiatives", "project", "projects",
-        "resource", "resources",
-    )},
-    key=len, reverse=True,
-))
-
-
-def term_core(term: str) -> list[str] | None:
-    """The folded tokens of *term* with ``GENERIC_TERM_ENDS`` removed from both ends; None
-    when nothing was removed or fewer than 2 tokens remain."""
-    toks = _tokens(term)
-    core = list(toks)
-    changed = True
-    while changed and core:
-        changed = False
-        for g in GENERIC_TERM_ENDS:
-            n = len(g)
-            if len(core) > n and tuple(core[-n:]) == g:
-                core, changed = core[:-n], True
-                break
-            if len(core) > n and tuple(core[:n]) == g:
-                core, changed = core[n:], True
-                break
-    if core == toks or len(core) < 2:
-        return None
-    return core
-
-
-def _piece_matches(want: list[str], have: list[str], term: list[str]) -> bool:
-    """The longest shared token run covers *term* and is the whole of either piece."""
-    i, _j, n = _longest_run(want, have)
-    if not n or (term and not _in_tokens(term, want[i:i + n], False)):
-        return False
-    return n == len(want) or n == len(have)
+def _ref_norm(text: str) -> str:
+    """Normalize a quote or a references snippet for the references-only containment test:
+    citation markers and a leading entry number removed, case-folded, joiners as
+    whitespace, digits glued to a word's end removed, whitespace collapsed, and the
+    punctuation around the whole text trimmed."""
+    t = _LEAD_NUMBER.sub("", _CITATION_MARKER.sub(" ", text or ""))
+    t = _JOINER.sub(" ", t.casefold())
+    t = _GLUED_DIGITS.sub("", t)
+    return " ".join(t.split()).strip(" .,;:")
 
 
 def quote_allows_references_only(quote: str | None, contexts: list[dict]) -> bool:
-    """The references-only override may apply: the validator's quote is empty (once citation
-    markers are stripped), or every piece of it that names the dataset quotes a cited entry
-    from a ``references`` snippet.
-
-    Both sides are normalized (folded tokens; citation markers, entry numbers and
-    superscript digits removed) and cut into pieces: the quote's authors, title and
-    journal/year tail, the snippet's cited titles. A quote piece matches a snippet piece
-    when their longest shared token run covers the snippet's name term and is the whole of
-    one of them: the quoted title holds the whole cited piece (a title the window cut
-    short too) or the quoted piece lies inside the cited title. Quote pieces without a name
-    term or term core (``term_core``: authors, journal and year) are ignored; a quote with
-    no name piece, or with one
-    name piece that matches no cited piece (a sentence from the text, e.g. a review's
-    table next to a cited title), keeps the judge's verdict. General rule: no dataset
-    names."""
-    pieces = _quote_pieces(quote or "")
-    if not pieces:
+    """The references-only override may apply: the validator's quote is empty once
+    normalized (``_ref_norm``), or it lies entirely inside one single ``references``
+    snippet (whole words, after the same normalization). Anything else (an author or
+    journal line the snippet does not hold, a body sentence, a quote spanning two
+    snippets) keeps the judge's verdict. General rule: no dataset names."""
+    q = _ref_norm(quote or "")
+    if not q:
         return True
-    refs = []
-    for c in contexts:
-        if c.get("part") != "references":
-            continue
-        term = str(c.get("term") or "")
-        # A piece names the dataset with the term or its core ("<name>" of "<name> data").
-        names = [t for t in (_tokens(term), term_core(term)) if t]
-        refs.append((names, _snippet_pieces(str(c.get("text") or ""))))
-    if not any(names for names, _ in refs):
-        # No name term to anchor on: any piece quoting a cited piece will do.
-        return any(_piece_matches(w, h, []) for _n, hs in refs for h in hs for w in pieces)
-
-    def name_in(w: list[str], names: list[list[str]]) -> list[str] | None:
-        return next((t for t in names if _in_tokens(t, w, False)), None)
-
-    named = [w for w in pieces if any(name_in(w, names) for names, _ in refs)]
-    if not named:
-        return False
-    return all(
-        any((t := name_in(w, names)) is not None and _piece_matches(w, h, t)
-            for names, hs in refs for h in hs)
-        for w in named
+    inside = re.compile(rf"(?<!\w){re.escape(q)}(?!\w)")
+    return any(
+        inside.search(_ref_norm(str(c.get("text") or "")))
+        for c in contexts if c.get("part") == "references"
     )
+
+
+def references_only_override(quote: str | None, contexts: list[dict], *,
+                             bibliography_excluded: bool) -> bool:
+    """Turn a dataset verdict to ``not_mentioned``: the judge read the reference list (no
+    ``bibliography_excluded`` marker), the paper names the dataset only there
+    (``_references_only``) and the quote allows it (``quote_allows_references_only``).
+    With the bibliography cut by the pipeline the judge is trusted."""
+    return (not bibliography_excluded and _references_only(contexts)
+            and quote_allows_references_only(quote, contexts))
 
 
 _ENTITIES = ("dataset", "ai_model")
@@ -716,8 +642,9 @@ def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evi
         if v is None:
             continue
         overridden_from = None
-        if (v[0] != "not_mentioned" and _references_only(contexts)
-                and quote_allows_references_only(v[1], contexts)):
+        excluded = _bibliography_excluded(p)
+        if v[0] != "not_mentioned" and references_only_override(
+                v[1], contexts, bibliography_excluded=excluded):
             overridden_from, v = v[0], ("not_mentioned", v[1])
         ev.verdicts.append(
             PubVerdict(
@@ -731,9 +658,18 @@ def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evi
                 categories=[c for c in (p.get("category_for") or []) if isinstance(c, str)],
                 overridden_from=overridden_from,
                 validator_scope=_served_scope(p),
+                bibliography_excluded=excluded,
             )
         )
     return ev
+
+
+def _bibliography_excluded(pub: dict[str, Any]) -> bool:
+    """The pipeline cut the reference list before the judge read the paper: the served
+    ``bibliography_excluded`` is True on the row the verdict rests on. Absent or False (no
+    marker, or an older stack) means the judge saw the reference list."""
+    row = _deciding_row(pub)
+    return bool(row) and row.get("bibliography_excluded") is True
 
 
 def _served_scope(pub: dict[str, Any]) -> str | None:

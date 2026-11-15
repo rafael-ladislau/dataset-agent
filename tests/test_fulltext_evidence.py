@@ -161,7 +161,7 @@ def test_metrics_store_a_verdict_per_evaluated_paper():
 
 
 def _refpub(pid, contexts, used=False):
-    p = _pub(pid, 1, vd=_vd(used, quote="Precision Medicine Initiative Cohort Program"))
+    p = _pub(pid, 1, vd=_vd(used, quote="Precision Medicine Initiative Cohort"))
     p["term_contexts"] = contexts
     return p
 
@@ -465,24 +465,31 @@ def test_references_only_override_keeps_the_verdict_when_the_quote_is_a_body_sen
     assert v.verdict == "used" and v.overridden_from is None
 
 
-@pytest.mark.parametrize("quote", ["", "  ", "The Example Research Program", "Investigators. "
-                                   "The Example Research Program. N Engl J Med 2019. Extra"])
+@pytest.mark.parametrize("quote", ["", "  ", "[62]", "The Example Research Program",
+                                   "Investigators. The Example Research Program. N Engl J Med 2019"])
 def test_references_only_override_applies_on_an_empty_or_reference_quote(quote):
     ev = build_evidence({"publications": [_quoted_refpub(quote)]})
     assert ev.verdicts[0].verdict == "not_mentioned"
     assert ev.verdicts[0].overridden_from == "used"
 
 
+def test_a_quote_running_past_the_reference_snippet_keeps_the_verdict():
+    quote = "Investigators. The Example Research Program. N Engl J Med 2019. Extra"
+    ev = build_evidence({"publications": [_quoted_refpub(quote)]})
+    assert ev.verdicts[0].verdict == "used" and ev.verdicts[0].overridden_from is None
+
+
 # Real reference snippets (extraction term_contexts._parts) hold only cited titles joined by
-# " | " in a ~200-character window, with no authors, numbers or years; the judge quotes the
-# full bibliography entry.
+# " | " in a ~200-character window, with no authors, numbers or years.
 _TITLE = "The Example Research Program: a national cohort for precision medicine"
 _LONG = ("The Example Research Program: design, recruitment, consent, data collection and "
          "the first results of an international longitudinal cohort of one million adults")
 
 
-def _title_refpub(quote, snippet):
+def _title_refpub(quote, snippet, *, bibliography_excluded=None):
     p = _pub("r", 1, vd=_vd(False, quote=quote))
+    if bibliography_excluded is not None:
+        p["validated_datasets"][0]["bibliography_excluded"] = bibliography_excluded
     p["term_contexts"] = [{"term": "Example Research Program", "role": "alias",
                            "part": "references", "text": snippet}]
     return p
@@ -493,24 +500,65 @@ _SNIPPET = f"Dupilumab in atopic dermatitis | {_TITLE} | Drug-induced liver inju
 _CUT = "…Drug-induced liver injury | The Example Research Program: design, recruitment…"
 
 
-@pytest.mark.parametrize("quote,snippet", [
-    (f"[62] {_TITLE}", _SNIPPET),
-    (f"Denny JC, Rutter JL, Goldstein DB, et al. {_TITLE}. N Engl J Med. 2019;381:668-676",
-     _SNIPPET),
-    (f"{_TITLE} (ref 62)", _SNIPPET),
-    (f"62. {_LONG}. Lancet. 2020", _CUT),
-    (f"{_TITLE}¹⁴", _SNIPPET),
+@pytest.mark.parametrize("quote", [
+    f"[62] {_TITLE}",
+    f"62. {_TITLE}.",
+    f"{_TITLE} (ref 62)",
+    f"{_TITLE} (refs. 3,4)",
+    f"[3, 5-7] {_TITLE}",
+    f"{_TITLE}¹⁴",
+    f"{_TITLE}14",  # citation digits glued to the last word
+    f"Dupilumab in atopic dermatitis … {_TITLE}",  # joiners are whitespace
+    f"Dupilumab in atopic dermatitis... {_TITLE} | Drug-induced liver injury",
+    f"DUPILUMAB IN ATOPIC   DERMATITIS | {_TITLE}",
+    "The Example Research Program",
 ])
-def test_references_only_override_applies_on_bibliography_style_quotes(quote, snippet):
-    ev = build_evidence({"publications": [_title_refpub(quote, snippet)]})
+def test_references_only_override_applies_when_the_quote_lies_inside_one_cited_snippet(quote):
+    ev = build_evidence({"publications": [_title_refpub(quote, _SNIPPET)]})
     assert ev.verdicts[0].verdict == "not_mentioned"
     assert ev.verdicts[0].overridden_from == "mentioned"
 
 
-@pytest.mark.parametrize("quote", ["", "[62]"])
-def test_references_only_override_applies_on_an_empty_quote_with_title_snippets(quote):
-    ev = build_evidence({"publications": [_title_refpub(quote, _SNIPPET)]})
-    assert ev.verdicts[0].overridden_from == "mentioned"
+@pytest.mark.parametrize("quote,snippet", [
+    # Author and journal lines are not in the snippet: lean to show.
+    (f"Denny JC, Rutter JL, Goldstein DB, et al. {_TITLE}. N Engl J Med. 2019;381:668-676",
+     _SNIPPET),
+    (f"Example Research Program Investigators. {_TITLE}. N Engl J Med. 2019", _SNIPPET),
+    # A title the window cut short runs past the snippet.
+    (f"62. {_LONG}. Lancet. 2020", _CUT),
+    # Two snippets: the quote must lie inside one of them.
+    (f"{_TITLE} | Other cited title on records", _SNIPPET),
+])
+def test_references_only_override_keeps_the_verdict_outside_one_snippet(quote, snippet):
+    ev = build_evidence({"publications": [_title_refpub(quote, snippet)]})
+    assert ev.verdicts[0].verdict == "mentioned" and ev.verdicts[0].overridden_from is None
+
+
+def test_the_quote_must_lie_inside_a_single_snippet():
+    p = _title_refpub(f"{_TITLE} Other cited title on records", _SNIPPET)
+    p["term_contexts"].append({"term": "Example Research Program", "role": "alias",
+                               "part": "references", "text": "Other cited title on records"})
+    ev = build_evidence({"publications": [p]})
+    assert ev.verdicts[0].overridden_from is None
+
+
+@pytest.mark.parametrize("quote", ["", "[62]", f"[62] {_TITLE}", _SNIPPET])
+def test_bibliography_excluded_trusts_the_judge(quote):
+    # The judge never saw the reference list: its verdict stands, even for a perfect citer
+    # quote.
+    ev = build_evidence({"publications": [
+        _title_refpub(quote, _SNIPPET, bibliography_excluded=True)]})
+    v = ev.verdicts[0]
+    assert v.verdict == "mentioned" and v.overridden_from is None
+    assert v.bibliography_excluded is True
+
+
+def test_bibliography_excluded_false_or_absent_applies_the_rule():
+    for flag in (False, None):
+        ev = build_evidence({"publications": [
+            _title_refpub(f"[62] {_TITLE}", _SNIPPET, bibliography_excluded=flag)]})
+        assert ev.verdicts[0].overridden_from == "mentioned", flag
+        assert ev.verdicts[0].bibliography_excluded is False
 
 
 def test_body_sentence_sharing_title_words_keeps_the_verdict():
@@ -520,22 +568,24 @@ def test_body_sentence_sharing_title_words_keeps_the_verdict():
     assert ev.verdicts[0].verdict == "mentioned" and ev.verdicts[0].overridden_from is None
 
 
-def test_a_body_piece_with_the_name_keeps_the_verdict_next_to_a_cited_title():
-    # A review quotes a cited study's title and then its own table of included studies:
-    # the table text names the data resource and matches no reference piece.
-    cited = ("De-Black-Boxing Health AI: Demonstrating Reproducible Machine Learning "
-             "Computable Phenotypes Using the N3C-RECOVER Long COVID Model in the All of Us "
-             "Data Repository")
-    snippet = (f"…Long COVID after SARS-CoV-2 infection in adults | {cited} | Machine learning "
-               "for clinical prediction…")
-    quote = f"{cited}... AUROCs (N3C= 0.83 and All of Us = 0.72)"
+_CITED = ("De-Black-Boxing Health AI: Demonstrating Reproducible Machine Learning "
+          "Computable Phenotypes Using the N3C-RECOVER Long COVID Model in the All of Us "
+          "Data Repository")
+
+
+@pytest.mark.parametrize("joiner", ["...", "…", " | ", ". . ."])
+def test_a_body_piece_with_the_name_keeps_the_verdict_next_to_a_cited_title(joiner):
+    # A review quotes a cited study's title and then its own table of included studies.
+    snippet = (f"…Long COVID after SARS-CoV-2 infection in adults | {_CITED} | Machine "
+               "learning for clinical prediction…")
+    quote = f"{_CITED}{joiner} AUROCs (N3C= 0.83 and All of Us = 0.72)"
     p = _pub("r", 1, vd=_vd(False, quote=quote))
     p["term_contexts"] = [{"term": "All of Us", "role": "alias", "part": "references",
                            "text": snippet}]
     ev = build_evidence({"publications": [p]})
     assert ev.verdicts[0].verdict == "mentioned" and ev.verdicts[0].overridden_from is None
     # The cited title alone is a citer: the override applies.
-    p["validated_datasets"][0]["text_quote"] = cited
+    p["validated_datasets"][0]["text_quote"] = _CITED
     ev = build_evidence({"publications": [p]})
     assert ev.verdicts[0].overridden_from == "mentioned"
 
@@ -546,59 +596,44 @@ _REAL_SNIPPET = (
     "Long COVID model in the All of Us data repository. J Am Med Inform Assoc | Proposal and "
     "definition of an intelligent clinical decision support system applied to the prediction "
     "of dyspnea after 12 months of an acute episode of COVID-")
-_REAL_QUOTE = (
-    "De-Black-Boxing Health AI: Demonstrating Reproducible Machine Learning Computable "
-    "Phenotypes Using the N3C-RECOVER Long COVID Model in the All of Us Data Repository... "
-    "AUROCs (N3C= 0.83 and All of Us = 0.72)")
 
 
-def test_a_body_piece_naming_the_core_of_a_data_alias_keeps_the_verdict():
-    # The context term is "<name> data"; the review's table names only "<name>". The core
-    # of the term (generic data words removed from its ends) names the dataset too.
-    p = _pub("pub.1176137665", 1, vd=_vd(False, quote=_REAL_QUOTE))
+@pytest.mark.parametrize("joiner", ["... ", "… ", " "])
+def test_the_pub_1176137665_shape_keeps_the_verdict(joiner):
+    quote = f"{_CITED}{joiner}AUROCs (N3C= 0.83 and All of Us = 0.72)"
+    p = _pub("pub.1176137665", 1, vd=_vd(False, quote=quote))
     p["term_contexts"] = [{"term": "All of Us data", "role": "alias", "part": "references",
                            "text": _REAL_SNIPPET}]
     ev = build_evidence({"publications": [p]})
     assert ev.verdicts[0].verdict == "mentioned" and ev.verdicts[0].overridden_from is None
 
 
-_DATA_TITLE = "Linking Example Research data to national registries of adults"
-_DATA_SNIPPET = f"Dupilumab in atopic dermatitis | {_DATA_TITLE} | Drug-induced liver injury"
-
-
-@pytest.mark.parametrize("quote", [
-    f"[62] {_DATA_TITLE}",
-    f"Denny JC, Rutter JL, et al. {_DATA_TITLE}. N Engl J Med. 2019;381:668-676",
-    f"{_DATA_TITLE} (ref 62)",
-    f"{_DATA_TITLE}¹⁴",
-])
-def test_citer_shapes_still_override_with_a_data_alias_term(quote):
+def _one_snippet(quote, term, snippet):
     p = _pub("r", 1, vd=_vd(False, quote=quote))
-    p["term_contexts"] = [{"term": "Example Research data", "role": "alias",
-                           "part": "references", "text": _DATA_SNIPPET}]
-    assert build_evidence({"publications": [p]}).verdicts[0].overridden_from == "mentioned"
+    p["term_contexts"] = [{"term": term, "role": "alias", "part": "references",
+                           "text": snippet}]
+    return build_evidence({"publications": [p]}).verdicts[0]
 
 
-def test_cut_title_still_overrides_with_a_data_alias_term():
-    long = ("Linking Example Research data to national registries: design, recruitment, "
-            "consent and the first results of an international longitudinal cohort")
-    p = _pub("r", 1, vd=_vd(False, quote=f"62. {long}. Lancet. 2020"))
-    p["term_contexts"] = [{"term": "Example Research data", "role": "alias",
-                           "part": "references",
-                           "text": "…Drug-induced liver injury | Linking Example Research data "
-                                   "to national registries: design, recruitment…"}]
-    assert build_evidence({"publications": [p]}).verdicts[0].overridden_from == "mentioned"
+def test_a_one_word_name_body_mention_keeps_the_verdict():
+    v = _one_snippet(
+        "Smith J. Medical imaging data commons: MIDRC data for COVID. Radiology. 2021. "
+        "Models trained on MIDRC reached AUC 0.9",
+        "MIDRC data", "Prior work | Medical imaging data commons: MIDRC data for COVID | Other")
+    assert v.verdict == "mentioned" and v.overridden_from is None
 
 
-@pytest.mark.parametrize("term,core", [
-    ("All of Us data", ["all", "of", "us"]),
-    ("Example Cohort Study", None),  # one token left
-    ("Example Research Program dataset", None),
-    ("UK Biobank data repository", ["uk", "biobank"]),
-    ("data from the Example Registry", ["from", "the", "example", "registry"]),
-    ("Example Registry", None),  # nothing generic: no core apart from the term
-])
-def test_term_core_strips_generic_data_words_from_the_ends(term, core):
-    from dataset_agent.adapters.fulltext_evidence import term_core
+def test_a_body_sentence_with_glued_citation_digits_keeps_the_verdict():
+    v = _one_snippet(
+        "The All of Us Research Program. Biobanks such as All of Us41 and UK Biobank42 "
+        "provide data",
+        "All of Us Research Program", "Prior work | The All of Us Research Program | Other")
+    assert v.verdict == "mentioned" and v.overridden_from is None
 
-    assert term_core(term) == core
+
+def test_an_author_line_naming_the_dataset_outside_the_snippet_keeps_the_verdict():
+    v = _one_snippet(
+        "All of Us Research Program Investigators. The All of Us Research Program. "
+        "N Engl J Med. 2019",
+        "All of Us Research Program", "Prior work | The All of Us Research Program | Other")
+    assert v.verdict == "mentioned" and v.overridden_from is None

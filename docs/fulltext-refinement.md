@@ -70,6 +70,15 @@ about this dataset?", not "does the paper use it?".
 * match (genuine paper): the full text mentions the dataset, whether it uses it
   (`is_used == true`) or only mentions it (`is_mentioned == true`, `is_used == false`).
 * false positive: the full text does not mention the dataset at all.
+* references-only override (datasets only): a name found only in the reference list is not
+  a mention. When the served `validated_datasets` row carries `bibliography_excluded: true`
+  the pipeline cut the reference list before the judge read the paper, and the judge's
+  verdict stands. Otherwise the verdict becomes `not_mentioned` only when every non-flag
+  snippet is in `references` and the validator quote is empty or lies inside one single
+  references snippet, both normalized (case-folded; `|`, `…` and `...` as whitespace;
+  citation markers such as `[62]`, `(ref 62)`, a leading `62.` and superscript digits
+  removed; digits glued to a word's end removed; whitespace collapsed). Anything else keeps
+  the verdict. The scope check's references-only rule uses the same quote test.
 * Usage never decides a term change. A widely cited dataset is mentioned far more often
   than it is used; counting "mentioned, not used" as a false positive would drop the
   dataset's own official names.

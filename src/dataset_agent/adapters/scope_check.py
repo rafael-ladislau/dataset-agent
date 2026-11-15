@@ -12,9 +12,10 @@ and used shares are reported next to it.
 
 Only papers judged ``mentioned`` are checked; ``used`` papers are ``data`` without a call.
 A checked paper whose name contexts all sit in the reference list falls under the
-references-only rule, when the judge's quote is empty or matches a reference snippet: it is
-turned to ``not_mentioned`` without a call (``scope`` stays None). A quote from the text
-keeps the paper (it goes to the question).
+references-only rule, when the judge's quote is empty or lies inside one reference snippet:
+it is turned to ``not_mentioned`` without a call (``scope`` stays None). Any other quote
+keeps the paper (it goes to the question), and so does a paper whose reference list the
+pipeline cut before the judge read it (``bibliography_excluded``).
 A paper with no contexts at all is asked on the judge's quote alone; with neither contexts
 nor a quote it is kept (``unclear``).
 
@@ -271,7 +272,7 @@ def check_scope(
         if v.verdict != "mentioned":
             continue
         res.n_checked += 1
-        if (v.contexts and not _text_contexts(v)
+        if (not v.bibliography_excluded and v.contexts and not _text_contexts(v)
                 and quote_allows_references_only(v.quote, v.contexts)):
             v.overridden_from, v.verdict = v.verdict, "not_mentioned"
             v.scope_references_only = True

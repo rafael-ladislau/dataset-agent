@@ -213,3 +213,16 @@ def test_references_only_rule_applies_on_an_empty_or_reference_quote():
         ev = _ref_only_verdict(quote)
         res = _check(ev, FakeJudge())
         assert res.n_references_only == 1 and ev.verdicts[0].verdict == "not_mentioned"
+
+
+def test_references_only_rule_never_applies_when_the_bibliography_was_excluded():
+    # The judge never saw the reference list: its "mentioned" stands, even with an empty
+    # quote or one that lies inside the reference snippet; the paper goes to the question.
+    for quote in ("", "The Example Program"):
+        ev = _ref_only_verdict(quote)
+        ev.verdicts[0].bibliography_excluded = True
+        judge = FakeJudge(["data"])
+        res = _check(ev, judge)
+        assert res.n_references_only == 0, quote
+        assert ev.verdicts[0].verdict == "mentioned" and ev.verdicts[0].scope == "data", quote
+        assert not ev.verdicts[0].scope_references_only
