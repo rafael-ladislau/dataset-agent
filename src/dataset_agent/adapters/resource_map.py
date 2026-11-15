@@ -728,7 +728,8 @@ def data_wording_clause(rmap: ResourceMap | None, *, max_hits: int = 500_000) ->
     """The data-wording alternative for a split dataset (the round-2 shape), reported next
     to the released broad query: non-acronym data phrases (``<program> data``) and specific
     data names stand alone; program names are AND-ed with the data resource names (not a
-    bare short acronym, at most *max_hits* hits). None without a map."""
+    bare short acronym, at most *max_hits* hits). With no such data name the program names
+    are left out. None without a map, or when nothing is left."""
     from dataset_agent.adapters.query_builder import build_for_clause
     from dataset_agent.adapters.query_heuristics import is_short_acronym
     from dataset_agent.adapters.scope_check import acronym_form, generated_data_phrases
@@ -741,8 +742,11 @@ def data_wording_clause(rmap: ResourceMap | None, *, max_hits: int = 500_000) ->
                 and (rmap.data_name_hits.get(d) or 0) <= max_hits]
     gate = [d for d in rmap.data_resource_names if not is_short_acronym(d)
             and (rmap.data_name_hits.get(d) or 0) <= max_hits]
-    return build_for_clause(safe=list(dict.fromkeys([*phrases, *specific])), variant="V4",
-                            risky=programs, flag_terms=gate) or None
+    safe = list(dict.fromkeys([*phrases, *specific]))
+    # With no gate, program names are left out (never OR-ed bare): the alternative is the
+    # safe data phrases only, and with nothing at all there is no alternative.
+    return build_for_clause(safe=safe, variant="V4", risky=programs if gate else [],
+                            flag_terms=gate) or None
 
 
 def program_datasets_summary(pd) -> str:

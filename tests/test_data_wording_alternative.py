@@ -73,3 +73,22 @@ def test_optimize_record_carries_the_alternative(tmp_path, monkeypatch):
     assert pd.data_wording_count is not None
     assert "not the released query" in pd.data_wording_note
     assert "data-wording alternative" in out.notes
+
+
+def test_empty_gate_leaves_the_program_names_out():
+    # Every data name is a bare short acronym or above max_hits: no gate.
+    rmap = ResourceMap(program_names=["All of Example Research Program", "All of Example", "AOE"],
+                       data_resource_names=["CDR", "Example Workbench"],
+                       specific_data_names=[],
+                       data_name_hits={"Example Workbench": 700_000})
+    clause = data_wording_clause(rmap, max_hits=500_000)
+    assert clause is not None
+    assert '\\"All of Example Research Program data\\"' in clause
+    for bare in ('\\"All of Example\\"', '\\"AOE\\"', '\\"All of Example Research Program\\"'):
+        assert bare not in clause
+
+
+def test_nothing_safe_and_no_gate_gives_no_alternative():
+    rmap = ResourceMap(program_names=["AOE", "All of Example Cohort"],  # acronym; data noun
+                       data_resource_names=["CDR"], specific_data_names=[])
+    assert data_wording_clause(rmap, max_hits=500_000) is None
