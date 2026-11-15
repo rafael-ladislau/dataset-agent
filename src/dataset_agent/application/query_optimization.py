@@ -2757,6 +2757,9 @@ class QueryOptimizationUseCase:
             request.dataset_name,
         )
 
+        # Reset before anything counts: the map redraw below is part of this run's
+        # Dimensions total and budget.
+        self._dims_calls = 0
         self._cap_extra = 0
         self._resource_map = None
         self._resource_map_error = None
@@ -2864,7 +2867,6 @@ class QueryOptimizationUseCase:
                 notes="",
             )
 
-        self._dims_calls = 0
         phase1 = "phase1_alias_counting"
         t_phase1 = time.perf_counter()
         try:

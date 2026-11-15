@@ -118,3 +118,34 @@ def test_full_pipeline_request_retries_a_failed_research_map(tmp_path):
     asyncio.run(uc.execute(OptimizeRequest(
         dataset_name="Example Program", dataset_names=["Example Program"], flag_terms=["NIH"])))
     assert draws == []
+
+
+def test_map_redraw_counts_are_in_the_run_total_and_budget(tmp_path):
+    # A counter carried over from an earlier run must not exhaust the redraw's budget, and
+    # the redraw's Dimensions calls belong to this run's reported total.
+    import re
+
+    s = make_settings(tmp_path)
+    s.resource_map_enabled = True
+    dsl = CountDSL()
+    uc = QueryOptimizationUseCase(dsl_port=dsl, research=MagicMock(), agent=MagicMock(),
+                                  settings=s, extraction_client=FakeClient([{}]))
+    uc._dims_calls = s.optimize_max_dimensions_calls  # stale: budget used up last run
+    outcomes = []
+
+    async def draw(_rec):
+        for _ in range(3):
+            try:
+                await uc._counted_execute("count")
+                outcomes.append("ok")
+            except Exception as exc:  # budget exhausted
+                outcomes.append(str(exc))
+        return None
+
+    uc._research_resource_map = draw
+    out = asyncio.run(uc.execute(OptimizeRequest(
+        dataset_name="Example Program", dataset_names=["Example Program", "Example Cohort Study"],
+        flag_terms=["NIH"], resource_map_error="no pages could be read")))
+    assert outcomes == ["ok", "ok", "ok"]
+    reported = int(re.search(r"dimensions_api_calls≈(\d+)", out.notes).group(1))
+    assert reported == len(dsl.queries) and dsl.queries.count("count") == 3
