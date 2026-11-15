@@ -41,6 +41,7 @@ from dataset_agent.adapters.fulltext_evidence import (
     Evidence,
     PubVerdict,
     _phrase_in,
+    _references_only,
     quote_allows_references_only,
 )
 
@@ -167,9 +168,11 @@ def program_owned_data_names(program_names: list[str], data_names: list[str]) ->
 
 
 def _text_contexts(v: PubVerdict) -> list[dict]:
-    """Contexts outside the reference list (any part but ``references``: title, abstract,
-    body, availability, acknowledgement, funding, annex), the same test as
-    ``fulltext_evidence._references_only``."""
+    """Contexts with text outside the reference list (any part but ``references``: title,
+    abstract, body, availability, acknowledgement, funding, annex), where stage 0 looks
+    for a program-owned data name. Whether a paper names the dataset only in its
+    reference list is ``fulltext_evidence._references_only``, the one rule the
+    references-only turn and the four-way split share."""
     return [c for c in v.contexts
             if c.get("part") != "references" and str(c.get("text") or "").strip()]
 
@@ -272,7 +275,7 @@ def check_scope(
         if v.verdict != "mentioned":
             continue
         res.n_checked += 1
-        if (not v.bibliography_excluded and v.contexts and not _text_contexts(v)
+        if (not v.bibliography_excluded and _references_only(v.contexts)
                 and quote_allows_references_only(v.quote, v.contexts)):
             v.overridden_from, v.verdict = v.verdict, "not_mentioned"
             v.scope_references_only = True
