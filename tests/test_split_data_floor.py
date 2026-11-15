@@ -65,12 +65,13 @@ def test_the_floor_counts_only_scope_data(tmp_path):
     assert uc._meets_split_target(_metrics(0, 7, 2, 1)) is True
 
 
-def test_the_selection_is_precision_then_data_share_within_the_unrelated_limit(tmp_path):
+def test_the_selection_is_floor_then_precision_then_data_share_within_the_unrelated_limit(
+        tmp_path):
     uc = _uc(tmp_path)
     precise = _metrics(0, 3, 0, 1, n_prog=6)  # precision 0.90, data 0.30
-    floor = _metrics(1, 6, 2, 2)  # precision 0.60, data 0.60
+    floor = _metrics(1, 6, 2, 2)  # precision 0.60, data 0.60: reaches the floor
     over = _metrics(2, 9, 0, 3)  # unrelated 0.25: outside the limit
-    assert max([precise, floor, over], key=uc._selection_key).iteration == 0
+    assert max([precise, floor, over], key=uc._selection_key).iteration == 1
     tie_low = _metrics(3, 2, 0, 1, n_prog=7)  # precision 0.90, data 0.20
     assert max([tie_low, precise], key=uc._selection_key).iteration == 0
 
@@ -95,6 +96,47 @@ def test_below_the_floor_the_loop_keeps_refining_until_the_round_limit(tmp_path,
     calls.clear()
     _run(tmp_path, _pubs(55, 20, 15, 10), split=True, optimize_max_iterations=2)
     assert not calls, "a sample at the floor stops the loop"
+
+
+# -- round 10 ------------------------------------------------------------------
+
+
+def _changing_refiner(monkeypatch):
+    """A refiner that always adds one exclude, so the loop runs a second round."""
+    from dataset_agent.adapters.fulltext_refiner import RefineResult
+    from dataset_agent.domain.proposals import TermDiff
+
+    def refine(candidate, *a, **k):
+        n = len(candidate.exclude_terms)
+        import dataclasses
+
+        new = dataclasses.replace(candidate, exclude_terms=[*candidate.exclude_terms,
+                                                            f"noise{n}"])
+        return RefineResult(candidate=new, diffs=[TermDiff(
+            kind="exclude", term=f"noise{n}", action="add", status="verified")])
+
+    monkeypatch.setattr(qopt_mod, "refine_candidate", refine)
+
+
+def test_an_iteration_that_reaches_the_floor_beats_a_more_precise_one_below_it(
+        tmp_path, monkeypatch):
+    _changing_refiner(monkeypatch)
+    below = {"publications": _pubs(40, 50, 0, 10)}  # precision 0.90, data 0.40
+    floor = {"publications": _pubs(55, 0, 35, 10)}  # precision 0.55, data 0.55
+    out = _run(tmp_path, [], split=True, results=[below, floor], optimize_max_iterations=2)
+    assert len(out.fulltext_iterations) == 2
+    assert out.data_floor_met is True and out.release_bar_met is True
+    assert out.fulltext_data_floor["share"] == 0.55
+    assert "not reached" not in out.notes
+
+
+def test_the_floor_only_needs_precision_ranking_when_no_iteration_reaches_it(tmp_path):
+    uc = _uc(tmp_path)
+    precise = _metrics(0, 3, 0, 1, n_prog=6)  # precision 0.90, data 0.30
+    lower = _metrics(1, 4, 4, 2)  # precision 0.40, data 0.40
+    assert max([precise, lower], key=uc._selection_key).iteration == 0
+    reached = _metrics(2, 6, 2, 2)  # precision 0.60, data 0.60
+    assert max([precise, lower, reached], key=uc._selection_key).iteration == 2
 
 
 def test_the_floor_needs_the_minimum_sample(tmp_path):

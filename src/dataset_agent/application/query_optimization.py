@@ -2451,16 +2451,19 @@ class QueryOptimizationUseCase:
         return (self._split_release() and self._meets_unrelated_bar(m)
                 and not self._settings.fulltext_split_floor_required)
 
-    def _selection_key(self, m: IterationMetrics) -> tuple[bool, float, float, int]:
+    def _selection_key(self, m: IterationMetrics) -> tuple[bool, bool, float, float, int]:
         """Rank full-text iterations. Any other dataset: the release bar, then precision.
-        A split dataset: the unrelated bar, then precision, then the confirmed data share,
-        among iterations meeting the unrelated limit (the owner's rule). Then the earlier
-        iteration (always the last element)."""
+        A split dataset: the unrelated limit, then the data floor, then precision, then
+        the confirmed data share; so an iteration that reached the floor wins, and
+        precision-then-share decides only among iterations on the same side of the floor
+        (the owner's rule for the release below the floor). Then the earlier iteration
+        (always the last element)."""
         if self._split_release():
             met = self._meets_unrelated_bar(m)
+            floor = met and self._meets_data_floor(m)
             data = self._confirmed_data_share(m) if met else 0.0
-            return (met, float(m.fulltext_precision or 0.0), data, -m.iteration)
-        return (self._meets_release_bar(m), float(m.fulltext_precision or 0.0), 0.0,
+            return (met, floor, float(m.fulltext_precision or 0.0), data, -m.iteration)
+        return (self._meets_release_bar(m), False, float(m.fulltext_precision or 0.0), 0.0,
                 -m.iteration)
 
     @staticmethod
@@ -3587,7 +3590,7 @@ class QueryOptimizationUseCase:
                 bc = ft_candidates[best_ft_iter]
                 safe, risky = list(bc.safe), list(bc.risky)
                 flag_terms, exc_work = list(bc.flag_terms), list(bc.exclude_terms)
-                met, top_prec, top_data, _ = top
+                met, _floor, top_prec, top_data, _ = top
                 notes_parts.append(
                     f"Selected iteration {best_ft_iter} by full-text precision "
                     f"({top_prec:.2f})"
