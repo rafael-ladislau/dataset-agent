@@ -335,3 +335,23 @@ def test_sanitize_alias_escapes_extraction_phrase_set() -> None:
     # Each special character is escaped exactly once (no double escaping).
     assert sanitize_alias("a?b") == "a\\?b"
     assert sanitize_alias("a\\b") == "a\\\\b"
+
+
+def test_an_inner_double_quote_is_never_emitted() -> None:
+    """An inner double quote breaks the Dimensions phrase and silently widens it:
+    'The \\"All of Us\\" Research Program' counts 412,891 vs 3,876 without the quotes.
+    The emitter replaces it with a space before escaping."""
+    from dataset_agent.adapters.dimensions_dsl import (
+        build_publications_count_dsl,
+        inner_quoted_term,
+        sanitize_alias,
+    )
+
+    assert inner_quoted_term('The "All of Us" Research Program') == (
+        "The All of Us Research Program"
+    )
+    assert sanitize_alias('"MIMIC-IV"') == "MIMIC-IV"
+    assert sanitize_alias('a"b') == "a b"
+    dsl = build_publications_count_dsl('The "All of Us" Research Program')
+    assert dsl.count('"') == 4  # the outer quotes and the escaped phrase quotes only
+    assert '\\"The All of Us Research Program\\"' in dsl

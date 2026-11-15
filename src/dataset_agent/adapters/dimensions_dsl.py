@@ -201,12 +201,22 @@ def _parse_retry_after_seconds(message: str) -> float | None:
         return None
 
 
+#: An inner double quote, with the spaces around it.
+_INNER_QUOTE = re.compile(r'\s*"\s*')
+
+
 def sanitize_alias(text: str) -> str:
-    """Escape characters that break Dimensions ``for`` / search strings inside ``\\\"...\\\"``."""
+    """Escape characters that break Dimensions ``for`` / search strings inside ``\\\"...\\\"``.
+
+    An inner double quote is replaced with a space before escaping: even escaped, it
+    breaks the Dimensions phrase and silently widens the query (measured: 'The
+    \\"All of Us\\" Research Program' 412,891 hits vs 3,876 without the quotes). For
+    phrase matching a double quote is a separator, so the search is otherwise the same.
+    """
     if not text:
         return ""
     out: list[str] = []
-    for ch in text.strip():
+    for ch in _INNER_QUOTE.sub(" ", text).strip():
         if ch == "\\" or ch in _DSL_INNER_SPECIAL:
             out.append("\\" + ch)
         else:
