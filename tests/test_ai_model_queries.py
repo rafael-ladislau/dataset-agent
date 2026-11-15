@@ -230,8 +230,8 @@ def test_aurora_bare_name_is_gated_never_safe(tmp_path, patched) -> None:
     assert out.flag_terms == ["GraphCast", "Pangu-Weather"]
     assert out.exclusion_terms == ["aurora borealis"]
     assert out.for_clause == (
-        '(\\"Microsoft Aurora\\" OR \\"Aurora foundation model\\") OR '
-        '((\\"Aurora\\") AND (\\"GraphCast\\" OR \\"Pangu-Weather\\")) NOT (\\"aurora borealis\\")'
+        '((\\"Microsoft Aurora\\" OR \\"Aurora foundation model\\") OR '
+        '((\\"Aurora\\") AND (\\"GraphCast\\" OR \\"Pangu-Weather\\"))) NOT (\\"aurora borealis\\")'
     )
     # The bare name is never counted or searched without a flag in a selected clause.
     hits = [d for d in _aurora_corpus() if _matches(out.for_clause, d)]

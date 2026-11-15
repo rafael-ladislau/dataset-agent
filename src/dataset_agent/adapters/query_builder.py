@@ -119,15 +119,18 @@ def build_for_clause(
     elif fl and not st:
         chunks.append(_or_group(fl, sq))
 
-    body = " OR ".join(c for c in chunks if c)
     if th and tq:
-        tier = f"({_or_group(th, sq)} AND {_or_group([tq], sq)})"
-        body = f"{body} OR {tier}" if body else tier
+        chunks.append(f"({_or_group(th, sq)} AND {_or_group([tq], sq)})")
+    chunks = [c for c in chunks if c]
+    body = " OR ".join(chunks)
 
-    if variant == "V4" and ex:
-        ex_g = _or_group(ex, sq)
-        if ex_g:
-            body = f"{body} NOT {ex_g}" if body else f"NOT {ex_g}"
+    if variant == "V4" and ex and body:
+        # Every group is parenthesised: Dimensions drops a group of an unparenthesised
+        # "A OR B AND C" (it returns B AND C), so the result must never depend on
+        # precedence. With no positive part there is nothing to search: a bare
+        # "NOT (E)" would match everything outside E.
+        positive = chunks[0] if len(chunks) == 1 else f"({body})"
+        body = f"{positive} NOT {_or_group(ex, sq)}"
 
     return body
 
