@@ -206,6 +206,18 @@ MEASURED_PHRASE_RULES: list[tuple[str, str, str, bool]] = [
     # A dot between word characters is not a separator ("scikit.learn" 101).
     ("dot-not-separator", "scikit-learn", "scikit.learn", False),
     ("dot-version-is-one-token", "GPT-4", "GPT-4.5", False),
+    # A dot is a separator between a letter and a digit ("NHANES.12" = "NHANES 12"
+    # 97; "UK Biobank.23" = "UK Biobank 23" 142), which is how a GROBID citation
+    # superscript reads ("NHANES.12 We"). It stays inside the token between two digits
+    # ("GPT-4.5" 43 vs "GPT-4 5" 471; "ERA5.1" 113 vs "ERA5 1" 313) and between two
+    # letters ("scikit.learn" above).
+    ("dot-letter-digit", "NHANES 12", "NHANES.12", True),
+    ("dot-letter-digit-in-term", "UK Biobank.23", "UK Biobank 23", True),
+    ("dot-citation-superscript", "NHANES", "NHANES.12 We", True),
+    ("dot-digits-one-token", "ERA5 1", "ERA5.1", False),
+    ("dot-digits-version-split-differs", "GPT-4 5", "GPT-4.5", False),
+    # Not measured, conservative: a dot between a digit and a letter stays inside.
+    ("dot-digit-letter-not-separator", "ERA5 Land", "ERA5.Land", False),
     # "+" and "&" are dropped; "&" is not "and" (122 vs 170).
     ("plus-dropped", "PhaseNet", "PhaseNet+", True),
     ("ampersand-dropped", "Medical Imaging Data Resource Center",

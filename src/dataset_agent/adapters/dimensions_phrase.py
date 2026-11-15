@@ -15,8 +15,10 @@ and extraction (term contexts): ``MEASURED_PHRASE_RULES``.
   folds: "Alzheimer's" = "Alzheimers" = "Alzheimer", but "Alzheimer s" differs;
 * "_" is part of the token ("bert_base_uncased" 45 vs "bert base uncased" 7,366);
 * a joined form is another token: "GPT4" != "GPT 4", "ONET" != "O NET";
-* a dot is not a separator: "scikit.learn" (101) != "scikit-learn" (153,737), so
-  "2.0" is one token and "GPT-4.5" != "GPT-4 5";
+* a dot is a separator between a letter and a digit: "NHANES.12" = "NHANES 12" (97),
+  "UK Biobank.23" = "UK Biobank 23" (142), as in a citation superscript; it stays
+  inside the token between two letters, "scikit.learn" (101) != "scikit-learn"
+  (153,737), and between two digits, "GPT-4.5" (43) != "GPT-4 5" (471);
 * "+" and "&" are dropped: "C++" = "C"; "Medical Imaging & Data Resource Center" =
   "Medical Imaging Data Resource Center" (122), which is NOT the "and" spelling (170);
 * every token folds singular and plural both ways, inside a phrase too: ordinary
@@ -29,7 +31,8 @@ and extraction (term contexts): ``MEASURED_PHRASE_RULES``.
 Conservative where not measured (an extra search, never a lost one): characters that
 were not measured stay part of the token; any apostrophe other than one before a final
 "s" stays inside the token; ":" between a letter and a digit, between two digits, or at
-the edge of the phrase stays inside the token; "," or ";" between two digits stays
+the edge of the phrase stays inside the token; a dot between a digit and a letter
+stays inside the token; "," or ";" between two digits stays
 inside the token ("1,000" may be one token, as in Unicode word segmentation); the
 endings "ss" and "us" and plural tokens shorter than three characters do not fold. An
 "is" ending does fold: "MRIs" = "MRI" was measured, and case cannot tell it from
@@ -49,6 +52,8 @@ _SEPARATORS = dict.fromkeys(map(ord, '-/*&+()"'), " ")
 _POSSESSIVE = re.compile(r"(?<=\w)['\u2019](?=[sS](?!\w))")
 #: "," or ";" except between two digits (not measured there: kept, conservative).
 _COMMA = re.compile(r"(?<!\d)[,;]|[,;](?!\d)")
+#: A dot between a letter and a digit (measured: "NHANES.12" = "NHANES 12").
+_DOT = re.compile(r"(?<=[^\W\d_])\.(?=\d)")
 #: ":" next to whitespace (measured) or between a digit and a letter (measured).
 _COLON = re.compile(r"(?<=\s):|:(?=\s)|(?<=\d):(?=[^\W\d_])")
 
@@ -57,7 +62,7 @@ def _folded(term: str) -> str:
     s = unicodedata.normalize("NFKC", term or "").translate(_DASHES)
     s = _POSSESSIVE.sub("", s)
     s = _COMMA.sub(" ", s.translate(_SEPARATORS))
-    return _COLON.sub(" ", s)
+    return _DOT.sub(" ", _COLON.sub(" ", s))
 
 
 def phrase_tokens(term: str) -> list[str]:
@@ -100,8 +105,8 @@ def same_search(a: str, b: str) -> bool:
 def phrase_contains(outer: str, inner: str) -> bool:
     """True when every match of the phrase *outer* is also a match of *inner*: the
     tokens of *inner* occur contiguously in *outer*, each with its plural folded (as in
-    :func:`search_key`). A dot is part of its token, so "GPT-4.5" does not contain
-    "GPT-4" and "Prithvi-EO-2.0" does not contain "Prithvi-EO-2"."""
+    :func:`search_key`). A dot between two digits is part of its token, so "GPT-4.5"
+    does not contain "GPT-4" and "Prithvi-EO-2.0" does not contain "Prithvi-EO-2"."""
     o, i = _search_tokens(outer), _search_tokens(inner)
     if not i or len(i) > len(o):
         return False
