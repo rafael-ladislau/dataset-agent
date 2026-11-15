@@ -19,6 +19,7 @@ differ only in them stay two searches: an extra search, never a lost one.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 _DASHES = dict.fromkeys([*range(0x2010, 0x2016), 0x2212, 0xFE58, 0xFE63, 0xFF0D], "-")
@@ -64,3 +65,21 @@ def same_search(a: str, b: str) -> bool:
     ka = search_key(a)
     return bool(ka) and ka == search_key(b)
 
+
+_AMP = re.compile(r"(?<=\S) +& +(?=\S)")
+_AND = re.compile(r"(\b[A-Z][\w.'-]*) +and +(?=[A-Z])")
+
+
+def ampersand_spellings(name: str) -> list[str]:
+    """The other spellings of a proper name written with "&" or "and" between words.
+
+    Dimensions drops "&" ("Medical Imaging & Data Resource Center" searches as
+    "Medical Imaging Data Resource Center", 122 papers) and that is not the "and"
+    spelling (170 papers), so both are searched. "and" counts only between two
+    capitalised words: a lower-case neighbour makes it description, not a name."""
+    out: list[str] = []
+    if _AMP.search(name):
+        out.append(_AMP.sub(" and ", name))
+    if _AND.search(name):
+        out.append(_AND.sub(r"\1 & ", name))
+    return [o for o in dict.fromkeys(out) if o != name]

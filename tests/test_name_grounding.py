@@ -325,3 +325,16 @@ def test_screen_strips_parenthetical_gloss() -> None:
         dataset_name=TITLE, known_aliases=["Network of the Americas"], flag_terms=FLAGS, limit=8,
     )
     assert kept == ["Plate Boundary Observatory", "COCONet"]
+
+
+def test_ampersand_and_and_spellings_are_both_searched(tmp_path, monkeypatch) -> None:
+    # Dimensions drops "&" ("A & B" = "A B", 122 papers) and that is not the "and"
+    # spelling (170 papers): a name written either way is searched both ways.
+    amp, word = "Medical Imaging & Data Resource Center", "Medical Imaging and Data Resource Center"
+    counts = {"Medical Imaging \\& Data Resource Center": 122, word: 170, TITLE: 40}
+    out, _agent = _run(
+        tmp_path, monkeypatch, counts, aliases=[TITLE, amp], suggested=[], llm_names=[],
+    )
+    counted = {e.alias: e.count for e in out.alias_counts}
+    assert counted.get(amp) == 122 and counted.get(word) == 170
+    assert "'&' and 'and' are different Dimensions searches" in out.notes

@@ -99,3 +99,22 @@ def test_recall_check_keeps_a_dot_spelling_as_another_search() -> None:
         flag_terms=[],
     )
     assert [c.term for c in eligible] == ["Prithvi-EO-2.0"]
+
+
+@pytest.mark.parametrize(
+    ("name", "others"),
+    [
+        ("Medical Imaging & Data Resource Center", ["Medical Imaging and Data Resource Center"]),
+        ("Medical Imaging and Data Resource Center", ["Medical Imaging & Data Resource Center"]),
+        ("Quarterly Census of Employment and Wages UI", ["Quarterly Census of Employment & Wages UI"]),
+        ("R & D Survey", ["R and D Survey"]),
+        # Lower-case words around "and" are description, not a proper name.
+        ("data from the All of Us and the UK Biobank", []),
+        ("AT&T", []),
+        ("All of Us NIH", []),
+    ],
+)
+def test_ampersand_spellings(name: str, others: list[str]) -> None:
+    from dataset_agent.adapters.dimensions_phrase import ampersand_spellings
+
+    assert ampersand_spellings(name) == others

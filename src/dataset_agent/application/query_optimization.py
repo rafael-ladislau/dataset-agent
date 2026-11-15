@@ -39,7 +39,7 @@ from dataset_agent.adapters.dimensions_dsl import (
     run_alias_count,
     short_dsl_error,
 )
-from dataset_agent.adapters.dimensions_phrase import search_key
+from dataset_agent.adapters.dimensions_phrase import ampersand_spellings, search_key
 from dataset_agent.adapters.fp_analysis import (
     classify_alias_mention,
     classify_title,
@@ -2937,6 +2937,20 @@ class QueryOptimizationUseCase:
             aliases = [a for a in aliases if content_tokens(a)]
             notes_parts.append(f"dropped generic alias(es) {generic}")
             logger.warning("optimize: dropped generic alias(es) %s", generic)
+        # "A & B" searches as "A B", never as "A and B": a name written either way is
+        # searched both ways (each spelling is counted and judged like any alias).
+        have = {a.casefold() for a in aliases}
+        spelled = []
+        for a in list(aliases):
+            for alt in ampersand_spellings(a):
+                if alt.casefold() not in have:
+                    have.add(alt.casefold())
+                    spelled.append(alt)
+        if spelled:
+            aliases += spelled
+            notes_parts.append(
+                f"'&' and 'and' are different Dimensions searches: added {spelled}"
+            )
         flag_terms = sanitize_terms(flag_terms, "flag term")
         exclude_terms = sanitize_terms(exclude_terms, "exclude term")
         rmap = self._resource_map
