@@ -288,10 +288,13 @@ class Settings(BaseSettings):
     #: sample of the selected query's papers with full text; every other dataset keeps the
     #: top-cited sample of the selected iteration (its figures were measured that way).
     #: ``random_all``: every dataset is decided on the random sample. ``top_cited``: none
-    #: is. The refinement loop always probes top-cited papers (the refiner's input).
+    #: is. The refinement loop always probes top-cited papers (the refiner's input). AI
+    #: models are not covered: they stay on the top-cited sample in every mode, and the
+    #: shadow below is not drawn for them.
     fulltext_release_sampling: Literal["random_split", "random_all", "top_cited"] = "random_split"
     #: Also draw the random sample when the top-cited sample decides, and record it next to
     #: the decision (``release_sample.shadow``) without changing it: measures the difference.
+    #: Datasets only; AI models record no shadow.
     fulltext_release_shadow: bool = False
     #: Seed of the random release sample; unset draws a fresh seed per run. The seed used is
     #: always recorded (``release_sample.seed``), so a run can be reproduced.

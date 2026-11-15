@@ -211,6 +211,10 @@ class DatasetResearchUseCase:
     # first draw persists until someone refreshes it, so the output always says whether the
     # map was reused and when it was drawn (``resource_map_decision``), and the map itself
     # (``program_datasets``, ``found_names``) is on the record for inspection.
+    # The stored map makes the program/data decision stable, not the query: aliases,
+    # flags, excludes, live counts near a cutoff (risk labels, former program names),
+    # literature-discovery names and the random release sample are drawn on every run
+    # (docs/fulltext-refinement.md, "Stored program/data decision").
 
     def _load_own(self, main_dataset_name: str) -> DatasetRecord | None:
         """The stored record of *main_dataset_name*. The store key is a lossy filename

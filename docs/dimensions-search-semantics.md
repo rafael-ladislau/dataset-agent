@@ -13,7 +13,10 @@ The plural rules match Lucene's English minimal ("s") stemmer, which reproduces 
 case; `plural_base` implements it. The query-building and dedupe rules are one module,
 `adapters/dimensions_phrase.py`, and one rule table,
 `MEASURED_PHRASE_RULES` in `tests/test_dimensions_phrase.py`. The insights snippet matcher and the
-extraction term-context tests carry the same table; change all three together.
+extraction term-context tests carry the same table; change all three together. The full-text
+evidence attribution (`adapters/fulltext_evidence.py`) is a separate, deliberately looser matcher
+that folds every non-alphanumeric character to a space ("GPT-4" matches "GPT-4.5", "bert base"
+matches "bert_base"); it does not follow these rules.
 
 ## Phrase rules
 

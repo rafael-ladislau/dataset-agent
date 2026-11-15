@@ -105,8 +105,11 @@ and flag terms in the full text (title, text parts, reference titles) and the pa
 Dimensions fields of research. A paper that does not mention the dataset has no
 validator quote, so these snippets are what show which other meaning of a term matched
 it; they also count for per-term attribution (an alias is attributed to a paper when it
-occurs in its quote, title or snippets). Multi-word terms match across punctuation and
-hyphens (`WR. Dataset`), as a Dimensions phrase search does. When no alias occurs in a
+occurs in its quote, title or snippets). This attribution uses its own, looser matcher
+(`adapters/fulltext_evidence.py`): every non-alphanumeric character is a space, so multi-word
+terms match across any punctuation (`WR. Dataset`, `bert_base`), and "GPT-4" also matches
+"GPT-4.5". Dimensions does not search that way (`docs/dimensions-search-semantics.md`); the
+attribution can credit an alias with a paper its phrase would not return. When no alias occurs in a
 paper's text at all, extraction returns `partial` snippets around the leading acronym of
 each multi-word alias (`WR` for `WR dataset`). The paper is attributed to the alias with
 that acronym and the fewest words (the most ambiguous phrase), whichever alias extraction
@@ -265,13 +268,26 @@ the first n where both hold, but 15–17 and 20 fail again). A failed release sa
 replaced by the top-cited one: the bar is not met (LOW). Every other dataset keeps the selected
 iteration's top-cited sample (its released figures were measured that way); `random_all` moves
 them too, `top_cited` moves none, and `fulltext_release_shadow` draws the random sample next to
-a top-cited decision without changing it. The output records `release_sample`: sampling,
+a top-cited decision without changing it. AI models are not covered by any of these: they stay on
+the top-cited sample in every mode and record no shadow. The facet counts the probe seed's
+population (`default_publication_types`, and `research_org_countries = "US"` when
+`default_filter_us_affiliation` is set), and its one Dimensions call is reserved in the optimize
+budget whenever a random sample will be drawn, so the recall check and the gates cannot spend it.
+A year that delivers less than its allocation (pool exhausted or batch cap) is not topped up from
+other years and the shares are not reweighted: the pooled shares then lean toward the years
+whose open full text delivers well. Compare `allocation` with each year's `kept` in the record.
+For a split dataset, a precision measured by the recall check on top-cited complement papers
+(`recall_min_precision`) still caps the precision the HIGH test reads, so it can lower HIGH to
+MEDIUM without changing the release decision. The output records `release_sample`: sampling,
 whether it decides, seed, year counts, allocation, per-year pool, sent, delivered and kept,
 and the point estimates with Wilson 95% intervals (precision; for a split dataset the unrelated
 and confirmed data shares), and the note `full-text release sample: ...` repeats them. Cost per
-split run: one facet call, one probe per year with an allocation, and about twice the target
-in papers sent for full text (about half deliver), each delivered paper judged once by the
-extraction validator, plus one scope question per `mentioned` paper.
+split run: one facet call, one probe per year with an allocation, each pulling up to the year's
+count + 50 records (at most 1,000; this replaces `probe_pull_cap` for these probes, so 11 years of
+about 400 papers pull about 4,950 records), and about twice the target in papers sent for full
+text (about half deliver). With the defaults the target is 30 (`fulltext_target_delivered`, above
+the minimum of 21): about 60 papers sent, 30 kept, each delivered paper judged once by the
+extraction validator, plus one scope question per `mentioned` paper (at most 30).
 
 **Stored program/data decision.** A decided resource map (a split, or a firm "no split") is
 stored on the dataset's research record (`<output_dir>/<dataset name>_research.json`) with
@@ -289,9 +305,24 @@ research still runs and reuses (or draws and stores) its own decision. A run tha
 (`DATASET_AGENT_RESOURCE_MAP_ENABLED=false`, or no Dimensions client) uses no map, but its saves
 carry the stored map fields forward, so the stored decision survives it. The catch: a poor first
 draw persists until someone refreshes it, so check `program_datasets` and `found_names` after a
-first draw. The rest of research is not stored for reuse: aliases, flags and excludes come
-from each run's own research, and the stored map adds its program and data names to them; its
-counts (`cooccurrence`, `data_name_hits`) are from the drawing date.
+first draw. An optimize request that passes `dataset_names` without a map (and without
+`resource_map_error`) skips research and uses no map: it does not read the stored decision, and
+`refresh_resource_map` has no effect there.
+
+The stored map makes the program/data decision stable, not the query. Two runs of the same
+dataset with the same stored map can still release different queries, because these inputs are
+drawn fresh on every run: aliases, flags and excludes from the run's own research (and the "&"
+spellings added from them); the live Dimensions counts behind phase-1 risk labels and the
+former or parent program-name screen (a name near `optimize_flag_max_hits` or the 10x-title
+cutoff can flip between searched and not searched as counts grow); literature discovery, which
+adds data names from the used papers of this run's probe sample; and the random release sample
+(a fresh seed unless `fulltext_release_seed` is set). Only the program names, the data names and
+their stored counts (`cooccurrence`, `data_name_hits`, from the drawing date), the generated data
+phrases and `first_release_year` come from the store. Concurrent runs of one dataset are not
+locked: the last save wins, and a run can report "stored" for a map another run then
+overwrote. The store key is the dataset name made filename-safe; two names that map to the same
+file ("C++ Corpus", "C# Corpus") share it, and a record stored under the other name is not reused
+(it is drawn again and overwritten).
 
 HIGH is capped at MEDIUM, with a note saying why, in two cases: the selected iteration's
 probe pool was exhausted before the target was reached (for example 16 of 30 papers), or the

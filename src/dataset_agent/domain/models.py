@@ -235,7 +235,8 @@ class OptimizeRequest(BaseModel):
     refresh_resource_map: bool = Field(
         default=False,
         description="Draw the resource map again instead of reusing the stored decision. A "
-        "resource_map passed in the request still wins",
+        "resource_map passed in the request still wins. No effect when dataset_names are "
+        "passed without a map: that path skips research and uses no map",
     )
     dataset_description: str = Field(
         default="", description="Research description, read by the scope check and the validator"
