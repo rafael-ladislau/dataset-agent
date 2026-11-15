@@ -52,8 +52,8 @@ def test_overrides_default_to_none():
 
 
 @pytest.mark.parametrize("field,value", [
-    ("temperature", -0.1), ("temperature", 2.01), ("top_p", -0.01), ("top_p", 1.01),
-    ("top_k", 0), ("model", "   "),
+    ("temperature", -0.1), ("temperature", 2.01), ("top_p", -0.01), ("top_p", 0.0),
+    ("top_p", 1.01), ("top_k", 0), ("model", "   "),
 ])
 def test_out_of_bounds_overrides_are_rejected(field, value):
     with pytest.raises(ValidationError):
@@ -61,7 +61,7 @@ def test_out_of_bounds_overrides_are_rejected(field, value):
 
 
 @pytest.mark.parametrize("field,value", [
-    ("temperature", 0.0), ("temperature", 2.0), ("top_p", 0.0), ("top_p", 1.0), ("top_k", 1),
+    ("temperature", 0.0), ("temperature", 2.0), ("top_p", 0.01), ("top_p", 1.0), ("top_k", 1),
 ])
 def test_bounds_are_inclusive(field, value):
     assert getattr(ResearchRequest(dataset_name="X", **{field: value}), field) == value
@@ -69,6 +69,18 @@ def test_bounds_are_inclusive(field, value):
 
 def test_model_override_is_stripped():
     assert ResearchRequest(dataset_name="X", model="  qwen3.6  ").model == "qwen3.6"
+
+
+def test_post_tasks_rejects_top_p_zero_at_request_time(tmp_path: Path, monkeypatch):
+    """vLLM rejects top_p 0 only after the task is queued; the request is refused."""
+    api.app.dependency_overrides[api.get_settings] = lambda: Settings(
+        tasks_db=tmp_path / "t.db", output_dir=tmp_path / "out").model_copy(
+        update={"api_keys": ""})
+    try:
+        r = TestClient(api.app).post("/tasks", json={"dataset_name": "X", "top_p": 0})
+    finally:
+        api.app.dependency_overrides.clear()
+    assert r.status_code == 422
 
 
 def test_post_tasks_rejects_an_out_of_bounds_override(tmp_path: Path, monkeypatch):

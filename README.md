@@ -178,7 +178,7 @@ dataset-research-api
 | `GET` | `/health` | Health check; probes the configured LLM provider (`GET <base>/models`, or `/api/tags` for Ollama) |
 
 `POST /tasks` also accepts optional per-request overrides for that run only: `model`,
-`temperature` (0-2), `top_p` (0-1) and `top_k` (>= 1). They apply to the research and
+`temperature` (0-2), `top_p` (greater than 0, at most 1) and `top_k` (>= 1). They apply to the research and
 optimize agent; the full-text referent judge and the scope check keep their configured model
 and sampling. The result records what the agent ran with in `llm_sampling`; with the
 OpenAI-compatible API style `top_k` is not sent and is listed under `not_applied`.

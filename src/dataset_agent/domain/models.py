@@ -82,8 +82,9 @@ class ResearchRequest(BaseModel):
     temperature: Optional[float] = Field(
         default=None, ge=0.0, le=2.0, description="Sampling temperature (0-2)"
     )
+    # top_p must be > 0: vLLM rejects 0, and only after the task was queued.
     top_p: Optional[float] = Field(
-        default=None, ge=0.0, le=1.0, description="Top-P nucleus sampling (0-1)"
+        default=None, gt=0.0, le=1.0, description="Top-P nucleus sampling (0 < top_p <= 1)"
     )
     top_k: Optional[int] = Field(
         default=None,
