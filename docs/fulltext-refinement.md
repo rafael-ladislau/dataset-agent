@@ -213,7 +213,9 @@ references-only papers all count toward the bar, because the judge removes citer
 program-only papers downstream. There is no floor on the data share, but among iterations
 that meet the split bar the selection prefers the higher data-only share, the gate note
 prints the data-only precision, and the release note warns when no sampled paper refers to
-the data resource. HIGH still needs precision of at least 0.90. Every other
+the data resource. HIGH still needs precision of at least 0.90 (`1 - optimize_fp_threshold_pct /
+100`), and for every dataset it also needs the release bar, so `release_bar_met` is true
+whenever confidence is MEDIUM or HIGH, even with a threshold above 20. Every other
 dataset keeps the precision bar unchanged. The record states the bar (`release_bar`,
 `release_bar_met`), and for a split dataset the four-way split with counts, shares and Wilson
 95% intervals (`fulltext_four_way`) and the data-only precision (`fulltext_data_precision`);

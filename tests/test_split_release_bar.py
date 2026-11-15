@@ -54,14 +54,15 @@ def _zero_abstract_fp(monkeypatch):
     )
 
 
-def _run(tmp_path, pubs, *, split):
+def _run(tmp_path, pubs, *, split, **settings):
     llm = MagicMock()
     llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [],
                                        "reasoning": ""}
     uc = QueryOptimizationUseCase(
         dsl_port=CountDSL(), research=MagicMock(), agent=llm,
         settings=make_settings(tmp_path, fulltext_refinement_enabled=True,
-                               optimize_max_iterations=1, fulltext_recall_enabled=False),
+                               optimize_max_iterations=1, fulltext_recall_enabled=False,
+                               **settings),
         extraction_client=FakeClient([{"publications": pubs}]))
 
     async def label(ev, _request):
@@ -232,3 +233,16 @@ def test_selection_prefers_the_higher_data_share_among_iterations_meeting_the_sp
     uc._resource_map = None
     a, b = _metrics(0, 9, 0, 1, precision=0.90), _metrics(1, 8, 0, 2, precision=0.85)
     assert max([a, b], key=uc._selection_key).iteration == 0
+
+
+def test_high_confidence_requires_the_release_bar(tmp_path):
+    # optimize_fp_threshold_pct 25: precision 0.77 is within the threshold (>= 0.75) but
+    # below the 0.80 release bar; HIGH would contradict release_bar_met False.
+    out = _run(tmp_path, _pubs(77, 0, 0, 23), split=False, optimize_fp_threshold_pct=25.0)
+    assert out.fulltext_iterations[0].fulltext_precision == 0.77
+    assert out.release_bar_met is False
+    assert out.confidence.value == "low"
+    assert "release bar: precision >= 0.80 (not met)" in out.notes
+    # At 0.85 both hold: HIGH with the bar met.
+    out = _run(tmp_path, _pubs(85, 0, 0, 15), split=False, optimize_fp_threshold_pct=25.0)
+    assert out.release_bar_met is True and out.confidence.value == "high"

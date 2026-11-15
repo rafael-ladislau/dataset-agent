@@ -3641,10 +3641,12 @@ class QueryOptimizationUseCase:
                     # at its own (possibly lower) bar; never report more than it supports.
                     prec = min(prec, recall_min_precision)
                 release_met = self._meets_release_bar(sel, prec)
-                if sel.n_evaluated >= self._settings.fulltext_recall_min_evidence:
+                if sel.n_evaluated >= self._settings.fulltext_recall_min_evidence and release_met:
+                    # HIGH needs the release bar too: with optimize_fp_threshold_pct above
+                    # 20 the threshold alone would grant HIGH below the 0.80 bar.
                     if prec >= 1.0 - threshold / 100.0:
                         confidence = ConfidenceLevel.HIGH
-                    elif release_met:
+                    else:
                         confidence = ConfidenceLevel.MEDIUM
                 if confidence == ConfidenceLevel.HIGH:
                     # HIGH needs more than a precise sample: a sample cut short of its paper
