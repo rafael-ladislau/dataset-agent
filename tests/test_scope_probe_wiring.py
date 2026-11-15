@@ -81,7 +81,7 @@ def test_window_starts_at_a_confirmed_first_release_year(tmp_path):
     assert uc._dataset_years()[0] == uc._settings.default_years_start  # never earlier
 
 
-def test_with_a_map_program_names_are_gated_by_the_data_names(tmp_path, monkeypatch):
+def test_with_a_map_the_query_is_broad_on_the_program_name(tmp_path, monkeypatch):
     from dataset_agent.application import query_optimization as qopt_mod
     from dataset_agent.domain.models import DatasetRecord, Group, YearsRange
 
@@ -112,13 +112,10 @@ def test_with_a_map_program_names_are_gated_by_the_data_names(tmp_path, monkeypa
     uc._run_research = stored
     out = asyncio.run(uc.execute(OptimizeRequest(dataset_name="Example Program NIH")))
     assert out.success
-    assert out.flag_terms == ["Example Workbench", "Controlled Tier"]
-    assert "Example Program NIH" in out.aliases.risky and "Example Program" in out.aliases.risky
-    assert "Example Program NIH" not in out.aliases.safe
+    assert "Example Workbench" not in out.flag_terms and "Controlled Tier" not in out.flag_terms
+    assert "Example Program NIH" in out.aliases.safe and "Example Program" in out.aliases.safe
     assert "Example Cohort Study" in out.aliases.safe
-    counted = " ".join(dsl.queries)
-    assert "Example Program data" in counted and "data from the Example Program" in counted
-    assert "National Agency" not in out.for_clause
+    assert "Example Program" in out.for_clause
     assert out.resource_map is not None and out.scope_check_calls == 0
     assert "resource map: program" in out.notes
     assert out.program_datasets is not None

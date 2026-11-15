@@ -28,12 +28,11 @@ def test_head_noun_decides():
     assert generated_data_phrases(["Example Cohort"]) == []
 
 
-def test_a_data_noun_alias_is_not_gated():
+def test_program_and_data_noun_names_stand_alone():
     rmap = ResourceMap(program_names=["Example Program", "Example Cohort"],
                        data_resource_names=["Example Workbench"])
     notes: list[str] = []
     safe, risky, _ = QueryOptimizationUseCase._apply_resource_map(
         rmap, ["Example Cohort", "Example Program"], [], [], notes)
     assert "Example Cohort" in safe and "Example Cohort" not in risky
-    assert "Example Program" in risky and "Example Program" not in safe
-    assert any("data-noun names not gated ['Example Cohort']" in n for n in notes)
+    assert "Example Program" in safe and "Example Program" not in risky

@@ -93,6 +93,7 @@ from dataset_agent.adapters.query_builder import (
 )
 from dataset_agent.adapters.query_heuristics import (
     apply_short_acronym_heuristic,
+    detect_rhetorical_name,
     is_acronym_shaped_name,
     is_acronym_suffix_form,
     is_short_acronym,
@@ -101,7 +102,6 @@ from dataset_agent.adapters.referent_check import check_referents, model_profile
 from dataset_agent.adapters.resource_map import program_datasets, program_datasets_summary
 from dataset_agent.adapters.scope_check import (
     acronym_form,
-    carries_data_noun,
     check_scope,
     generated_data_phrases,
     phrase_program,
@@ -2368,62 +2368,65 @@ class QueryOptimizationUseCase:
     def _apply_resource_map(cls, rmap, safe: list[str], risky: list[str], flag_terms: list[str],
                             notes_parts: list[str], *, max_hits: int = 500_000
                             ) -> tuple[list[str], list[str], list[str]]:
-        """Program names go to the gated group; the gate is the data resource names, and
-        organisation flags leave it. A generated data phrase is a data reference by
-        construction: it is a safe candidate (validated by the probe like any alias) and is
-        never placed behind the gate. A specific data resource name is a safe candidate too;
-        the gate keeps every data name that passes the flag screening (not a bare short
-        acronym, at most *max_hits* hits). ``build_for_clause`` is unchanged."""
-        # Noun test: a name whose head is a data noun ("<program> Cohort") is a data
-        # reference; it keeps its phase-1 routing and the probe decides.
-        programs = [p for p in sanitize_terms(list(rmap.program_names), "alias")
-                    if not carries_data_noun(p)]
-        kept_by_noun = [p for p in rmap.program_names if carries_data_noun(p)]
-        if kept_by_noun:
-            notes_parts.append(f"resource map: data-noun names not gated {kept_by_noun}")
-        prog = {p.casefold() for p in programs}
-        moved = [a for a in safe if a.casefold() in prog]
-        safe = [a for a in safe if a.casefold() not in prog]
-        risky = [*risky, *moved, *programs]
-        # Acronym forms of the generated phrases ("data from the AOU") keep the acronym
-        # guards: they are gated, whatever their count said.
+        """Broad query for a split dataset (owner decision, round 3): program names and
+        specific data resource names are OR-ed; nothing is gated by data names, and the
+        full-text judge labels papers that only discuss the program.
+
+        Guards still apply: a bare ordinary phrase ("All of Us") or a short acronym never
+        stands alone (risky, gated by the research flags as without a map); a name phase 1
+        marked risky stays risky (an ambiguous phrase stands alone only when its probe
+        passes); generated data phrases built from an acronym stay risky. A specific data
+        name stands alone when it is not a bare short acronym and has at most *max_hits*
+        hits; generic data names ("Data Browser") are not searched. ``build_for_clause`` is
+        unchanged."""
+        safe, risky = list(safe), list(risky)
+        keys = {a.casefold() for a in [*safe, *risky]}
+        added, guarded = [], []
+        for p in sanitize_terms(list(rmap.program_names), "alias"):
+            if p.casefold() in keys:
+                continue
+            if is_short_acronym(p) or acronym_form(p) or detect_rhetorical_name(p):
+                guarded.append(p)
+            else:
+                added.append(p)
+            keys.add(p.casefold())
+        safe += added
+        risky += guarded
+        # Generated data phrases: a non-acronym phrase is a data reference by construction
+        # (safe candidate); an acronym phrase keeps the acronym guards.
         acr = {p.casefold() for p in generated_data_phrases(list(rmap.program_names))
                if acronym_form(p)}
-        acr_safe = [a for a in safe if a.casefold() in acr]
-        if acr_safe:
-            safe = [a for a in safe if a.casefold() not in acr]
-            risky = [*risky, *acr_safe]
-            notes_parts.append(f"resource map: acronym data phrases gated {acr_safe}")
         phrases = {p.casefold() for p in cls._standalone_data_phrases(rmap)}
         freed = [a for a in risky if a.casefold() in phrases]
-        if freed:
-            risky = [a for a in risky if a.casefold() not in phrases]
-            safe = [*safe, *freed]
-            notes_parts.append(f"resource map: data phrases stand alone {freed}")
-        specific = [d for d in sanitize_terms(list(rmap.specific_data_names), "alias")
-                    if d.casefold() not in {a.casefold() for a in safe}]
-        if specific:
-            safe = [*safe, *specific]
-            risky = [a for a in risky if a.casefold() not in {d.casefold() for d in specific}]
-            notes_parts.append(f"resource map: specific data names stand alone {specific}")
-        gate, screened = [], []
-        for d in sanitize_terms(list(rmap.data_resource_names), "flag term"):
+        risky = [a for a in risky if a.casefold() not in phrases]
+        held = [a for a in safe if a.casefold() in acr]
+        safe = [a for a in safe if a.casefold() not in acr] + freed
+        risky += held
+        specific, screened = [], []
+        for d in sanitize_terms(list(rmap.specific_data_names), "alias"):
             hits = rmap.data_name_hits.get(d)
             if is_short_acronym(d):
                 screened.append(f"{d} (bare short acronym)")
             elif hits is not None and hits > max_hits:
                 screened.append(f"{d} ({hits} Dimensions hits)")
-            else:
-                gate.append(d)
-        if screened:
-            notes_parts.append(f"resource map: data names dropped from the gate: {screened}")
-        if not gate:
-            gate = list(flag_terms)
+            elif d.casefold() not in {a.casefold() for a in safe}:
+                specific.append(d)
+        safe += specific
+        risky = [a for a in risky if a.casefold() not in {d.casefold() for d in specific}]
+        safe_keys = {a.casefold() for a in safe}
+        flags = [f for f in flag_terms if f.casefold() not in safe_keys]
+        unused = [d for d in rmap.data_resource_names
+                  if d.casefold() not in safe_keys]
         notes_parts.append(
-            f"resource map: program names {programs} gated by data resource names {gate}; "
-            f"flags {flag_terms} leave the gate"
+            f"resource map: query broad on the program name: program names {added} and "
+            f"specific data names {specific} stand alone"
+            + (f"; never stand alone (ordinary phrase or acronym) {guarded}" if guarded else "")
+            + (f"; acronym data phrases kept risky {held}" if held else "")
+            + (f"; specific data names screened {screened}" if screened else "")
+            + (f"; data names not searched {unused}" if unused else "")
+            + f"; gate = research flags {flags}"
         )
-        return safe, risky, gate
+        return safe, risky, flags
 
     def _dataset_years(self) -> tuple[int, int]:
         """The dataset window: it starts at the first data release year when research

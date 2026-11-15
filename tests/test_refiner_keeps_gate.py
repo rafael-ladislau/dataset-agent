@@ -48,4 +48,5 @@ def test_acronym_data_phrases_are_gated_in_phase1():
     rmap = ResourceMap(program_names=["All of Example", "AOE"], data_resource_names=["Example Workbench"])
     safe, risky, _ = QueryOptimizationUseCase._apply_resource_map(
         rmap, ["data from the AOE", "AOE dataset"], [], [], [])
-    assert "data from the AOE" in risky and "AOE dataset" in risky and not safe
+    assert "data from the AOE" in risky and "AOE dataset" in risky
+    assert "data from the AOE" not in safe and "AOE dataset" not in safe and "AOE" in risky

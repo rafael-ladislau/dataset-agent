@@ -1,4 +1,4 @@
-"""Round 2, item 2: generated data phrases are safe candidates, never behind the gate."""
+"""Generated data phrases are safe candidates (round 2, item 2); acronym forms stay risky."""
 
 from __future__ import annotations
 
@@ -24,8 +24,7 @@ def test_data_phrases_leave_the_gate_but_acronym_forms_do_not():
         ["Agency"], notes)
     assert "Example Program data" in safe and "data from the Example Program" in safe
     assert "EP data" in risky and "data from the EP" in risky
-    assert "Example Program" in risky and "EP" in risky and gate == ["Example Workbench"]
-    assert any("data phrases stand alone" in n for n in notes)
+    assert "Example Program" in safe and "EP" in risky and gate == ["Agency"]
 
 
 def test_recall_check_may_promote_a_data_phrase():
@@ -40,7 +39,7 @@ def test_recall_check_may_promote_a_data_phrase():
     assert "data from the Example Program" in [c.term for c in eligible]
 
 
-def test_specific_data_names_stand_alone_and_the_gate_is_screened():
+def test_specific_data_names_stand_alone_and_generic_ones_are_not_searched():
     rmap = MAP.model_copy(update={
         "data_resource_names": ["Example Workbench", "Data Browser", "DB"],
         "specific_data_names": ["Example Workbench"],
@@ -48,6 +47,6 @@ def test_specific_data_names_stand_alone_and_the_gate_is_screened():
     notes: list[str] = []
     safe, risky, gate = QueryOptimizationUseCase._apply_resource_map(
         rmap, [], ["Example Program"], [], notes, max_hits=500_000)
-    assert "Example Workbench" in safe and gate == ["Example Workbench"]
-    assert any("Data Browser (900000 Dimensions hits)" in n and "DB (bare short acronym)" in n
-               for n in notes)
+    assert "Example Workbench" in safe and gate == []
+    assert "Data Browser" not in safe + risky and "DB" not in safe + risky
+    assert any("data names not searched ['Data Browser', 'DB']" in n for n in notes)
