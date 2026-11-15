@@ -23,6 +23,7 @@ _LLM_ENV = (
     "OPENLLM_API_KEY",
 )
 _PREFIXED = (
+    "URL",  # main's alias of DATASET_AGENT_OLLAMA_BASE_URL
     "LLM_PROVIDER",
     "LLM_API_STYLE",
     "LLM_MODEL",
