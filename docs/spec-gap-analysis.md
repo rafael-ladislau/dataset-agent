@@ -51,7 +51,7 @@ The `dataset_query_agent_spec.md` describes the Query Optimization Agent. **None
 
 | Item | Status | Detail |
 |---|---|---|
-| `sanitize_alias()` | ❌ Missing | Escape DSL special characters: `^ : ~ \ [ ] { } ( ) ! \| & +` |
+| `sanitize_alias()` | ❌ Missing | Escape DSL special characters: `^ : ~ \ [ ] { } ( ) ! \| & + * ? / "` (inner `"` replaced with a space first; see `docs/dimensions-search-semantics.md`) |
 | `_q()` inner-quoted term builder | ❌ Missing | Wraps sanitized alias in escaped quotes for DSL for-clause |
 | DSL pagination (`limit 1000 skip N`) | ❌ Missing | Loop to fetch all results in pages of 1000 |
 | Rate limiting (2.1s between calls) | ❌ Missing | Handle 429 responses with `Retry-After` header |

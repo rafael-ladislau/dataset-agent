@@ -1,7 +1,8 @@
 """How Dimensions full_data matches a quoted phrase: when two names are one search.
 
-Measured on Dimensions full_data, quoted phrases, 2020-2024 (2026-11-15). The same rule
-cases are a mirrored table in the tests of dataset-agent, insights (snippet matching)
+Measured on Dimensions full_data, quoted phrases, 2020-2024 (2026-11-15); the evidence
+(count pairs), the dates and what is still unmeasured are in
+docs/dimensions-search-semantics.md. The same rule cases are a mirrored table in the tests of dataset-agent, insights (snippet matching)
 and extraction (term contexts): ``MEASURED_PHRASE_RULES``.
 
 * hyphen, slash and asterisk fold to a space: "GPT-4" = "GPT 4", "CPS/FSS" = "CPS FSS",

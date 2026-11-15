@@ -90,7 +90,7 @@ return publications[id+title+doi+year+times_cited] sort by times_cited
 |-----------|-------------|
 | `full_data` | Searches title + abstract + indexed full text (~70% of pubs). Case-insensitive, stemmed. |
 | `title_abstract_only` | Searches only title and abstract. Higher precision, lower recall. |
-| `FOR_CLAUSE` | Boolean expression with OR, AND, NOT operators (must be UPPERCASE) |
+| `FOR_CLAUSE` | Boolean expression with OR, AND, NOT operators (must be UPPERCASE: lowercase "or" and "not" are words). Parenthesise every group: an unparenthesised `A OR B AND C` returns `B AND C`, and NOT binds loosest |
 | `where` | Filters: year range, publication type, country of research organizations |
 | `return` | Fields to include in results |
 | `sort by times_cited` | Returns highest-impact publications first (critical for FP sampling) |
@@ -109,22 +109,15 @@ return publications[id+title+doi+year+times_cited] sort by times_cited
 Characters that must be backslash-escaped inside for-clauses:
 
 ```
-^ : ~ \ [ ] { } ( ) ! | & +
+^ : ~ \ [ ] { } ( ) ! | & + * ? / "
 ```
 
-Python implementation (from `optimize_queries_wave4.py:43-56`):
-
-```python
-DSL_SPECIAL_CHARS = set('^:~\\[]{}()!|&+')
-
-def sanitize_alias(alias: str) -> str:
-    """Escape DSL special characters."""
-    return ''.join(f'\\{ch}' if ch in DSL_SPECIAL_CHARS else ch for ch in alias).strip()
-
-def _q(term: str) -> str:
-    """Inner-quoted term: \\\"term\\\" for use inside single-quote for-clause."""
-    return f'\\"{sanitize_alias(term)}\\"'
-```
+This is the extraction server's `escape_phrase` set plus the backslash (escaped once) and the
+double quote. An inner double quote is replaced with a space before escaping: even escaped it
+breaks the Dimensions phrase and widens the query (measured: `The "All of Us" Research Program`
+412,891 papers vs 3,876). Escaping changes no count, and "&" is dropped by Dimensions, not read
+as "and". Implementation: `sanitize_alias()` in `src/dataset_agent/adapters/dimensions_dsl.py`;
+measured rules: `docs/dimensions-search-semantics.md`.
 
 ### Quoting and Escaping Layers
 
@@ -557,7 +550,7 @@ If two or more fail → reject variant, iterate or fall back to V1.
 The phrase "all of us" appears rhetorically in thousands of scientific papers ("this affects all of us", "benefits all of us"). Solution from `optimize_allofus_query.py`:
 - Gate with biobank/precision medicine flag terms
 - Exclude rhetorical phrases (21 patterns like "affects all of us", "for all of us")
-- Use two-level hybrid: safe aliases OR (broad term AND flags) OR (tier terms AND qualifier) NOT exclusions
+- Use two-level hybrid, every group parenthesised: ((safe aliases) OR ((broad term) AND (flags)) OR ((tier terms) AND (qualifier))) NOT (exclusions). Dimensions drops a group of an unparenthesised `A OR B AND C` and NOT binds loosest (`docs/dimensions-search-semantics.md`)
 - Result: V3 achieved viable count; V4 with exclusions provided clean results
 
 **Agent heuristic**: If the dataset name is a common English phrase (< 4 words, all common words), automatically add rhetorical exclusion patterns.

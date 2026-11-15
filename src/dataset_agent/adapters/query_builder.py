@@ -1,6 +1,8 @@
 """Dimensions ``for`` clause builders (V1–V5) and variant probe execution.
 
-See ``dataset_query_agent_spec.md`` §4 and ``docs/spec-gap-analysis.md`` §2.3.
+See ``dataset_query_agent_spec.md`` §4 and ``docs/spec-gap-analysis.md`` §2.3. Operator
+precedence, the parenthesisation used here and the measured phrase rules behind the
+escaping and same-search checks: docs/dimensions-search-semantics.md.
 """
 
 from __future__ import annotations

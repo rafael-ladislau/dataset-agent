@@ -273,6 +273,7 @@ Reference outputs from previous agent runs are stored in `results/` (70 datasets
 | `docs/lmstudio-provider-spec.md` | LMStudio provider specification |
 | `docs/aliases-agent-summary.md` | Summary of alias extraction behavior |
 | `docs/fulltext-refinement.md` | Full-text query refinement loop, settings, proposal/approve/submit flow |
+| `docs/dimensions-search-semantics.md` | Measured Dimensions phrase, punctuation, plural and operator rules behind the query builder and text matching |
 | `docs/agent-os-overview.md` | Agent OS structure and product context |
 | `docs/official-name-detection-summary.md` | Official name detection (pre-refactor implementation) |
 | `results/TRACKING.md` | History of batch runs and agent evolution |
