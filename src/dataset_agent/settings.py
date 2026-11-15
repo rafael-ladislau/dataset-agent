@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,6 +34,14 @@ class LLMEndpoint:
     base_url: str
     model: str
     api_key: str
+
+
+#: The referent-judge configuration the reported figures were measured with (Qwen thinking
+#: recipe), for the AI-model referent question and the dataset scope check (one ask).
+MEASURED_REFERENT_JUDGE: dict[str, Any] = {
+    "thinking_budget": 4096, "temperature": 0.6, "top_p": 0.95, "top_k": 20,
+}
+MEASURED_SCOPE_VOTES = 1
 
 
 def _with_v1(url: str) -> str:
@@ -405,6 +413,28 @@ class Settings(BaseSettings):
         if base.endswith("/v1"):
             return base[:-3]
         return base
+
+    def referent_judge_config(self) -> dict[str, Any]:
+        """The configuration the referent agent (``bootstrap.build_referent_agent``) runs
+        with: ``agent`` is ``referent`` (thinking on) or ``main`` (budget 0, or the
+        fallback when the API style is not anthropic: thinking and sampling dropped).
+        ``measured_configuration`` says whether it is the measured one."""
+        style = self.llm_api_style or DEFAULT_LLM_API_STYLE[self.llm_provider]
+        budget = int(self.referent_thinking_budget or 0)
+        fallback = bool(budget) and style != "anthropic"
+        if budget and not fallback:
+            cfg: dict[str, Any] = {
+                "agent": "referent", "api_style": style, "fallback": False,
+                "thinking_budget": budget,
+                "temperature": 0.6 if self.referent_temperature is None else self.referent_temperature,
+                "top_p": self.referent_top_p, "top_k": self.referent_top_k,
+            }
+        else:
+            cfg = {"agent": "main", "api_style": style, "fallback": fallback,
+                   "thinking_budget": 0, "temperature": None, "top_p": None, "top_k": None}
+        cfg["measured_configuration"] = cfg["agent"] == "referent" and all(
+            cfg[k] == v for k, v in MEASURED_REFERENT_JUDGE.items())
+        return cfg
 
     def llm_endpoint(self) -> LLMEndpoint:
         """Resolve provider + API style into a base URL, model and key.

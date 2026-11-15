@@ -123,6 +123,7 @@ from dataset_agent.domain.models import (
 )
 from dataset_agent.domain.proposals import TermDiff
 from dataset_agent.domain.ports import AgentPort, DimensionsDslPort
+from dataset_agent.settings import MEASURED_SCOPE_VOTES
 
 if TYPE_CHECKING:
     from dataset_agent.application.research import DatasetResearchUseCase
@@ -422,6 +423,35 @@ class QueryOptimizationUseCase:
         ev.budget_exhausted = out.budget_exhausted
         await self._apply_scope_check(ev, request)
         return ev
+
+    def _judge_config(self) -> dict:
+        """What the referent judge runs with (``Settings.referent_judge_config``); without
+        a referent agent the question runs on the main agent."""
+        cfg = self._settings.referent_judge_config()
+        if self._referent_agent is None and cfg["agent"] == "referent":
+            cfg.update(agent="main", thinking_budget=0, temperature=None, top_p=None,
+                       top_k=None, measured_configuration=False)
+        return cfg
+
+    def _scope_check_config(self) -> dict:
+        """The scope check's configuration: the referent judge plus its asks per paper;
+        measured when the judge is the measured one and it asks once."""
+        cfg = self._judge_config()
+        votes = int(self._settings.scope_votes)
+        cfg["votes"] = votes
+        cfg["measured_configuration"] = bool(cfg["measured_configuration"]
+                                             and votes == MEASURED_SCOPE_VOTES)
+        return cfg
+
+    @staticmethod
+    def _judge_config_note(label: str, cfg: dict, asks: str) -> str:
+        what = ("the measured configuration" if cfg.get("measured_configuration")
+                else "not the measured configuration")
+        fb = ("; fallback: the API style is not anthropic, thinking and sampling dropped"
+              if cfg.get("fallback") else "")
+        return (f"{label}: {cfg['agent']} agent, thinking budget {cfg['thinking_budget']}, "
+                f"temperature {cfg['temperature']}, top_p {cfg['top_p']}, top_k {cfg['top_k']}, "
+                f"{cfg['votes']} {asks} ({what}{fb})")
 
     async def _apply_scope_check(self, ev: Evidence, request: OptimizeRequest) -> None:
         """With a resource map, papers that only discuss the program stop counting as
@@ -3634,6 +3664,10 @@ class QueryOptimizationUseCase:
                 proposal.program_datasets = program_ds.model_dump()
                 if self._proposal_repo is not None:
                     self._proposal_repo.save(proposal)
+        scope_cfg = self._scope_check_config() if self._resource_map is not None else None
+        if scope_cfg is not None:
+            notes_parts.append(self._judge_config_note(
+                "scope check configuration", scope_cfg, "ask(s) per paper"))
         dsl_query = self._build_where_dsl(best.for_clause)
         elapsed = round(time.perf_counter() - t0, 2)
         notes_parts.append(f"dimensions_api_calls≈{self._dims_calls} elapsed_s={elapsed}")
@@ -3664,5 +3698,6 @@ class QueryOptimizationUseCase:
             program_datasets=program_ds,
             scope_check_calls=self._scope_calls if self._resource_map is not None else None,
             resource_map_error=self._resource_map_error,
+            scope_check_config=scope_cfg,
             notes=" ".join(notes_parts),
         )

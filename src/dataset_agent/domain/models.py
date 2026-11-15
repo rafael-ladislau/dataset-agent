@@ -351,6 +351,13 @@ class QueryOptimizationRecord(BaseModel):
     scope_check_calls: Optional[int] = Field(
         default=None, description="LLM calls the scope check made; None when it did not run"
     )
+    scope_check_config: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="The scope check's configuration: agent (referent or main), api_style, "
+        "fallback, thinking_budget, temperature, top_p, top_k, votes, and "
+        "measured_configuration (the configuration the reported figures were measured "
+        "with); None when no resource map",
+    )
     resource_map_error: Optional[str] = Field(
         default=None,
         description="The resource map could not be decided in this run (LLM failure or no "
