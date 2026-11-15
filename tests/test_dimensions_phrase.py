@@ -200,6 +200,10 @@ MEASURED_PHRASE_RULES: list[tuple[str, str, str, bool]] = [
     ("asterisk-is-space", "O*NET", "O NET", True),
     ("nb-hyphen-is-hyphen", "GPT\u20114", "GPT-4", True),
     ("en-dash-is-space", "GPT\u20134", "GPT 4", True),
+    # A soft hyphen stays inside the token ("GPT\u00ad4" 11 vs "GPT-4" 52,109): it is
+    # neither a separator nor removed.
+    ("soft-hyphen-not-separator", "GPT-4", "GPT\u00ad4", False),
+    ("soft-hyphen-not-removed", "PhaseNet", "Phase\u00adNet", False),
     # A joined form is another token ("GPT4" 12,146 vs "GPT 4" 52,109).
     ("joined-differs", "GPT4", "GPT 4", False),
     ("split-differs", "O NET", "ONET", False),
