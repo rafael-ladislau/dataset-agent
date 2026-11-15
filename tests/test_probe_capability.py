@@ -64,13 +64,13 @@ def test_a_target_that_declares_probe_support_is_probed():
     assert server.started() == [("POST", "/pipelines/start")]
 
 
-def test_the_capability_is_read_once_per_client():
+def test_the_capability_is_read_at_every_probe_start():
     server = _MainServer()
     client = _client(server)
     for _ in range(2):
         with pytest.raises(ProbeUnsupportedError):
             client.start_search({"main_dataset_name": "X"}, 10, entity="ai_model")
-    assert [c for c in server.calls if c[1] == "/openapi.json"] == [("GET", "/openapi.json")]
+    assert [c for c in server.calls if c[1] == "/openapi.json"] == [("GET", "/openapi.json")] * 2
 
 
 def test_the_loop_against_a_target_without_probe_support_refuses_and_stays_low(tmp_path):
@@ -116,3 +116,15 @@ def test_an_ai_model_probe_without_an_extraction_target_is_a_note_not_a_failure(
     model, out, notes = MagicMock(), MagicMock(ai_model_seed={"main_dataset_name": "M"}), []
     assert asyncio.run(uc._measure_seed(model, out, notes, 0)) is None
     assert any("extraction_dev_url is not configured" in n for n in notes)
+
+
+def test_the_capability_is_read_again_before_every_probe():
+    # After an extraction rollback, a cached "supported" must not let a probe start.
+    server = _MainServer(openapi=_openapi(True))
+    client = _client(server)
+    with pytest.raises(Exception):
+        client.start_search({"main_dataset_name": "X"}, 10)
+    server.openapi = _openapi(False)  # the target was rolled back to main
+    with pytest.raises(ProbeUnsupportedError):
+        client.start_search({"main_dataset_name": "X"}, 10)
+    assert server.started() == [("POST", "/pipelines/start")]

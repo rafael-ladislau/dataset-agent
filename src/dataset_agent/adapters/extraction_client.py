@@ -189,7 +189,7 @@ class ExtractionClient:
         self._poll_max_interval = poll_max_interval
         #: One entry per :meth:`cleanup` call: task_id, ok, items (the 202 body), error.
         self.cleanup_log: list[dict[str, Any]] = []
-        #: The server's /openapi.json, read once (None: not read yet; {}: unavailable).
+        #: The server's /openapi.json as last read at a probe start ({}: unavailable).
         self._openapi: dict[str, Any] | None = None
 
     @classmethod
@@ -227,13 +227,14 @@ class ExtractionClient:
 
     def require_probe_support(self, route: str) -> None:
         """Refuse before any probe unless the server declares probe support for *route*
-        in its /openapi.json (read once per client). Fails closed."""
-        if self._openapi is None:
-            try:
-                r = self._http.request("GET", "/openapi.json")
-                self._openapi = r.json() if r.status_code < 400 else {}
-            except (httpx.HTTPError, ValueError):
-                self._openapi = {}
+        in its /openapi.json. Read at every probe start, never cached: after an
+        extraction rollback a cached "supported" would let a probe start a real
+        pipeline. One GET per probe. Fails closed."""
+        try:
+            r = self._http.request("GET", "/openapi.json")
+            self._openapi = r.json() if r.status_code < 400 else {}
+        except (httpx.HTTPError, ValueError):
+            self._openapi = {}
         if not openapi_declares_probe(self._openapi, route):
             raise ProbeUnsupportedError(
                 f"extraction target does not declare probe support for {route} "
