@@ -19,10 +19,9 @@ def web_search(query: str) -> str:
             "Call again with a single non-empty search string in the 'query' argument."
         )
     qprev = (q[:120] + "…") if len(q) > 120 else q
+    # The configured provider decides (WEB_SEARCH_PROVIDER); a Tavily key alone does not
+    # switch providers (owner decision when merging main).
     provider, tavily_key = _search_config()
-    if tavily_key:
-        # Prefer Tavily automatically when an API key is present.
-        provider = "tavily"
     logger.info("Tool web_search: provider=%s query=%r", provider, qprev)
 
     if provider == "tavily":
