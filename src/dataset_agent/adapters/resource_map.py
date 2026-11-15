@@ -38,6 +38,7 @@ from collections.abc import Callable
 
 import httpx
 
+from dataset_agent.adapters.dimensions_dsl import inner_quoted_term
 from dataset_agent.adapters.fulltext_evidence import _phrase_in
 from dataset_agent.adapters.scope_check import (
     DATA_LIST_NOUNS,
@@ -181,7 +182,8 @@ def _contained(inner: str, outer: str) -> bool:
 
 
 def _quoted(term: str) -> str:
-    return '\\"' + " ".join(term.replace('"', " ").split()) + '\\"'
+    """A phrase escaped like every other (``dimensions_dsl.inner_quoted_term``)."""
+    return '\\"' + inner_quoted_term(term) + '\\"'
 
 
 def cooccurrence_clause(program_names: list[str], data_name: str) -> str:

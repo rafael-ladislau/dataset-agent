@@ -84,8 +84,10 @@ def sanitize_term(term: object) -> str | None:
         # An empty pair ("All “” survey") is a placeholder echo, like the empty backtick pair.
         if any(not inner.strip() for inner in re.findall(r'"([^"]*)"', s)):
             return None
-        # Seeds reject a double quote and Dimensions ignores it for phrase matching.
-        s = re.sub(r"\s+", " ", s.replace('"', "")).strip()
+        # Seeds reject a double quote, and inside a Dimensions phrase it is a separator:
+        # replaced with a space, the same rule as ``dimensions_dsl.sanitize_alias``, so
+        # 'ERA5"Land"' is searched (and counted) as "ERA5 Land", never "ERA5Land".
+        s = re.sub(r"\s+", " ", s.replace('"', " ")).strip()
     if "`" in s:
         # An empty pair ("All `` survey") is a placeholder echo; removing the
         # backticks would leave a plausible-looking but wrong phrase.
