@@ -205,8 +205,12 @@ an unrelated share of at most `fulltext_split_unrelated_max` (0.20) on at least
 `fulltext_recall_min_evidence` (10) evaluated papers. Each evaluated paper falls in one of four
 classes (`PubVerdict.four_way`): `data` or `program_only` (genuine, by scope label),
 `references_only` (turned to `not_mentioned` by the references-only override or the scope
-check's references-only rule) and `unrelated` (the rest, including a paper the judge itself
-called `not_mentioned` whose snippets all sit in the reference list). The split as it was
+check's references-only rule, or turned by the bibliography cut: `bibliography_excluded`
+true, judged `not_mentioned`, every non-flag snippet in `references` and no flag snippet
+outside them) and `unrelated` (the rest, including, without the cut, a paper the judge
+itself called `not_mentioned` whose snippets all sit in the reference list). The flag is read
+from the deciding `validated_datasets` row, else from the publication-level
+`bibliography_excluded` (a not-mentioned paper has no row); absent means false. The split as it was
 before (such a paper counted as references-only) is kept as `PubVerdict.four_way_legacy`,
 and its unrelated share is reported as `unrelated_share_legacy` and in the release note. Data, program-only and
 references-only papers all count toward the bar, because the judge removes citers and

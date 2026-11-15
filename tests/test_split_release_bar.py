@@ -246,3 +246,55 @@ def test_high_confidence_requires_the_release_bar(tmp_path):
     # At 0.85 both hold: HIGH with the bar met.
     out = _run(tmp_path, _pubs(85, 0, 0, 15), split=False, optimize_fp_threshold_pct=25.0)
     assert out.release_bar_met is True and out.confidence.value == "high"
+
+
+def _cut_pub(pid, *, row_flag=None, pub_flag=None, parts=("references",), rows=False):
+    p = {
+        "publication_id": pid, "doi": None, "title": "", "citation_count": 1,
+        "fulltext": {"status": "delivered", "source": "pmc", "reason": None}, "analyzed": True,
+        # A not-mentioned paper has no validated_datasets row.
+        "validated_datasets": ([{"name": "X", "is_used": False, "is_mentioned": False,
+                                 "text_quote": ""}] if rows else []),
+        "term_contexts": [{"term": "Example Cohort Program", "role": "alias", "part": part,
+                           "text": "Example Cohort Program"} for part in parts],
+    }
+    if rows and row_flag is not None:
+        p["validated_datasets"][0]["bibliography_excluded"] = row_flag
+    if pub_flag is not None:
+        p["bibliography_excluded"] = pub_flag
+    return p
+
+
+def _classes(*pubs):
+    from dataset_agent.adapters.fulltext_evidence import build_evidence
+
+    ev = build_evidence({"publications": list(pubs)})
+    return [(v.four_way, v.four_way_legacy) for v in ev.verdicts]
+
+
+def test_a_cut_not_mentioned_references_only_paper_is_references_only():
+    # The publication-level flag (no row for a not-mentioned paper) and a row flag.
+    assert _classes(_cut_pub("a", pub_flag=True),
+                    _cut_pub("b", row_flag=True, rows=True)) == [
+        ("references_only", "references_only"), ("references_only", "references_only")]
+
+
+def test_the_row_flag_is_read_before_the_publication_flag():
+    assert _classes(_cut_pub("a", row_flag=False, pub_flag=True, rows=True)) == [
+        ("unrelated", "references_only")]
+
+
+def test_a_cut_not_mentioned_paper_with_a_body_snippet_is_unrelated():
+    assert _classes(_cut_pub("a", pub_flag=True, parts=("references", "body"))) == [
+        ("unrelated", "unrelated")]
+
+
+def test_a_cut_paper_with_a_flag_snippet_outside_the_references_is_unrelated():
+    p = _cut_pub("a", pub_flag=True)
+    p["term_contexts"].append({"term": "NIH", "role": "flag", "part": "body", "text": "NIH"})
+    assert _classes(p) == [("unrelated", "unrelated")]
+
+
+def test_without_the_flag_only_override_turned_papers_are_references_only():
+    assert _classes(_cut_pub("a"), _cut_pub("b", pub_flag=False)) == [
+        ("unrelated", "references_only"), ("unrelated", "references_only")]

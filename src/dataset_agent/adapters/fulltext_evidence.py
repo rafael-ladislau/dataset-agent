@@ -125,13 +125,19 @@ class PubVerdict:
     def four_way(self) -> str:
         """Datasets: ``data`` | ``program_only`` | ``references_only`` | ``unrelated``, the
         split the reports and the split-dataset release bar use. Genuine papers are data or
-        program-only (scope label); a paper the references-only override or the scope
-        check's references-only rule turned to ``not_mentioned`` is references-only; every
-        other evaluated paper is unrelated, including one the judge itself called
-        ``not_mentioned`` whose snippets all sit in the reference list."""
+        program-only (scope label). References-only: a paper the references-only override
+        or the scope check's references-only rule turned to ``not_mentioned``, or one turned
+        by the bibliography cut (``bibliography_excluded``, judged ``not_mentioned``, every
+        non-flag snippet in ``references`` and no flag snippet outside them). Every other
+        evaluated paper is unrelated, including, without the cut, one the judge itself
+        called ``not_mentioned`` whose snippets all sit in the reference list."""
         if self.genuine:
             return "program_only" if self.scope == "program_only" else "data"
         if self.scope_references_only or self.overridden_from is not None:
+            return "references_only"
+        if self.bibliography_excluded and _references_only(self.contexts):
+            # Turned by the cut: the judge never read the reference list, the only place
+            # the paper names the dataset.
             return "references_only"
         return "unrelated"
 
@@ -683,10 +689,13 @@ def build_evidence(results: dict[str, Any], *, entity: str | None = None) -> Evi
 
 def _bibliography_excluded(pub: dict[str, Any]) -> bool:
     """The pipeline cut the reference list before the judge read the paper: the served
-    ``bibliography_excluded`` is True on the row the verdict rests on. Absent or False (no
-    marker, or an older stack) means the judge saw the reference list."""
+    ``bibliography_excluded`` on the row the verdict rests on, else (a not-mentioned paper
+    has no row) the publication-level value. Absent or not True (no marker, or an older
+    stack) means the judge saw the reference list."""
     row = _deciding_row(pub)
-    return bool(row) and row.get("bibliography_excluded") is True
+    if row is not None and "bibliography_excluded" in row:
+        return row.get("bibliography_excluded") is True
+    return pub.get("bibliography_excluded") is True
 
 
 def _served_scope(pub: dict[str, Any]) -> str | None:
