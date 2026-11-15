@@ -38,7 +38,6 @@ from dataset_agent.adapters.fulltext_evidence import Evidence, PubVerdict, _phra
 
 logger = logging.getLogger(__name__)
 
-_TEXT_PARTS = frozenset({"title", "abstract", "body"})
 SCOPES = ("data", "program_only", "unclear")
 
 EMIT_SCOPE_CLASSIFICATION = {
@@ -160,8 +159,11 @@ def program_owned_data_names(program_names: list[str], data_names: list[str]) ->
 
 
 def _text_contexts(v: PubVerdict) -> list[dict]:
+    """Contexts outside the reference list (any part but ``references``: title, abstract,
+    body, availability, acknowledgement, funding, annex), the same test as
+    ``fulltext_evidence._references_only``."""
     return [c for c in v.contexts
-            if c.get("part") in _TEXT_PARTS and str(c.get("text") or "").strip()]
+            if c.get("part") != "references" and str(c.get("text") or "").strip()]
 
 
 def stage0_data(v: PubVerdict, owned_data_names: list[str]) -> bool:

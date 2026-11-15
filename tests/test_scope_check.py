@@ -166,3 +166,15 @@ def test_close_calls_lean_toward_data():
                      title="t", passages=["x"], quote="q")
     assert "answer PROGRAM_ONLY only when you are confident the paper" in p
     assert "a list mention, a mixed passage or an unsure case is DATA" in p
+
+
+def test_availability_acknowledgement_funding_or_annex_snippets_are_not_references():
+    # Any part other than the reference list is text: the paper is not references-only.
+    for part in ("availability", "acknowledgement", "funding", "annex"):
+        ctx = [_c(part, "Data are available through the Example Program Workbench portal."),
+               _c("references", "The Example Program. 2019.")]
+        ev = _ev(_pub("a", contexts=ctx))
+        res = _check(ev, FakeJudge(["data"]))
+        v = ev.verdicts[0]
+        assert res.n_references_only == 0, part
+        assert v.verdict == "mentioned" and not v.scope_references_only, part
