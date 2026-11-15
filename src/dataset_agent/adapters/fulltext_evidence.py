@@ -14,7 +14,8 @@ dataset is a correct match even when it does not use it):
   served row carries ``bibliography_excluded`` True the pipeline cut the reference list
   before the judge read the paper and the judge's verdict stands. Otherwise, when every
   non-flag snippet is in ``references``, no flag snippet lies outside it, and the
-  validator's quote is empty or lies inside one references snippet, the verdict is
+  validator's quote is empty or lies inside one references snippet with more words than
+  any context term it matches, the verdict is
   ``not_mentioned`` (see references_only_override); anything else keeps the verdict.
 
 AI models (body ``seed_type == "ai_model"``, model task v2 / v2.1) read
@@ -541,15 +542,26 @@ def _ref_norm(text: str) -> str:
     return " ".join(t.split()).strip(" .,;:")
 
 
+def _whole_words_in(needle: str, hay: str) -> bool:
+    return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", hay) is not None
+
+
 def quote_allows_references_only(quote: str | None, contexts: list[dict]) -> bool:
     """The references-only override may apply: the validator's quote is empty once
     normalized (``_ref_norm``), or it lies entirely inside one single ``references``
-    snippet (whole words, after the same normalization). Anything else (an author or
-    journal line the snippet does not hold, a body sentence, a quote spanning two
-    snippets) keeps the judge's verdict. General rule: no dataset names."""
+    snippet (whole words, after the same normalization) and has strictly more words than
+    every context term it matches (holds it, or lies inside it). Anything else (an author
+    or journal line the snippet does not hold, a body sentence, a quote spanning two
+    snippets, a quote that is only the name or a piece of it) keeps the judge's verdict.
+    General rule: no dataset names."""
     q = _ref_norm(quote or "")
     if not q:
         return True
+    n_words = len(q.split())
+    for c in contexts:
+        t = _ref_norm(str(c.get("term") or ""))
+        if t and (_whole_words_in(t, q) or _whole_words_in(q, t)) and n_words <= len(t.split()):
+            return False
     inside = re.compile(rf"(?<!\w){re.escape(q)}(?!\w)")
     return any(
         inside.search(_ref_norm(str(c.get("text") or "")))

@@ -84,8 +84,8 @@ def test_used_papers_are_data_and_never_asked():
 
 
 def test_a_paper_with_no_contexts_is_asked_on_the_quote_never_dropped():
-    ev = _ev(_pub("a", contexts=[_c("references", "Example Program. 2019.")],
-                  quote="Example Program"),
+    ev = _ev(_pub("a", contexts=[_c("references", "The Example Program. 2019.")],
+                  quote="The Example Program"),
              _pub("b", contexts=[]))
     judge = FakeJudge(default="data")
     res = _check(ev, judge)

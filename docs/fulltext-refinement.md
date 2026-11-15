@@ -77,8 +77,14 @@ about this dataset?", not "does the paper use it?".
   snippet is in `references` and the validator quote is empty or lies inside one single
   references snippet, both normalized (case-folded; `|`, `…` and `...` as whitespace;
   citation markers such as `[62]`, `(ref 62)`, a leading `62.` and superscript digits
-  removed; digits glued to a word's end removed; whitespace collapsed). Anything else keeps
-  the verdict. The scope check's references-only rule uses the same quote test.
+  removed; digits glued to a word's end removed; whitespace collapsed). A non-empty quote
+  must also have strictly more words than every context term it matches (holds it or lies
+  inside it): a quote that is only the name (`All of Us`, `All of Us41`) or a piece of it
+  gives no sign it came from the reference list. Anything else keeps the verdict. The scope
+  check's references-only rule uses the same quote test. Known limitation on stacks without
+  the flag: reference snippets hold cited titles only, so a citer whose quote carries the
+  author line, the journal or a year (`… Investigators. The All of Us Research Program. N
+  Engl J Med. 2019`) is never overridden and stays genuine (the conservative direction).
 * Usage never decides a term change. A widely cited dataset is mentioned far more often
   than it is used; counting "mentioned, not used" as a false positive would drop the
   dataset's own official names.

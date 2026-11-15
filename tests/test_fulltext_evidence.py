@@ -161,13 +161,14 @@ def test_metrics_store_a_verdict_per_evaluated_paper():
 
 
 def _refpub(pid, contexts, used=False):
-    p = _pub(pid, 1, vd=_vd(used, quote="Precision Medicine Initiative Cohort"))
+    # A quote one word longer than the name (a name-only quote keeps the verdict).
+    p = _pub(pid, 1, vd=_vd(used, quote="the Precision Medicine Initiative Cohort"))
     p["term_contexts"] = contexts
     return p
 
 
 def _c(part, role="alias", term="Precision Medicine Initiative Cohort"):
-    return {"term": term, "role": role, "part": part, "text": f"... {term} ..."}
+    return {"term": term, "role": role, "part": part, "text": f"... the {term} ..."}
 
 
 def test_references_only_alias_is_not_mentioned():
@@ -637,3 +638,44 @@ def test_an_author_line_naming_the_dataset_outside_the_snippet_keeps_the_verdict
         "N Engl J Med. 2019",
         "All of Us Research Program", "Prior work | The All of Us Research Program | Other")
     assert v.verdict == "mentioned" and v.overridden_from is None
+
+
+def _name_refpub(quote, term, snippet):
+    p = _pub("r", 1, vd=_vd(False, quote=quote))
+    p["term_contexts"] = [{"term": term, "role": "alias", "part": "references",
+                           "text": snippet}]
+    return p
+
+
+_AOU = "…Genomic data in the All of Us Research Program | The All of Us Research Program |…"
+_NH = "…National Health and Nutrition Examination Survey (NHANES) 2017-2018 |…"
+
+
+@pytest.mark.parametrize("quote,term,snippet", [
+    ("All of Us", "All of Us", _AOU),
+    ("All of Us41", "All of Us", _AOU),  # glued citation digits normalized away
+    ("all of us.", "All of Us", _AOU),
+    ("NHANES", "NHANES", _NH),
+    ("NHANES12", "NHANES", _NH),
+    # A fragment of the matched term is no more than the name either.
+    ("Research Program", "Example Research Program", f"[62] {_TITLE}"),
+])
+def test_a_quote_that_is_only_the_name_keeps_the_verdict(quote, term, snippet):
+    from dataset_agent.adapters.fulltext_evidence import quote_allows_references_only
+
+    p = _name_refpub(quote, term, snippet)
+    assert quote_allows_references_only(quote, p["term_contexts"]) is False
+    v = build_evidence({"publications": [p]}).verdicts[0]
+    assert v.verdict == "mentioned" and v.overridden_from is None
+
+
+@pytest.mark.parametrize("quote,term,snippet", [
+    ("The All of Us Research Program", "All of Us", _AOU),
+    ("National Health and Nutrition Examination Survey (NHANES)", "NHANES", _NH),
+    ("", "All of Us", _AOU),  # an empty quote still allows the override
+    ("[12]", "All of Us", _AOU),
+])
+def test_a_quote_longer_than_the_name_inside_a_references_snippet_allows_the_override(
+        quote, term, snippet):
+    v = build_evidence({"publications": [_name_refpub(quote, term, snippet)]}).verdicts[0]
+    assert v.verdict == "not_mentioned" and v.overridden_from == "mentioned"
