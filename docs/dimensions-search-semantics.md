@@ -3,12 +3,15 @@
 How Dimensions `full_data` treats a quoted phrase, punctuation inside it, plurals and boolean
 operators. Every rule below comes from paired count queries (counts only, `full_data`, years
 2020–2024, phrases escaped as the agent emits them unless marked raw), sent once each through the
-agent's throttled DSL client on **2026-11-15**: 57 queries for the first pass, 75 for punctuation
-and stemming, 23 for a dot before a digit, and 65 identity queries over the emitted query shapes.
+agent's throttled DSL client on **2026-11-15**: 58 queries for the first pass, 67 for punctuation and stemming, 23 for a dot before a
+digit, 34 for numeric plurals, "&" and "+" inside a word, a dot at the end of a word and the
+"-ies"/"-es" plurals, and 65 identity queries over the emitted query shapes.
 One query of the first pass ("MIDRC" alone) failed with a transient Dimensions error; its count
 (362) is derived from `A NOT C` + `A AND C`.
 
-The text-matching rules are one function, `adapters/dimensions_phrase.py`, and one rule table,
+The plural rules match Lucene's English minimal ("s") stemmer, which reproduces every measured
+case; `plural_base` implements it. The query-building and dedupe rules are one module,
+`adapters/dimensions_phrase.py`, and one rule table,
 `MEASURED_PHRASE_RULES` in `tests/test_dimensions_phrase.py`. The insights snippet matcher and the
 extraction term-context tests carry the same table; change all three together.
 
@@ -25,13 +28,15 @@ extraction term-context tests carry the same table; change all three together.
 | ":" next to whitespace, or between a digit and a letter, is a separator | "BioCLIP: A Vision Foundation Model" = without the colon = " : " 32; ImageNet, scikit-learn, GloVe, Add Health titles equal; "COVID-19:data" = "COVID-19 data" 47,789 vs "COVID-19data" 382 | Escaped (`\:`), one search | Separator |
 | ":" between two letters is not a separator | "BioCLIP:A …" 0 vs "BioCLIP A …" 32 ("BioCLIPA …" 0) | Kept as written | Stays inside the token (dropped and kept cannot be told apart) |
 | A dot between a letter and a digit is a separator | "NHANES.12" = "NHANES 12" 97 (joined 2); "UK Biobank.23" = "UK Biobank 23" 142 (joined 30) | One search | Separator: a citation superscript ("NHANES.12 We") reads as the name |
-| A dot between two digits or two letters is not a separator | "GPT-4.5" 43 vs "GPT-4 5" 471; "GPT-3.5" 26,239 vs 2,002; "Python 3.8" 21,289 vs 87; "ERA5.1" 113 vs "ERA5 1" 313; "scikit.learn" 101 vs "scikit-learn" 153,737 | "GPT-4.5" is not covered by "GPT-4" | Stays inside the token |
-| "+" and "&" are dropped; "&" is not the word "and" | "C++" = "C" 24,048,137; "Medical Imaging & Data Resource Center" = "Medical Imaging Data Resource Center" 122 vs "… and …" 170 | A name written with "&" or "and" is searched in both spellings | "&" dropped; "and" is a word |
+| A dot after a letter at the end of a word (before whitespace or the end) is a separator | "Pfizer Inc." = "Pfizer Inc" 31,650; "U.S. Census Bureau" = "U.S Census Bureau" 58,506 | One search | Separator |
+| A dot between two digits or two letters is not a separator | "GPT-4.5" 43 vs "GPT-4 5" 471; "GPT-3.5" 26,239 vs 2,002; "Python 3.8" 21,289 vs 87; "ERA5.1" 113 vs "ERA5 1" 313; "scikit.learn" 101 vs "scikit-learn" 153,737; "U.S Census Bureau" 58,506 vs "US …" 46,326 vs "U S …" 2,247 | "GPT-4.5" is not covered by "GPT-4" | Stays inside the token |
+| "+" and "&" are separators, also between two word characters; "&" is not the word "and" | "C++" = "C" 24,048,137; "Medical Imaging & Data Resource Center" = "Medical Imaging Data Resource Center" 122 vs "… and …" 170; "AT&T" = "AT T" 659,644 vs "ATT" 182,335 vs "AT and T" 1,094; "R&D" = "R D" 2,550,427 vs "RD" 1,833,482; "Q&A" = "Q A" 460,362 vs "QA" 244,734; "Pfizer+BioNTech" = "Pfizer BioNTech" 38,344 vs joined 5,247 | A name written with "&" or "and" is searched in both spellings | Separator; "and" is a word |
 | An apostrophe (straight or curly) before a final "s" is dropped | "Alzheimer's" = "Alzheimer’s" = "Alzheimers" = "Alzheimer" disease 610,032 vs "Alzheimer s" 9,904; "Parkinson's Progression Markers Initiative" four ways 4,162 | One search | Dropped, then the plural folds |
 | Parentheses inside a phrase are separators | "Medical Information Mart for Intensive Care (MIMIC)" = without the parentheses 2,164 (escaped or raw) | Escaped, one search | Separator |
 | An inner double quote breaks the phrase and widens the query | `The "All of Us" Research Program` 412,891 vs 3,876 without the inner quotes | Never sent: replaced with a space before escaping | Separator |
 | "_" is part of the token | "bert_base_uncased" 45 vs split 7,366 vs joined 11; "ERA5_Land" 184 vs 7,324 vs 1,122 | Kept | Part of the token |
-| Plurals fold both ways for every token | "All of Us Research Program" = "…Programs" 4,857; "food security supplement(s)" 794; "electronic health record(s)" 235,144; NHANES = NHANE 91,424; LLM = LLMs; CNN = CNNs; MRI = MRIs; ERA5 = ERA5s 46,330; map = maps | Singular and plural are one search | A final "s" folds, except after an all-digit stem ("GPT-4s" 78 vs 52,109) |
+| Plurals fold both ways for every token of three or more characters | "All of Us Research Program" = "…Programs" 4,857; "food security supplement(s)" 794; "electronic health record(s)" 235,144; NHANES = NHANE 91,424; LLM = LLMs; CNN = CNNs; MRI = MRIs; ERA5 = ERA5s 46,330; map = maps; "1990s" = "1990" 4,611,963; "2010s" = "2010" 12,627,656; "the 1990s" = "the 1990" 754,282 | Singular and plural are one search | A final "s" folds; a token under three characters does not ("GPT-4s" 78 vs 52,109: the token is "4s") |
+| "-ies" folds to "-y"; "-es" does not fold to the bare stem | "cancer registries" = "cancer registry" 83,433 ("cancer registrie" 0); "cohort studies" = "cohort study" 1,664,062; "bounding boxes" 116,770 vs "bounding box" 157,583; "meta analyses" 3,185,482 vs "meta analysis" 3,184,312 | One search for "-ies"/"-y"; "-es" forms are searched apart | "-ies" becomes "-y"; "-es" loses only the "s" |
 | Matching ignores case | "AoU" = "aou" = "AOU" 22,667 | Case variants are one search | Case-folded |
 | No wildcard inside quotes | quoted "genom\*" = "genom?" 186,151; unquoted genom\* 2,721,048, genom? 1,890,730, genome 1,881,409 | "\*" and "?" are escaped inside phrases | Literal |
 
@@ -71,7 +76,8 @@ token and do not fold:
 - ":" between a letter and a digit, between two digits, or at the edge of a phrase;
 - a dot between a digit and a letter ("ERA5.Land");
 - "," or ";" between two digits;
-- plural folding of the endings "ss" and "us" ("GNSS", "Census") and of tokens shorter than three
-  characters;
+- a dot after a digit at the end of a word ("version 2.0."), or before a word (".NET");
+- plural folding of the endings "ss" and "us" ("GNSS", "Census"), of "-ies" after "a" or "e", and of
+  "-ies", "-aes", "-oes" and "-ees" kept as written (the stemmer's branches; each keeps tokens apart);
 - any character not listed above;
 - `full_data_exact` and `title_abstract_only` were not measured.

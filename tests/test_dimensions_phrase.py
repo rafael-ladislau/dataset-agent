@@ -62,9 +62,9 @@ def test_one_search(a: str, b: str) -> None:
         ("GPT-4.5", "GPT-4 5"),
         ("Prithvi-EO-2.0", "Prithvi-EO-2-0"),
         ("v2.0", "v2 0"),
-        # "&" is dropped, it is not the word "and" (122 vs 170 papers).
+        # "&" is a separator, it is not the word "and" (122 vs 170 papers).
         ("Medical Imaging & Data Resource Center", "Medical Imaging and Data Resource Center"),
-        # A numeric token does not fold ("GPT-4s" 78 vs "GPT-4" 52,109).
+        # A token under three characters does not fold ("GPT-4s" 78 vs "GPT-4" 52,109).
         ("GPT-4s", "GPT-4"),
         ("GPT-4's", "GPT-4"),
         # Not measured, conservative: "ss" and "us" endings are not plurals.
@@ -222,7 +222,7 @@ MEASURED_PHRASE_RULES: list[tuple[str, str, str, bool]] = [
     ("dot-digits-version-split-differs", "GPT-4 5", "GPT-4.5", False),
     # Not measured, conservative: a dot between a digit and a letter stays inside.
     ("dot-digit-letter-not-separator", "ERA5 Land", "ERA5.Land", False),
-    # "+" and "&" are dropped; "&" is not "and" (122 vs 170).
+    # "+" and "&" are separators; "&" is not "and" (122 vs 170).
     ("plus-dropped", "PhaseNet", "PhaseNet+", True),
     ("ampersand-dropped", "Medical Imaging Data Resource Center",
      "Medical Imaging & Data Resource Center", True),
@@ -265,7 +265,8 @@ MEASURED_PHRASE_RULES: list[tuple[str, str, str, bool]] = [
      "Parkinson's Progression Markers Initiative", True),
     # Any other apostrophe was not measured: conservative, it stays inside the token.
     ("apostrophe-other-not-separator", "O Brien", "O'Brien", False),
-    # "4's" is "4s", and a numeric token does not fold (follows from the two rules).
+    # "4's" is "4s", and a token under three characters does not fold (follows from
+    # the two rules).
     ("apostrophe-s-numeric-not-folded", "GPT-4", "GPT-4's", False),
     # Parentheses are separators (MIMIC 2,164 = 2,164, escaped or raw).
     ("parentheses-text", "Medical Information Mart for Intensive Care MIMIC",
@@ -300,13 +301,52 @@ MEASURED_PHRASE_RULES: list[tuple[str, str, str, bool]] = [
     ("plural-letter-digit-singular", "ERA5s", "ERA5", True),
     ("plural-short-word", "map", "maps", True),
     ("plural-short-word-singular", "maps", "map", True),
-    # A token that is all digits before the "s" does not fold ("GPT-4s" 78 vs 52,109).
+    # A token under three characters does not fold ("GPT-4s" 78 vs 52,109: "4s").
     ("plural-numeric-not-folded", "GPT-4", "GPT-4s", False),
     ("plural-numeric-term-not-folded", "GPT-4s", "GPT-4", False),
     # Not measured, conservative: "ss" and "us" endings are not plurals ("is" folds:
     # MRIs = MRI above).
     ("not-plural-us-ending", "Census", "Censu", False),
     ("not-plural-ss-ending", "GNSS", "GNS", False),
+    # A numeric token of three or more characters folds like any other ("1990s" =
+    # "1990" 4,611,963; "2010s" = "2010" 12,627,656; "the 1990s" = "the 1990" 754,282).
+    # "GPT-4s" above does not fold because its token "4s" is under three characters.
+    ("plural-numeric-decade", "1990", "1990s", True),
+    ("plural-numeric-decade-singular", "1990s", "1990", True),
+    ("plural-numeric-2010s", "2010", "2010s", True),
+    ("plural-numeric-in-phrase", "the 1990", "the 1990s", True),
+    # "&" and "+" between two word characters are separators, not deleted: "AT&T" =
+    # "AT T" 659,644 vs "ATT" 182,335 vs "AT and T" 1,094; "R&D" = "R D" 2,550,427 vs
+    # "RD" 1,833,482; "Q&A" = "Q A" 460,362 vs "QA" 244,734; "Pfizer+BioNTech" =
+    # "Pfizer BioNTech" 38,344 vs joined 5,247.
+    ("ampersand-inside-separator", "AT T", "AT&T", True),
+    ("ampersand-inside-not-joined", "ATT", "AT&T", False),
+    ("ampersand-inside-not-and", "AT and T", "AT&T", False),
+    ("ampersand-inside-rd", "R D", "R&D", True),
+    ("ampersand-inside-rd-not-joined", "RD", "R&D", False),
+    ("ampersand-inside-qa", "Q A", "Q&A", True),
+    ("plus-inside-separator", "Pfizer BioNTech", "Pfizer+BioNTech", True),
+    ("plus-inside-not-joined", "PfizerBioNTech", "Pfizer+BioNTech", False),
+    # A dot at the end of a word (before whitespace or the end) is a separator:
+    # "Pfizer Inc." = "Pfizer Inc" 31,650; "U.S. Census Bureau" = "U.S Census Bureau"
+    # 58,506. Between two letters the dot stays inside the token: "US Census Bureau"
+    # 46,326 and "U S Census Bureau" 2,247 are other searches.
+    ("dot-word-end", "Pfizer Inc", "Pfizer Inc.", True),
+    ("dot-word-end-in-term", "Pfizer Inc.", "Pfizer Inc", True),
+    ("dot-word-end-before-space", "U.S Census Bureau", "U.S. Census Bureau", True),
+    ("dot-word-end-in-term-before-space", "U.S. Census Bureau", "U.S Census Bureau", True),
+    ("dot-abbreviation-not-joined", "US Census Bureau", "U.S. Census Bureau", False),
+    ("dot-abbreviation-not-split", "U S Census Bureau", "U.S. Census Bureau", False),
+    # "-ies" folds to "-y" ("cancer registries" = "cancer registry" 83,433, while
+    # "cancer registrie" is 0; "cohort studies" = "cohort study" 1,664,062). "-es" does
+    # not fold to the bare stem ("bounding boxes" 116,770 vs "box" 157,583; "meta
+    # analyses" 3,185,482 vs "meta analysis" 3,184,312).
+    ("plural-ies", "cancer registry", "cancer registries", True),
+    ("plural-ies-singular", "cancer registries", "cancer registry", True),
+    ("plural-ies-not-e-stem", "cancer registrie", "cancer registries", False),
+    ("plural-ies-study", "cohort study", "cohort studies", True),
+    ("plural-es-not-folded", "bounding box", "bounding boxes", False),
+    ("plural-es-analyses-not-folded", "meta analysis", "meta analyses", False),
 ]
 
 

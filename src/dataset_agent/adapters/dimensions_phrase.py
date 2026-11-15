@@ -17,23 +17,34 @@ and extraction (term contexts): ``MEASURED_PHRASE_RULES``.
 * "_" is part of the token ("bert_base_uncased" 45 vs "bert base uncased" 7,366);
 * a joined form is another token: "GPT4" != "GPT 4", "ONET" != "O NET";
 * a dot is a separator between a letter and a digit: "NHANES.12" = "NHANES 12" (97),
-  "UK Biobank.23" = "UK Biobank 23" (142), as in a citation superscript; it stays
-  inside the token between two letters, "scikit.learn" (101) != "scikit-learn"
-  (153,737), and between two digits, "GPT-4.5" (43) != "GPT-4 5" (471);
-* "+" and "&" are dropped: "C++" = "C"; "Medical Imaging & Data Resource Center" =
-  "Medical Imaging Data Resource Center" (122), which is NOT the "and" spelling (170);
-* every token folds singular and plural both ways, inside a phrase too: ordinary
-  words ("Program" = "Programs", "Parkinsons ..." = "Parkinson ..."), all-caps tokens
-  (NHANES = NHANE, LLM = LLMs), short words (map = maps) and letter-and-digit tokens
-  (ERA5 = ERA5s); a token that is all digits before the "s" does not ("GPT-4s" 78 vs
-  "GPT-4" 52,109);
+  "UK Biobank.23" = "UK Biobank 23" (142), as in a citation superscript; and after a
+  letter at the end of a word (before whitespace or the end): "Pfizer Inc." = "Pfizer
+  Inc", "U.S. Census Bureau" = "U.S Census Bureau" (58,506). It stays inside the token
+  between two letters, "scikit.learn" (101) != "scikit-learn" (153,737), "U.S" !=
+  "US" != "U S", and between two digits, "GPT-4.5" (43) != "GPT-4 5" (471);
+* "+" and "&" are separators, also between two word characters: "C++" = "C";
+  "AT&T" = "AT T" (659,644) != "ATT" (182,335); "Pfizer+BioNTech" = "Pfizer BioNTech";
+  "Medical Imaging & Data Resource Center" = "Medical Imaging Data Resource Center"
+  (122), which is NOT the "and" spelling (170);
+* every token of three or more characters folds singular and plural both ways, inside
+  a phrase too: ordinary words ("Program" = "Programs", "Parkinsons ..." =
+  "Parkinson ..."), all-caps tokens (NHANES = NHANE, LLM = LLMs, CPS = CP), short words
+  (map = maps), letter-and-digit tokens (ERA5 = ERA5s) and numbers ("1990s" = "1990");
+  "-ies" folds to "-y" ("registries" = "registry", "studies" = "study"). A token under
+  three characters does not fold ("GPT-4s" 78 vs "GPT-4" 52,109: the token is "4s"),
+  and "-es" does not fold to the bare stem ("boxes" != "box", "analyses" != "analysis");
 * matching is case-insensitive.
+
+The plural rule is the "s-stemmer" of Lucene's English minimal stemmer, which reproduces
+every measured case. Its branches that were not measured only keep tokens apart (an
+"-ies" after "a" or "e", and "-ies", "-aes", "-oes", "-ees" kept as written).
 
 Conservative where not measured (an extra search, never a lost one): characters that
 were not measured stay part of the token; any apostrophe other than one before a final
 "s" stays inside the token; ":" between a letter and a digit, between two digits, or at
-the edge of the phrase stays inside the token; a dot between a digit and a letter
-stays inside the token; "," or ";" between two digits stays
+the edge of the phrase stays inside the token; a dot between a digit and a letter,
+after a digit at the end of a word, or before a word stays inside the token; "," or ";"
+between two digits stays
 inside the token ("1,000" may be one token, as in Unicode word segmentation); the
 endings "ss" and "us" and plural tokens shorter than three characters do not fold. An
 "is" ending does fold: "MRIs" = "MRI" was measured, and case cannot tell it from
@@ -46,15 +57,18 @@ import re
 import unicodedata
 
 _DASHES = dict.fromkeys([*range(0x2010, 0x2016), 0x2212, 0xFE58, 0xFE63, 0xFF0D], "-")
-#: Characters that fold to a space ("-", "/", "*", "(", ")", '"') or are dropped
-#: ("&", "+"). "," and ";" are handled apart (kept between two digits).
+#: Characters that fold to a space: "-", "/", "*", "(", ")", '"', "&", "+" (measured:
+#: "AT&T" = "AT T", "Pfizer+BioNTech" = "Pfizer BioNTech"). "," and ";" are handled
+#: apart (kept between two digits).
 _SEPARATORS = dict.fromkeys(map(ord, '-/*&+()"'), " ")
 #: An apostrophe before a final "s" is dropped: "Alzheimer's" is "Alzheimers".
 _POSSESSIVE = re.compile(r"(?<=\w)['\u2019](?=[sS](?!\w))")
 #: "," or ";" except between two digits (not measured there: kept, conservative).
 _COMMA = re.compile(r"(?<!\d)[,;]|[,;](?!\d)")
-#: A dot between a letter and a digit (measured: "NHANES.12" = "NHANES 12").
-_DOT = re.compile(r"(?<=[^\W\d_])\.(?=\d)")
+#: A dot between a letter and a digit (measured: "NHANES.12" = "NHANES 12"), or after a
+#: letter at the end of a word (measured: "Pfizer Inc." = "Pfizer Inc", "U.S. Census" =
+#: "U.S Census").
+_DOT = re.compile(r"(?<=[^\W\d_])\.(?=\d|\s|$)")
 #: ":" next to whitespace (measured) or between a digit and a letter (measured).
 _COLON = re.compile(r"(?<=\s):|:(?=\s)|(?<=\d):(?=[^\W\d_])")
 
@@ -72,19 +86,23 @@ def phrase_tokens(term: str) -> list[str]:
 
 
 def plural_base(token: str) -> str:
-    """*token* without a plural "s": "nhanes" -> "nhane", "era5s" -> "era5".
+    """*token* without its plural: "nhanes" -> "nhane", "era5s" -> "era5", "1990s" ->
+    "1990", "registries" -> "registry".
 
-    Not folded: a stem without a letter ("4s" of "GPT-4s", measured); and, not
-    measured so conservative, the endings "ss" and "us" ("gnss", "census") and tokens
-    under three characters. "is" folds ("MRIs" = "MRI", measured)."""
-    if (
-        len(token) >= 3
-        and token.endswith("s")
-        and not token.endswith(("ss", "us"))
-        and any(ch.isalpha() for ch in token[:-1])
-    ):
-        return token[:-1]
-    return token
+    Lucene's English minimal ("s") stemmer. Measured: tokens under three characters
+    do not fold ("4s" of "GPT-4s"); "-ies" becomes "-y"; "-es" loses only the "s"
+    ("boxes" -> "boxe", so it stays apart from "box"); "is" folds ("MRIs" = "MRI").
+    Not measured, and they only keep tokens apart: the endings "ss" and "us" ("gnss",
+    "census"), an "-ies" after "a" or "e", and "-ies", "-aes", "-oes", "-ees" kept."""
+    n = len(token)
+    if n < 3 or token[-1] != "s" or token[-2] in "us":
+        return token
+    if token[-2] == "e":
+        if n > 3 and token[-3] == "i" and token[-4] not in "ae":
+            return token[:-3] + "y"
+        if token[-3] in "iaoe":
+            return token
+    return token[:-1]
 
 
 def _search_tokens(term: str) -> list[str]:
@@ -121,8 +139,8 @@ _AND = re.compile(r"(\b[A-Z][\w.'-]*) +and +(?=[A-Z])")
 def ampersand_spellings(name: str) -> list[str]:
     """The other spellings of a proper name written with "&" or "and" between words.
 
-    Dimensions drops "&" ("Medical Imaging & Data Resource Center" searches as
-    "Medical Imaging Data Resource Center", 122 papers) and that is not the "and"
+    Dimensions reads "&" as a separator ("Medical Imaging & Data Resource Center"
+    searches as "Medical Imaging Data Resource Center", 122 papers) and that is not the "and"
     spelling (170 papers), so both are searched. "and" counts only between two
     capitalised words: a lower-case neighbour makes it description, not a name."""
     out: list[str] = []
