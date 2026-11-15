@@ -2402,29 +2402,68 @@ class QueryOptimizationUseCase:
     def _release_bar_text(self) -> str:
         s = self._settings
         if self._split_release():
-            return f"split dataset: unrelated share <= {s.fulltext_split_unrelated_max:.2f}"
+            return (f"split dataset: unrelated share <= {s.fulltext_split_unrelated_max:.2f} "
+                    f"and confirmed data share >= {s.fulltext_split_data_min:.2f}")
         return f"precision >= {s.fulltext_recall_min_precision:.2f}"
+
+    def _meets_unrelated_bar(self, m: IterationMetrics) -> bool:
+        """Split dataset: unrelated share <= ``fulltext_split_unrelated_max`` on at least
+        ``fulltext_recall_min_evidence`` evaluated papers (data, program-only and
+        references-only papers all count toward it)."""
+        s = self._settings
+        return (m.n_evaluated >= s.fulltext_recall_min_evidence
+                and m.unrelated_share is not None
+                and m.unrelated_share <= s.fulltext_split_unrelated_max)
+
+    def _meets_data_floor(self, m: IterationMetrics) -> bool:
+        """Split dataset: confirmed data share >= ``fulltext_split_data_min``."""
+        return self._confirmed_data_share(m) >= self._settings.fulltext_split_data_min
+
+    def _meets_split_target(self, m: IterationMetrics) -> bool:
+        """Split dataset: the unrelated bar and the data floor; the full-text loop refines
+        until this holds or ``optimize_max_iterations`` rounds have run."""
+        return self._meets_unrelated_bar(m) and self._meets_data_floor(m)
 
     def _meets_release_bar(self, m: IterationMetrics, precision: float | None = None) -> bool:
         """The release bar on at least ``fulltext_recall_min_evidence`` evaluated papers.
-        A split dataset: unrelated share <= ``fulltext_split_unrelated_max`` (data,
-        program-only and references-only papers all count toward it); any other dataset:
-        precision (*precision*, else the iteration's) >= ``fulltext_recall_min_precision``."""
+        A split dataset: the unrelated bar and, with ``fulltext_split_floor_required``
+        (default), the data floor (``fulltext_split_data_min`` on the confirmed data share);
+        any other dataset: precision (*precision*, else the iteration's) >=
+        ``fulltext_recall_min_precision``."""
         s = self._settings
         if m.n_evaluated < s.fulltext_recall_min_evidence:
             return False
         if self._split_release():
-            return m.unrelated_share is not None and m.unrelated_share <= s.fulltext_split_unrelated_max
+            return self._meets_unrelated_bar(m) and (
+                self._meets_data_floor(m) or not s.fulltext_split_floor_required)
         p = m.fulltext_precision if precision is None else precision
         return p is not None and p >= s.fulltext_recall_min_precision
 
-    def _selection_key(self, m: IterationMetrics) -> tuple[bool, float, float, int]:
-        """Rank full-text iterations: the release bar first; then precision; among
-        iterations meeting a split dataset's bar, the higher confirmed data share breaks a
-        precision tie (no floor on it: an owner question); then the earlier iteration."""
+    def _selection_key(self, m: IterationMetrics) -> tuple[bool, bool, float, float, int]:
+        """Rank full-text iterations: the release bar first; for a split dataset, then an
+        iteration that reaches the data floor (matters when the floor is not required);
+        then precision; among iterations meeting a split dataset's bar, the higher
+        confirmed data share breaks a precision tie; then the earlier iteration (always
+        the last element)."""
         met = self._meets_release_bar(m)
-        data = self._confirmed_data_share(m) if met and self._split_release() else 0.0
-        return (met, float(m.fulltext_precision or 0.0), data, -m.iteration)
+        split = self._split_release()
+        floor = split and self._meets_split_target(m)
+        data = self._confirmed_data_share(m) if met and split else 0.0
+        return (met, floor, float(m.fulltext_precision or 0.0), data, -m.iteration)
+
+    @staticmethod
+    def _confirmed_data_count(m: IterationMetrics) -> int:
+        return sum(1 for p in (m.paper_details or [])
+                   if p.get("verdict") in ("used", "mentioned") and p.get("scope") == "data")
+
+    def _data_floor(self, m: IterationMetrics, rounds: int) -> dict:
+        """The data floor for *m*: min, share, wilson95, met, required, rounds."""
+        s = self._settings
+        k, n = self._confirmed_data_count(m), m.n_evaluated
+        lo, hi = wilson_interval(k, n) if n else (0.0, 0.0)
+        return {"min": s.fulltext_split_data_min, "share": round(k / n, 4) if n else 0.0,
+                "wilson95": [round(lo, 4), round(hi, 4)], "met": self._meets_data_floor(m),
+                "required": s.fulltext_split_floor_required, "rounds": rounds}
 
     @staticmethod
     def _confirmed_data_share(m: IterationMetrics) -> float:
@@ -2432,12 +2471,10 @@ class QueryOptimizationUseCase:
         whose scope call was ``unclear`` (a failed call) is not counted as data."""
         if not m.paper_details or not m.n_evaluated:
             return 0.0
-        n = sum(1 for p in m.paper_details
-                if p.get("verdict") in ("used", "mentioned") and p.get("scope") == "data")
-        return n / m.n_evaluated
+        return QueryOptimizationUseCase._confirmed_data_count(m) / m.n_evaluated
 
     def _release_note(self, bar: str, met: bool, m: IterationMetrics | None,
-                      gate_error: bool) -> str:
+                      gate_error: bool, floor: dict | None = None) -> str:
         """The bar applied, whether it was met and why, and for a split dataset the
         four-way split with Wilson intervals and the data-only precision."""
         need = self._settings.fulltext_recall_min_evidence
@@ -2449,7 +2486,17 @@ class QueryOptimizationUseCase:
             why = "not met: a gate evaluation failed"
         else:
             why = "met" if met else "not met"
+            if floor is not None and not floor["met"] and self._meets_unrelated_bar(m):
+                rounds = floor["rounds"]
+                missed = (f"data floor not reached after {rounds} "
+                          f"round{'s' if rounds != 1 else ''}")
+                why = (f"met: released on the unrelated bar (data floor not required); {missed}"
+                       if met else f"not met: {missed}")
         note = f"full-text release bar: {bar} ({why})"
+        if floor is not None:
+            lo, hi = floor["wilson95"]
+            note += (f"; confirmed data share {floor['share']:.2f} (Wilson 95% "
+                     f"{lo:.2f}-{hi:.2f}) vs floor {floor['min']:.2f}")
         if m is None:
             return note
         if m.four_way:
@@ -3372,15 +3419,19 @@ class QueryOptimizationUseCase:
                     prec is not None
                     and metrics.n_evaluated >= min_ev
                     and prec >= 1.0 - threshold / 100.0
+                    and (not self._split_release() or self._meets_split_target(metrics))
                 ):
                     notes_parts.append(f"gate_iter{iteration}: full-text precision within threshold.")
                     break
-                if prec is not None and self._meets_release_bar(metrics):
+                if prec is not None and (self._meets_split_target(metrics)
+                                         if self._split_release()
+                                         else self._meets_release_bar(metrics)):
                     if self._split_release():
                         notes_parts.append(
                             f"gate_iter{iteration}: full-text unrelated share meets the "
                             f"split-dataset bar (<= {self._settings.fulltext_split_unrelated_max:.2f} "
-                            f"on >= {self._settings.fulltext_recall_min_evidence} papers); "
+                            f"on >= {self._settings.fulltext_recall_min_evidence} papers) "
+                            f"and the data floor (>= {self._settings.fulltext_split_data_min:.2f}); "
                             f"data-only precision {(metrics.data_share or 0):.2f}."
                         )
                     else:
@@ -3517,16 +3568,17 @@ class QueryOptimizationUseCase:
             ]
             if scored:
                 top = max(scored)
-                best_ft_iter = -top[3]
+                best_ft_iter = -top[-1]
                 best_variant_entry = ft_entries[best_ft_iter]
                 bc = ft_candidates[best_ft_iter]
                 safe, risky = list(bc.safe), list(bc.risky)
                 flag_terms, exc_work = list(bc.flag_terms), list(bc.exclude_terms)
+                met, _floor, top_prec, top_data, _ = top
                 notes_parts.append(
                     f"Selected iteration {best_ft_iter} by full-text precision "
-                    f"({top[2]:.2f})"
-                    + (f", data-only precision {top[1]:.2f} first among iterations "
-                       "meeting the split-dataset bar." if self._split_release() and top[0]
+                    f"({top_prec:.2f})"
+                    + (f"; confirmed data share {top_data:.2f} breaks precision ties among "
+                       "iterations meeting the split-dataset bar." if self._split_release() and met
                        else ".")
                 )
 
@@ -3634,6 +3686,7 @@ class QueryOptimizationUseCase:
         release_met: bool | None = None
         four_way: dict | None = None
         data_precision: float | None = None
+        data_floor: dict | None = None
         if ft_enabled:
             # In full-text mode confidence comes from the selected iteration's full-text
             # precision and sample size only; the abstract FP rate stays in the notes and
@@ -3689,8 +3742,9 @@ class QueryOptimizationUseCase:
                      if best_ft_iter is not None else None)
             if sel_m is not None and self._split_release():
                 four_way, data_precision = sel_m.four_way, sel_m.data_share
+                data_floor = self._data_floor(sel_m, rounds=len(ft_iterations))
             notes_parts.append(self._release_note(
-                release_bar, bool(release_met), sel_m, phase3_error is not None))
+                release_bar, bool(release_met), sel_m, phase3_error is not None, data_floor))
         else:
             fp_sel = float(best.fp_rate_pct or 0.0)
             if best.fp_rate_pct is None:
@@ -3800,6 +3854,7 @@ class QueryOptimizationUseCase:
             release_bar=release_bar,
             release_bar_met=release_met,
             fulltext_four_way=four_way,
+            fulltext_data_floor=data_floor,
             fulltext_data_precision=data_precision,
             proposal=proposal,
             resource_map=self._resource_map,

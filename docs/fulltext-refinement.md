@@ -206,9 +206,20 @@ iteration is proposed with its own confidence, and the recall check is skipped. 
 iteration's and the complement's.
 
 For a dataset the resource map splits (the broad program query), the release bar is the
-unrelated share instead of precision: MEDIUM, the early stop and the selection preference need
-an unrelated share of at most `fulltext_split_unrelated_max` (0.20) on at least
-`fulltext_recall_min_evidence` (10) evaluated papers. Each evaluated paper falls in one of four
+unrelated share and a data floor instead of precision: MEDIUM needs an unrelated share of at
+most `fulltext_split_unrelated_max` (0.20) and a confirmed data share (genuine papers the scope
+check labelled `data` / papers evaluated; `unclear` does not count) of at least
+`fulltext_split_data_min` (0.50), on at least `fulltext_recall_min_evidence` (10) evaluated
+papers. While the unrelated bar is met but the floor is not, the full-text loop does not stop
+early and keeps refining, within the same round limit as every full-text loop
+(`optimize_max_iterations`, default 2); it stops sooner only when the refiner finds nothing to
+change. When the rounds run out below the floor, `fulltext_split_floor_required` (default
+true) decides the end state: true reports the bar as not met (`release_bar_met` false, note
+"data floor not reached after N rounds", best iteration and its four-way split still
+written); false releases on the unrelated bar alone and records the missed floor. The record
+carries `fulltext_data_floor` (min, share, Wilson 95% interval, met, required, rounds). The
+refiner itself is unchanged: it does not target program-only papers, so extra rounds raise
+the data share only when term changes happen to. Each evaluated paper falls in one of four
 classes (`PubVerdict.four_way`): `data` or `program_only` (genuine, by scope label),
 `references_only` (a `not_mentioned` paper, whether the judge said so or the references-only
 override or the scope check's references-only rule turned it, whose non-flag snippets all sit
@@ -222,9 +233,9 @@ that occurs only in a cited title (for example "Why all of us need to rethink pe
 for All of Us) is references-only too, because nothing in the snippets separates it from a
 citer of the dataset paper. Data, program-only and
 references-only papers all count toward the bar, because the judge removes citers and
-program-only papers downstream. There is no floor on the data share, but among iterations
-that meet the split bar and tie on precision the selection prefers the higher share of
-papers the scope check labelled data (an `unclear` scope does not count), the gate note
+program-only papers downstream. The selection ranks the release bar first, then (split
+datasets) an iteration that reaches the data floor, then precision; among iterations that
+meet the split bar and tie on precision it prefers the higher confirmed data share, the gate note
 prints the data-only precision, and the release note warns when no sampled paper refers to
 the data resource. HIGH still needs precision of at least 0.90 (`1 - optimize_fp_threshold_pct /
 100`), and for every dataset it also needs the release bar, so `release_bar_met` is true

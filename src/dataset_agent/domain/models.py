@@ -392,6 +392,12 @@ class QueryOptimizationRecord(BaseModel):
         description="Split datasets: the selected iteration's data | program_only | "
         "references_only | unrelated split, each with count, share and wilson95",
     )
+    fulltext_data_floor: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Split datasets: the data floor of the release bar for the selected "
+        "iteration: min, share (confirmed data share: scope data / evaluated), wilson95, "
+        "met, required (fulltext_split_floor_required) and rounds (full-text iterations run)",
+    )
     fulltext_data_precision: Optional[float] = Field(
         default=None,
         description="Split datasets: data-only precision of the selected iteration (data "

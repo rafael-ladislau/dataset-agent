@@ -60,9 +60,9 @@ def _run(tmp_path, pubs, *, split, **settings):
                                        "reasoning": ""}
     uc = QueryOptimizationUseCase(
         dsl_port=CountDSL(), research=MagicMock(), agent=llm,
-        settings=make_settings(tmp_path, fulltext_refinement_enabled=True,
-                               optimize_max_iterations=1, fulltext_recall_enabled=False,
-                               **settings),
+        settings=make_settings(tmp_path, **{"fulltext_refinement_enabled": True,
+                                            "optimize_max_iterations": 1,
+                                            "fulltext_recall_enabled": False, **settings}),
         extraction_client=FakeClient([{"publications": pubs}]))
 
     async def label(ev, _request):
@@ -132,12 +132,14 @@ def test_there_is_no_legacy_split():
 
 def test_split_dataset_released_on_unrelated_share(tmp_path):
     # data 0.45, program-only 0.30, references-only 0.13, unrelated 0.12: precision 0.75
-    # fails the precision bar, the unrelated bar releases it.
-    out = _run(tmp_path, _pubs(45, 30, 13, 12), split=True)
+    # fails the precision bar, the unrelated bar releases it (data floor set to 0 here;
+    # the floor has its own tests in test_split_data_floor.py).
+    out = _run(tmp_path, _pubs(45, 30, 13, 12), split=True, fulltext_split_data_min=0.0)
     m = out.fulltext_iterations[0]
     assert m.fulltext_precision == 0.75 and m.data_share == 0.45
     assert m.unrelated_share == 0.12
-    assert out.release_bar == "split dataset: unrelated share <= 0.20"
+    assert out.release_bar == ("split dataset: unrelated share <= 0.20 and confirmed data "
+                               "share >= 0.00")
     assert out.release_bar_met is True
     assert out.confidence.value == "medium"
     assert out.fulltext_data_precision == 0.45
@@ -147,7 +149,8 @@ def test_split_dataset_released_on_unrelated_share(tmp_path):
     assert fw["unrelated"]["share"] == 0.12
     lo, hi = fw["unrelated"]["wilson95"]
     assert 0.0 < lo < 0.12 < hi < 1.0
-    assert "release bar: split dataset: unrelated share <= 0.20 (met)" in out.notes
+    assert ("release bar: split dataset: unrelated share <= 0.20 and confirmed data share "
+            ">= 0.00 (met)") in out.notes
     assert "data-only precision 0.45" in out.notes and "precision 0.75" in out.notes
     assert "legacy" not in out.notes
 
@@ -155,10 +158,11 @@ def test_split_dataset_released_on_unrelated_share(tmp_path):
 def test_split_dataset_not_released_above_the_unrelated_bar(tmp_path):
     out = _run(tmp_path, _pubs(45, 30, 0, 25), split=True)
     assert out.fulltext_iterations[0].unrelated_share == 0.25
-    assert out.release_bar == "split dataset: unrelated share <= 0.20"
+    bar = "split dataset: unrelated share <= 0.20 and confirmed data share >= 0.50"
+    assert out.release_bar == bar
     assert out.release_bar_met is False
     assert out.confidence.value == "low"
-    assert "release bar: split dataset: unrelated share <= 0.20 (not met)" in out.notes
+    assert f"release bar: {bar} (not met)" in out.notes
 
 
 def test_non_split_dataset_keeps_the_precision_bar(tmp_path):
@@ -186,20 +190,19 @@ def test_split_bar_keeps_the_minimum_sample(tmp_path):
     assert "below the minimum sample" in out.notes
 
 
-def test_citers_only_sample_meets_the_split_bar_with_a_warning(tmp_path):
-    # 8 references-only citers + 2 unrelated: the unrelated share 0.20 meets the bar (no
-    # floor on the data share, an owner question), but the notes say no paper is data.
+def test_citers_only_sample_misses_the_data_floor_with_a_warning(tmp_path):
+    # 8 references-only citers + 2 unrelated: the unrelated share 0.20 meets that bar, but
+    # no paper is data, so the data floor (0.50) is not reached and the bar is not met.
     out = _run(tmp_path, _pubs(0, 0, 8, 2), split=True)
     m = out.fulltext_iterations[0]
     assert m.unrelated_share == 0.2 and m.data_share == 0.0
-    assert out.release_bar_met is True and out.confidence.value == "medium"
-    assert ("gate_iter0: full-text unrelated share meets the split-dataset bar (<= 0.20 on "
-            ">= 10 papers); data-only precision 0.00") in out.notes
+    assert out.release_bar_met is False and out.confidence.value == "low"
+    assert "(not met: data floor not reached after 1 round)" in out.notes
     assert "no sampled paper refers to the data resource" in out.notes
 
 
 def test_no_warning_when_a_sampled_paper_is_data(tmp_path):
-    out = _run(tmp_path, _pubs(1, 0, 7, 2), split=True)
+    out = _run(tmp_path, _pubs(1, 0, 7, 2), split=True, fulltext_split_data_min=0.0)
     assert out.release_bar_met is True
     assert "no sampled paper refers to the data resource" not in out.notes
 

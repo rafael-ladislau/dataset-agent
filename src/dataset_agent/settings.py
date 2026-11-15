@@ -266,6 +266,14 @@ class Settings(BaseSettings):
     #: judge removes citers and program-only papers downstream). Replaces the precision bar
     #: above for split datasets only; the same minimum sample applies.
     fulltext_split_unrelated_max: float = Field(default=0.20, ge=0.0, le=1.0)
+    #: Data floor of the split release bar: min confirmed data share (genuine papers the
+    #: scope check labelled ``data`` / papers evaluated; ``unclear`` does not count). Below
+    #: it the full-text loop keeps refining, for at most ``optimize_max_iterations`` rounds.
+    fulltext_split_data_min: float = Field(default=0.50, ge=0.0, le=1.0)
+    #: End state when the rounds run out below the floor: True reports the release bar as
+    #: not met (the best iteration and its four-way split are still written); False
+    #: releases on the unrelated bar alone and records the missed floor.
+    fulltext_split_floor_required: bool = True
     #: Min full-text papers evaluated in a complement probe (and min Dimensions hits added);
     #: also the sample needed for MEDIUM or HIGH confidence and the early-stop bar of the
     #: full-text loop.
