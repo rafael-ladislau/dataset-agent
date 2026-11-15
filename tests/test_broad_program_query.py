@@ -118,3 +118,13 @@ def test_former_or_parent_names_go_through_the_count_and_risk_path(tmp_path):
     out_safe, out_risky, _, _ = _apply(FMAP, safe=safe, risky=risky)
     assert "Old Example Name" in out_safe and "Parent Example Initiative" in out_risky
     assert "Huge Parent Initiative" not in out_safe + out_risky
+
+
+def test_former_names_with_stray_whitespace_or_case_never_stand_alone():
+    # The map keeps the LLM's former names unstripped; program names are stripped.
+    rmap = FMAP.model_copy(update={"former_or_parent_names": [
+        " Old Example Name ", "parent  example\tinitiative", "HUGE PARENT INITIATIVE"]})
+    assert QueryOptimizationUseCase._own_program_names(rmap) == ["All of Example Research Program"]
+    safe, risky, _, _ = _apply(rmap)
+    for name in FORMER:
+        assert name not in safe and name not in risky

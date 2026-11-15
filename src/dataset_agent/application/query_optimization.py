@@ -2450,8 +2450,11 @@ class QueryOptimizationUseCase:
     def _own_program_names(rmap) -> list[str]:
         """The program's own names: program names minus former or parent names (those
         go through the count and risk path, see ``_screen_former_program_names``)."""
-        former = {n.casefold() for n in (rmap.former_or_parent_names or [])}
-        return [p for p in rmap.program_names if p.casefold() not in former]
+        def key(name: str) -> str:  # stripped, case-folded, whitespace collapsed
+            return " ".join(name.split()).casefold()
+
+        former = {key(n) for n in (rmap.former_or_parent_names or [])}
+        return [p for p in rmap.program_names if key(p) not in former]
 
     @classmethod
     def _standalone_data_phrases(cls, rmap) -> list[str]:
