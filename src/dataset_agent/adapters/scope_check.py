@@ -207,6 +207,8 @@ funding, a definition quoted from it, or when it names the program as an example
 list of initiatives, programs, efforts or projects.
 Noun test for lists: {DATA_LIST_NOUNS} mean DATA;
 {PROGRAM_LIST_NOUNS} mean PROGRAM_ONLY.
+Close calls lean toward DATA: answer PROGRAM_ONLY only when you are confident the paper
+discusses the program alone; a list mention, a mixed passage or an unsure case is DATA.
 Answer unclear only when the passages do not let you decide.
 
 Use emit_scope_classification exactly once; scope is data, program_only or unclear."""

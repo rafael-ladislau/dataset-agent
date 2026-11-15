@@ -157,3 +157,12 @@ def test_no_map_or_ai_models_never_enter():
     ev2 = build_evidence({"task_id": "T", "seed_type": "ai_model", "publications": []})
     assert _check(ev2, judge).n_checked == 0
     assert judge.prompts == [] and ev.verdicts[0].scope is None
+
+
+def test_close_calls_lean_toward_data():
+    from dataset_agent.adapters.scope_check import scope_prompt
+
+    p = scope_prompt(dataset_name="E", description="", program_names=["P"], data_names=["D"],
+                     title="t", passages=["x"], quote="q")
+    assert "answer PROGRAM_ONLY only when you are confident the paper" in p
+    assert "a list mention, a mixed passage or an unsure case is DATA" in p
