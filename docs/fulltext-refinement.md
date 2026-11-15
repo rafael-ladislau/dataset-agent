@@ -282,7 +282,10 @@ records `resource_map_decision` (`origin` drawn, reused or request; `split`; `de
 drawn again only when the request sets `refresh_resource_map` (CLI `--refresh-map`) or no
 decided map is stored. An undecided draw (`resource_map_error`) is never stored as a decision
 and is retried on the next run; a refresh that fails leaves the dataset undecided, so the next
-run draws again. A map passed in the request wins over the stored one. The catch: a poor first
+run draws again. A map passed in an optimize request, or a firm "no split" passed as
+`resource_map_checked=true` with no map, wins over the stored one with `origin` request, with or
+without `dataset_names`. It applies to that run only and is not stored; without `dataset_names`
+research still runs and reuses (or draws and stores) its own decision. The catch: a poor first
 draw persists until someone refreshes it, so check `program_datasets` and `found_names` after a
 first draw. The rest of research is not stored for reuse: aliases, flags and excludes come
 from each run's own research, and the stored map adds its program and data names to them; its

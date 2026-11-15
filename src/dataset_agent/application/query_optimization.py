@@ -2943,6 +2943,14 @@ class QueryOptimizationUseCase:
                     self._map_decision = decision.model_copy(update={"stored_in": None})
         return drawn, None
 
+    @staticmethod
+    def _request_map_decision(request: OptimizeRequest) -> ResourceMapDecision:
+        """The decision of a map (or a firm "no split": ``resource_map_checked`` with no
+        map) passed in *request*: research's own decision when it passed one along, else
+        origin "request"."""
+        return request.resource_map_decision or ResourceMapDecision(
+            origin="request", split=request.resource_map is not None)
+
     def _map_decision_note(self) -> str | None:
         d = self._map_decision
         if d is None:
@@ -3078,9 +3086,7 @@ class QueryOptimizationUseCase:
             # A map passed in the request wins over a stored one. Research passes its own
             # decision along (drawn or reused); a map without one was passed by the caller.
             if request.resource_map is not None or request.resource_map_checked:
-                self._map_decision = request.resource_map_decision or (
-                    ResourceMapDecision(origin="request", split=True)
-                    if request.resource_map is not None else None)
+                self._map_decision = self._request_map_decision(request)
             if (request.resource_map is None and request.resource_map_error
                     and self._settings.resource_map_enabled):
                 from types import SimpleNamespace
@@ -3127,7 +3133,15 @@ class QueryOptimizationUseCase:
             # Research reuses the stored decision unless asked to refresh; a record it did
             # not decide (or a stored research output from before the map was stored)
             # reads the stored decision here, else draws once and stores it.
-            if rec.resource_map_checked:
+            if request.resource_map is not None or request.resource_map_checked:
+                # A map (or a firm "no split") passed in the request wins over the one
+                # research reused or drew; it applies to this run and is not stored.
+                rec.resource_map = (request.resource_map.model_copy(deep=True)
+                                    if request.resource_map is not None else None)
+                rec.resource_map_checked, rec.resource_map_error = True, None
+                self._map_decision = self._request_map_decision(request)
+                rec.resource_map_decision = self._map_decision
+            elif rec.resource_map_checked:
                 self._map_decision = rec.resource_map_decision
             elif self._settings.resource_map_enabled and rec.resource_map is None:
                 rec.resource_map, err = await self._stored_or_drawn_map(

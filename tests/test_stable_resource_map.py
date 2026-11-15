@@ -267,3 +267,42 @@ def test_full_pipeline_keeps_a_map_optimize_drew_after_research_failed(tmp_path,
     stored = JsonDatasetRepository(tmp_path).load(NAME)
     assert stored.resource_map_checked and stored.resource_map_decision.origin == "drawn"
     assert record.resource_map_decision.origin == "drawn"
+
+
+def test_a_map_passed_without_dataset_names_wins_over_research(tmp_path):
+    """Research runs (no dataset_names) and decides its own map; the request's map wins."""
+    store = tmp_path / "store"
+    research = _research(store, lambda r: pytest.fail("no draw"))
+    uc = _optimize(tmp_path, research)
+
+    async def researched(_req):
+        return _rec(resource_map=_map(), resource_map_checked=True,
+                    resource_map_decision={"origin": "reused", "split": True})
+
+    uc._run_research = researched
+    out = asyncio.run(uc.execute(OptimizeRequest(dataset_name=NAME,
+                                                 resource_map=_map("Given Tier"))))
+    assert out.resource_map_decision.origin == "request"
+    assert out.resource_map.data_resource_names == ["Given Tier"]
+    assert "passed in the request" in out.notes
+
+
+def test_a_request_no_split_is_recorded_as_a_request_decision(tmp_path):
+    store = tmp_path / "store"
+    research = _research(store, lambda r: pytest.fail("no draw"))
+    research._repository.save(_rec(resource_map=_map(), resource_map_checked=True))
+    uc = _optimize(tmp_path, research)
+    req = OptimizeRequest(dataset_name=NAME, dataset_names=[NAME, "Example Cohort Study"],
+                          flag_terms=["NIH"], resource_map=None, resource_map_checked=True)
+    out = asyncio.run(uc.execute(req))
+    assert out.resource_map is None
+    assert out.resource_map_decision.origin == "request"
+    assert not out.resource_map_decision.split
+    assert "passed in the request (no split)" in out.notes
+
+    async def researched(_req):
+        return _rec(resource_map=_map(), resource_map_checked=True)
+
+    uc._run_research = researched
+    out = asyncio.run(uc.execute(OptimizeRequest(dataset_name=NAME, resource_map_checked=True)))
+    assert out.resource_map is None and out.resource_map_decision.origin == "request"
