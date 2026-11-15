@@ -92,16 +92,42 @@ def fetch_page_text(url: str | None, *, max_chars: int = 60_000) -> str:
         return ""
 
 
+#: Window of page text the map LLM reads (search snippets are always kept whole).
+MAX_PAGE_CHARS = 12_000
+#: Floor of each fetched page's slice when the snippets fill the window.
+MIN_PAGE_SLICE = 1_500
+
+
+def prompt_excerpt(parts: list[tuple[str, str]], *, max_chars: int = MAX_PAGE_CHARS) -> str:
+    """The page text the LLM reads, budgeted per source: every search's snippets first and
+    whole (one search per section), then a slice of each fetched page sharing the rest of
+    the window evenly (at least ``MIN_PAGE_SLICE`` each). One long page can no longer push
+    a later search out of the window."""
+    searches = [(s, t) for s, t in parts if str(s).startswith("search:") and t]
+    pages = [(s, t) for s, t in parts if not str(s).startswith("search:") and t]
+    out = [f"[{s}]\n{t}" for s, t in searches]
+    if pages:
+        used = sum(len(x) for x in out)
+        share = max((max_chars - used) // len(pages), MIN_PAGE_SLICE)
+        out += [f"[page: {s}]\n{t[:share]}" for s, t in pages]
+    return "\n".join(out)
+
+
 def resource_map_prompt(*, dataset_name: str, description: str, names: list[str],
-                        pages: str, max_page_chars: int = 12_000) -> str:
+                        pages: str, max_page_chars: int = MAX_PAGE_CHARS,
+                        parts: list[tuple[str, str]] | None = None) -> str:
+    """With *parts* (source, text), the window is budgeted per source (``prompt_excerpt``);
+    otherwise it is the first *max_page_chars* of *pages*."""
     listed = "\n".join(f"- {n}" for n in names)
+    excerpt = (prompt_excerpt(parts, max_chars=max_page_chars) if parts
+               else pages[:max_page_chars])
     return f"""Dataset (catalog entry): {dataset_name!r}.
 Description: {" ".join((description or "").split())}
 Names found by research:
 {listed}
 
 Fetched pages (excerpt):
-{pages[:max_page_chars]}
+{excerpt}
 
 Classify each name:
 - program: a research program, initiative or study that recruits participants, collects
@@ -127,12 +153,12 @@ Use emit_resource_map exactly once."""
 
 
 def propose(agent, *, dataset_name: str, description: str, names: list[str],
-            pages: str) -> dict:
+            pages: str, parts: list[tuple[str, str]] | None = None) -> dict:
     """The LLM proposal (empty dict when the call failed)."""
     try:
         raw = agent.get_structured(
             resource_map_prompt(dataset_name=dataset_name, description=description,
-                                names=names, pages=pages),
+                                names=names, pages=pages, parts=parts),
             EMIT_RESOURCE_MAP,
         )
     except Exception as exc:
@@ -426,6 +452,7 @@ def discovery_pages(dataset_name: str, *, search=None, fetch=None, per_query: in
     texts: list[str] = []
     sources: list[str] = []
     seen: set[str] = set()
+    fetched = 0  # successful fetches only: a failed URL does not use up the cap
     for tpl in DISCOVERY_QUERIES:
         q = tpl.format(name=dataset_name)
         try:
@@ -438,11 +465,12 @@ def discovery_pages(dataset_name: str, *, search=None, fetch=None, per_query: in
         if parts is not None:
             parts.append((f"search: {q}", res))
         for url in _URL_LINE.findall(res)[:per_query]:
-            if url in seen or len(seen) >= max_pages:
+            if url in seen or fetched >= max_pages:
                 continue
             seen.add(url)
             text = fetch(url)
             if text:
+                fetched += 1
                 texts.append(text)
                 sources.append(url)
                 if parts is not None:
@@ -484,7 +512,8 @@ def discover_from_web(agent, rmap: ResourceMap, *, dataset_name: str, descriptio
     if not pages:
         return []
     raw = propose(agent, dataset_name=dataset_name, description=description,
-                  names=[*rmap.program_names, *rmap.data_resource_names], pages=pages)
+                  names=[*rmap.program_names, *rmap.data_resource_names], pages=pages,
+                  parts=parts)
     rows = [r for r in (raw.get("names") or []) if isinstance(r, dict)]
     cands = [str(r.get("name") or "").strip() for r in rows if r.get("kind") == "data_resource"]
     cands += [n.strip() for n in (raw.get("data_resource_names_in_pages") or [])
@@ -754,12 +783,13 @@ def map_for_record(agent, record, *, count: Callable[[str], int | None],
     name = record.main_dataset_name
     if pages is None:
         parts = []
-        pages, sources = gather_pages_with_sources(name, record.home_url, parts_out=parts)
+        pages, sources = gather_pages_with_sources(name, record.home_url, search=search,
+                                                   fetch=fetch, parts_out=parts)
     elif parts is None:
         parts = [("pages given", pages)]
     names = list(dict.fromkeys([name, *record.dataset_names, *record.flag_terms]))
     raw = propose(agent, dataset_name=name, description=record.description, names=names,
-                  pages=pages)
+                  pages=pages, parts=parts)
     m = build_map(raw, dataset_name=name, pages=pages, count=count,
                   min_cooccurrence=min_cooccurrence, count_where=count_where,
                   max_share_before=max_share_before, specific_min_share=specific_min_share,
