@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from dataset_agent.adapters.agent_anthropic import AnthropicAgent
 from dataset_agent.bootstrap import _build_agent, build_referent_agent
@@ -74,5 +73,5 @@ def test_referent_agent_thinks_only_when_its_setting_says_so(tmp_path):
 def test_referent_thinking_needs_the_anthropic_style(tmp_path):
     s = _settings(tmp_path, referent_thinking_budget=4096)
     s = s.model_copy(update={"llm_api_style": "openai"})
-    with pytest.raises(ValueError, match="anthropic"):
-        build_referent_agent(s)
+    a = build_referent_agent(s)  # falls back to the main agent, thinking off
+    assert type(a) is type(_build_agent(s))

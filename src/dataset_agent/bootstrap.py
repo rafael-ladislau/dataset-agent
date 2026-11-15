@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from dataset_agent.adapters.agent_anthropic import AnthropicAgent
 from dataset_agent.adapters.agent_openai import OpenAICompatibleAgent
 from dataset_agent.adapters.dimensions_dsl import AsyncThrottledDimensionsDsl
@@ -14,6 +16,8 @@ from dataset_agent.application.research import DatasetResearchUseCase
 from dataset_agent.domain.models import OptimizeRequest, ResearchRequest
 from dataset_agent.domain.ports import AgentPort
 from dataset_agent.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 
 def _build_agent(settings: Settings) -> AgentPort:
@@ -37,7 +41,9 @@ def build_referent_agent(settings: Settings) -> AgentPort:
         return _build_agent(settings)
     endpoint = settings.llm_endpoint()
     if endpoint.api_style != "anthropic":
-        raise ValueError("referent_thinking_budget needs the anthropic API style")
+        logger.warning("referent_thinking_budget needs the anthropic API style; the referent "
+                       "question runs on the main agent without thinking")
+        return _build_agent(settings)
     return AnthropicAgent(
         model_name=endpoint.model,
         base_url=endpoint.base_url,

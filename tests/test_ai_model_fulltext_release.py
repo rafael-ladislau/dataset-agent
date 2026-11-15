@@ -85,9 +85,9 @@ def _run(tmp_path, client, *, referent_answer=True, **over):
     return asyncio.run(uc.execute(req))
 
 
-def test_full_text_off_by_default_never_probes(tmp_path, patched):
+def test_full_text_off_never_probes(tmp_path, patched):
     client = ModelClient(_body(20, 20))
-    out = _run(tmp_path, client)
+    out = _run(tmp_path, client, ai_model_fulltext_enabled=False)
     assert client.seeds == [] and out.ai_model_seed is not None
 
 
