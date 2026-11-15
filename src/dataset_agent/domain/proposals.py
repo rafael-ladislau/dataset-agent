@@ -118,13 +118,6 @@ class IterationMetrics(BaseModel):
         description="Split datasets: unrelated papers / papers evaluated (0-1), the release "
         "bar for a split dataset; None when the scope check did not run",
     )
-    unrelated_share_legacy: Optional[float] = Field(
-        default=None,
-        description="Split datasets: the unrelated share as before round 6, when a paper the "
-        "judge itself called not_mentioned with every snippet in the reference list counted "
-        "as references-only; reported next to unrelated_share only. None when the scope "
-        "check did not run",
-    )
     cited_only_unknown_count: Optional[int] = Field(
         default=None,
         description="AI models: genuine papers whose name location is unknown; None for datasets",

@@ -2451,8 +2451,6 @@ class QueryOptimizationUseCase:
             note += f": {', '.join(parts)}; data-only precision {(m.data_share or 0):.2f}"
             if not m.four_way.get("data", {}).get("count"):
                 note += " (warning: no sampled paper refers to the data resource)"
-            if m.unrelated_share_legacy is not None:
-                note += f"; legacy unrelated share {m.unrelated_share_legacy:.2f}"
             note += " next to"
         else:
             note += ":"

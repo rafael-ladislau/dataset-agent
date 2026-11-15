@@ -125,32 +125,16 @@ class PubVerdict:
     def four_way(self) -> str:
         """Datasets: ``data`` | ``program_only`` | ``references_only`` | ``unrelated``, the
         split the reports and the split-dataset release bar use. Genuine papers are data or
-        program-only (scope label). References-only: a paper the references-only override
-        or the scope check's references-only rule turned to ``not_mentioned``, or one turned
-        by the bibliography cut (``bibliography_excluded``, judged ``not_mentioned``, every
-        non-flag snippet in ``references`` and no flag snippet outside them). Every other
-        evaluated paper is unrelated, including, without the cut, one the judge itself
-        called ``not_mentioned`` whose snippets all sit in the reference list."""
+        program-only (scope label). A ``not_mentioned`` paper (the judge's verdict, or one
+        the references-only override or the scope check turned) whose non-flag snippets all
+        sit in ``references``, with no flag snippet outside them, is references-only,
+        whatever ``bibliography_excluded`` says. Every other paper is unrelated. Known
+        limit: a homonym that occurs only in a cited title is references-only too."""
         if self.genuine:
             return "program_only" if self.scope == "program_only" else "data"
-        if self.scope_references_only or self.overridden_from is not None:
-            return "references_only"
-        if self.bibliography_excluded and _references_only(self.contexts):
-            # Turned by the cut: the judge never read the reference list, the only place
-            # the paper names the dataset.
+        if self.verdict == "not_mentioned" and _references_only(self.contexts):
             return "references_only"
         return "unrelated"
-
-    @property
-    def four_way_legacy(self) -> str:
-        """``four_way`` as before round 6: a non-genuine paper whose snippets all sit in the
-        reference list is references-only whoever said ``not_mentioned``. Reported next to
-        the canonical split only."""
-        cls = self.four_way
-        if cls != "unrelated":
-            return cls
-        parts = {str(c.get("part") or "") for c in self.contexts if c.get("text")}
-        return "references_only" if parts and parts <= {"references", "reference"} else cls
 
     @property
     def cited_only(self) -> bool | None:
@@ -259,24 +243,22 @@ class Evidence:
             return None
         return sum(1 for v in self.verdicts if v.genuine and v.scope != "program_only")
 
-    def four_way_counts(self, *, legacy: bool = False) -> dict[str, int]:
-        """Papers per ``PubVerdict.four_way`` class (``four_way_legacy`` with *legacy*), in
-        the order of ``FOUR_WAY``."""
+    def four_way_counts(self) -> dict[str, int]:
+        """Papers per ``PubVerdict.four_way`` class, in the order of ``FOUR_WAY``."""
         counts = dict.fromkeys(FOUR_WAY, 0)
         for v in self.verdicts:
-            counts[v.four_way_legacy if legacy else v.four_way] += 1
+            counts[v.four_way] += 1
         return counts
 
-    def four_way_summary(self, *, legacy: bool = False) -> dict[str, dict[str, Any]] | None:
-        """Split datasets: count, share and Wilson 95% interval per four-way class (the
-        legacy split with *legacy*); None when the scope check did not run or nothing was
-        evaluated."""
+    def four_way_summary(self) -> dict[str, dict[str, Any]] | None:
+        """Split datasets: count, share and Wilson 95% interval per four-way class; None
+        when the scope check did not run or nothing was evaluated."""
         n = self.n_evaluated
         if not self.scope_checked or not n:
             return None
         return {
             k: {"count": c, "share": c / n, "wilson95": _wilson(c, n)}
-            for k, c in self.four_way_counts(legacy=legacy).items()
+            for k, c in self.four_way_counts().items()
         }
 
     @property
@@ -336,7 +318,6 @@ class Evidence:
         cited = self.n_cited_only
         not_run = self.n_not_run
         four_way = self.four_way_summary()
-        four_way_legacy = self.four_way_summary(legacy=True)
         return IterationMetrics(
             iteration=iteration,
             for_clause=for_clause,
@@ -377,9 +358,6 @@ class Evidence:
             scope_references_only_count=self.n_scope_references_only,
             four_way=four_way,
             unrelated_share=four_way["unrelated"]["share"] if four_way else None,
-            unrelated_share_legacy=(
-                four_way_legacy["unrelated"]["share"] if four_way_legacy else None
-            ),
             referent_rejected_count=(
                 self.n_referent_rejected if self.entity == "ai_model" else None
             ),

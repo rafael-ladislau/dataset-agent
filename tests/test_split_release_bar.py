@@ -92,32 +92,31 @@ def _fv(pid, verdict, *, scope=None, part="body", refs_rule=False, overridden_fr
                       contexts=[{"term": "X", "part": part, "text": "X"}])
 
 
-def test_four_way_split_is_canonical_on_the_verdict_and_evidence():
+def test_four_way_split_is_one_class_on_the_verdict_and_evidence():
     ev = Evidence(verdicts=[
         _fv("a", "used", scope="data"), _fv("b", "mentioned", scope="program_only"),
         _fv("c", "mentioned", scope="unclear"),  # genuine, not program-only: data
         # turned by the references-only override
         _fv("d", "not_mentioned", part="references", overridden_from="mentioned"),
-        _fv("e", "not_mentioned", refs_rule=True,
+        _fv("e", "not_mentioned", part="references", refs_rule=True,
             overridden_from="mentioned"),  # turned by the scope check's rule
         _fv("f", "not_mentioned"),
-        # The judge itself said not_mentioned; its snippets sit in the references (a
-        # homonym in a cited title): unrelated, references-only only in the legacy split.
+        # The judge itself said not_mentioned and its snippets all sit in the references:
+        # references-only too, whoever said not_mentioned and whatever the cut flag.
         _fv("g", "not_mentioned", part="references"),
     ])
     assert [x.four_way for x in ev.verdicts] == [
         "data", "program_only", "data", "references_only", "references_only", "unrelated",
-        "unrelated"]
-    assert ev.four_way_counts() == {"data": 2, "program_only": 1, "references_only": 2,
-                                    "unrelated": 2}
-    assert [x.four_way_legacy for x in ev.verdicts] == [
-        "data", "program_only", "data", "references_only", "references_only", "unrelated",
         "references_only"]
-    assert ev.four_way_counts(legacy=True) == {"data": 2, "program_only": 1,
-                                               "references_only": 3, "unrelated": 1}
+    assert ev.four_way_counts() == {"data": 2, "program_only": 1, "references_only": 3,
+                                    "unrelated": 1}
 
 
-def test_unrelated_share_is_reported_both_ways():
+def test_there_is_no_legacy_split():
+    assert not hasattr(PubVerdict, "four_way_legacy")
+    from dataset_agent.domain.proposals import IterationMetrics
+
+    assert "unrelated_share_legacy" not in IterationMetrics.model_fields
     ev = Evidence(scope_ran=True, verdicts=[
         *[_fv(f"a{i}", "used", scope="data") for i in range(6)],
         _fv("d", "not_mentioned", part="references", overridden_from="mentioned"),
@@ -125,12 +124,10 @@ def test_unrelated_share_is_reported_both_ways():
         _fv("f", "not_mentioned"),
     ])
     m = ev.metrics(0, "q", None)
-    assert m.unrelated_share == 0.3 and m.unrelated_share_legacy == 0.1
-    assert m.four_way["references_only"]["count"] == 1
-    assert ev.four_way_summary(legacy=True)["references_only"]["count"] == 3
-    # No scope check: neither share is reported.
-    plain = Evidence(verdicts=[_fv("g", "not_mentioned", part="references")])
-    assert plain.metrics(0, "q", None).unrelated_share_legacy is None
+    assert m.unrelated_share == 0.1
+    assert m.four_way["references_only"]["count"] == 3
+    with pytest.raises(TypeError):
+        ev.four_way_counts(legacy=True)
 
 
 def test_split_dataset_released_on_unrelated_share(tmp_path):
@@ -152,7 +149,7 @@ def test_split_dataset_released_on_unrelated_share(tmp_path):
     assert 0.0 < lo < 0.12 < hi < 1.0
     assert "release bar: split dataset: unrelated share <= 0.20 (met)" in out.notes
     assert "data-only precision 0.45" in out.notes and "precision 0.75" in out.notes
-    assert "legacy unrelated share 0.12" in out.notes
+    assert "legacy" not in out.notes
 
 
 def test_split_dataset_not_released_above_the_unrelated_bar(tmp_path):
@@ -269,32 +266,43 @@ def _classes(*pubs):
     from dataset_agent.adapters.fulltext_evidence import build_evidence
 
     ev = build_evidence({"publications": list(pubs)})
-    return [(v.four_way, v.four_way_legacy) for v in ev.verdicts]
+    return [v.four_way for v in ev.verdicts]
 
 
-def test_a_cut_not_mentioned_references_only_paper_is_references_only():
-    # The publication-level flag (no row for a not-mentioned paper) and a row flag.
+def test_a_not_mentioned_references_only_paper_is_references_only_whatever_the_flag():
+    # The class must not depend on the age of the analysis: publication-level flag (no
+    # row for a not-mentioned paper), row flag, flag False, flag absent.
     assert _classes(_cut_pub("a", pub_flag=True),
-                    _cut_pub("b", row_flag=True, rows=True)) == [
-        ("references_only", "references_only"), ("references_only", "references_only")]
+                    _cut_pub("b", row_flag=True, rows=True),
+                    _cut_pub("c", row_flag=False, pub_flag=True, rows=True),
+                    _cut_pub("d", pub_flag=False),
+                    _cut_pub("e")) == ["references_only"] * 5
 
 
-def test_the_row_flag_is_read_before_the_publication_flag():
-    assert _classes(_cut_pub("a", row_flag=False, pub_flag=True, rows=True)) == [
-        ("unrelated", "references_only")]
+def test_a_not_mentioned_paper_with_a_body_snippet_is_unrelated():
+    assert _classes(_cut_pub("a", pub_flag=True, parts=("references", "body")),
+                    _cut_pub("b", parts=("references", "body"))) == ["unrelated"] * 2
 
 
-def test_a_cut_not_mentioned_paper_with_a_body_snippet_is_unrelated():
-    assert _classes(_cut_pub("a", pub_flag=True, parts=("references", "body"))) == [
-        ("unrelated", "unrelated")]
+def test_a_paper_with_a_flag_snippet_outside_the_references_is_unrelated():
+    out = []
+    for flag in (True, None):
+        p = _cut_pub("a", pub_flag=flag)
+        p["term_contexts"].append({"term": "NIH", "role": "flag", "part": "body", "text": "NIH"})
+        out.append(p)
+    assert _classes(*out) == ["unrelated"] * 2
 
 
-def test_a_cut_paper_with_a_flag_snippet_outside_the_references_is_unrelated():
-    p = _cut_pub("a", pub_flag=True)
-    p["term_contexts"].append({"term": "NIH", "role": "flag", "part": "body", "text": "NIH"})
-    assert _classes(p) == [("unrelated", "unrelated")]
+def test_the_override_is_still_skipped_under_the_cut():
+    # A mentioned row, every snippet in references, empty quote: the override turns it
+    # without the flag and trusts the judge with it.
+    def pub(pid, flag):
+        p = _cut_pub(pid, rows=True, row_flag=flag)
+        p["validated_datasets"][0]["is_mentioned"] = True
+        return p
 
+    from dataset_agent.adapters.fulltext_evidence import build_evidence
 
-def test_without_the_flag_only_override_turned_papers_are_references_only():
-    assert _classes(_cut_pub("a"), _cut_pub("b", pub_flag=False)) == [
-        ("unrelated", "references_only"), ("unrelated", "references_only")]
+    ev = build_evidence({"publications": [pub("a", None), pub("b", True)]})
+    assert [(v.verdict, v.overridden_from, v.four_way) for v in ev.verdicts] == [
+        ("not_mentioned", "mentioned", "references_only"), ("mentioned", None, "data")]

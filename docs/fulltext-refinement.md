@@ -204,15 +204,17 @@ unrelated share instead of precision: MEDIUM, the early stop and the selection p
 an unrelated share of at most `fulltext_split_unrelated_max` (0.20) on at least
 `fulltext_recall_min_evidence` (10) evaluated papers. Each evaluated paper falls in one of four
 classes (`PubVerdict.four_way`): `data` or `program_only` (genuine, by scope label),
-`references_only` (turned to `not_mentioned` by the references-only override or the scope
-check's references-only rule, or turned by the bibliography cut: `bibliography_excluded`
-true, judged `not_mentioned`, every non-flag snippet in `references` and no flag snippet
-outside them) and `unrelated` (the rest, including, without the cut, a paper the judge
-itself called `not_mentioned` whose snippets all sit in the reference list). The flag is read
-from the deciding `validated_datasets` row, else from the publication-level
-`bibliography_excluded` (a not-mentioned paper has no row); absent means false. The split as it was
-before (such a paper counted as references-only) is kept as `PubVerdict.four_way_legacy`,
-and its unrelated share is reported as `unrelated_share_legacy` and in the release note. Data, program-only and
+`references_only` (a `not_mentioned` paper, whether the judge said so or the references-only
+override or the scope check's references-only rule turned it, whose non-flag snippets all sit
+in `references`, with no flag snippet outside them) and `unrelated` (every other paper that is
+not genuine). The class does not depend on `bibliography_excluded`, so the same paper keeps
+its class whatever the age of its analysis. The flag only decides whether the override and
+the scope check's references-only rule may run: with the cut they are skipped and the judge
+is trusted. It is read from the deciding `validated_datasets` row, else from the
+publication-level `bibliography_excluded`; absent means false. Known limitation: a homonym
+that occurs only in a cited title (for example "Why all of us need to rethink peer review"
+for All of Us) is references-only too, because nothing in the snippets separates it from a
+citer of the dataset paper. Data, program-only and
 references-only papers all count toward the bar, because the judge removes citers and
 program-only papers downstream. There is no floor on the data share, but among iterations
 that meet the split bar the selection prefers the higher data-only share, the gate note
