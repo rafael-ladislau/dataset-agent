@@ -552,6 +552,42 @@ def _longest_run(a: list[str], b: list[str]) -> tuple[int, int, int]:
     return best
 
 
+#: Generic data or program words removed from the ends of a name term to get its core
+#: ("<name> data" -> "<name>"), as folded token runs; longer runs are tried first.
+GENERIC_TERM_ENDS: tuple[tuple[str, ...], ...] = tuple(sorted(
+    {tuple(w.split()) for w in (
+        "data", "dataset", "datasets", "database", "databases", "data set", "data sets",
+        "data repository", "data repositories", "repository", "repositories", "program",
+        "programs", "programme", "programmes", "cohort", "cohorts", "study", "studies",
+        "research program", "research programs", "research programme",
+        "research programmes", "initiative", "initiatives", "project", "projects",
+        "resource", "resources",
+    )},
+    key=len, reverse=True,
+))
+
+
+def term_core(term: str) -> list[str] | None:
+    """The folded tokens of *term* with ``GENERIC_TERM_ENDS`` removed from both ends; None
+    when nothing was removed or fewer than 2 tokens remain."""
+    toks = _tokens(term)
+    core = list(toks)
+    changed = True
+    while changed and core:
+        changed = False
+        for g in GENERIC_TERM_ENDS:
+            n = len(g)
+            if len(core) > n and tuple(core[-n:]) == g:
+                core, changed = core[:-n], True
+                break
+            if len(core) > n and tuple(core[:n]) == g:
+                core, changed = core[n:], True
+                break
+    if core == toks or len(core) < 2:
+        return None
+    return core
+
+
 def _piece_matches(want: list[str], have: list[str], term: list[str]) -> bool:
     """The longest shared token run covers *term* and is the whole of either piece."""
     i, _j, n = _longest_run(want, have)
@@ -571,25 +607,35 @@ def quote_allows_references_only(quote: str | None, contexts: list[dict]) -> boo
     when their longest shared token run covers the snippet's name term and is the whole of
     one of them: the quoted title holds the whole cited piece (a title the window cut
     short too) or the quoted piece lies inside the cited title. Quote pieces without a name
-    term (authors, journal and year) are ignored; a quote with no name piece, or with one
+    term or term core (``term_core``: authors, journal and year) are ignored; a quote with
+    no name piece, or with one
     name piece that matches no cited piece (a sentence from the text, e.g. a review's
     table next to a cited title), keeps the judge's verdict. General rule: no dataset
     names."""
     pieces = _quote_pieces(quote or "")
     if not pieces:
         return True
-    refs = [(_tokens(str(c.get("term") or "")), _snippet_pieces(str(c.get("text") or "")))
-            for c in contexts if c.get("part") == "references"]
-    terms = [t for t, _ in refs if t]
-    if not terms:
+    refs = []
+    for c in contexts:
+        if c.get("part") != "references":
+            continue
+        term = str(c.get("term") or "")
+        # A piece names the dataset with the term or its core ("<name>" of "<name> data").
+        names = [t for t in (_tokens(term), term_core(term)) if t]
+        refs.append((names, _snippet_pieces(str(c.get("text") or ""))))
+    if not any(names for names, _ in refs):
         # No name term to anchor on: any piece quoting a cited piece will do.
-        return any(_piece_matches(w, h, []) for _t, hs in refs for h in hs for w in pieces)
-    named = [w for w in pieces if any(_in_tokens(t, w, False) for t in terms)]
+        return any(_piece_matches(w, h, []) for _n, hs in refs for h in hs for w in pieces)
+
+    def name_in(w: list[str], names: list[list[str]]) -> list[str] | None:
+        return next((t for t in names if _in_tokens(t, w, False)), None)
+
+    named = [w for w in pieces if any(name_in(w, names) for names, _ in refs)]
     if not named:
         return False
     return all(
-        any(_in_tokens(t, w, False) and _piece_matches(w, h, t) for t, hs in refs if t
-            for h in hs)
+        any((t := name_in(w, names)) is not None and _piece_matches(w, h, t)
+            for names, hs in refs for h in hs)
         for w in named
     )
 

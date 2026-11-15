@@ -538,3 +538,67 @@ def test_a_body_piece_with_the_name_keeps_the_verdict_next_to_a_cited_title():
     p["validated_datasets"][0]["text_quote"] = cited
     ev = build_evidence({"publications": [p]})
     assert ev.verdicts[0].overridden_from == "mentioned"
+
+
+_REAL_SNIPPET = (
+    "…in patients with post-acute COVID-19. Diagnostics | De-black-boxing health AI: "
+    "demonstrating reproducible machine learning computable phenotypes using the N3C-RECOVER "
+    "Long COVID model in the All of Us data repository. J Am Med Inform Assoc | Proposal and "
+    "definition of an intelligent clinical decision support system applied to the prediction "
+    "of dyspnea after 12 months of an acute episode of COVID-")
+_REAL_QUOTE = (
+    "De-Black-Boxing Health AI: Demonstrating Reproducible Machine Learning Computable "
+    "Phenotypes Using the N3C-RECOVER Long COVID Model in the All of Us Data Repository... "
+    "AUROCs (N3C= 0.83 and All of Us = 0.72)")
+
+
+def test_a_body_piece_naming_the_core_of_a_data_alias_keeps_the_verdict():
+    # The context term is "<name> data"; the review's table names only "<name>". The core
+    # of the term (generic data words removed from its ends) names the dataset too.
+    p = _pub("pub.1176137665", 1, vd=_vd(False, quote=_REAL_QUOTE))
+    p["term_contexts"] = [{"term": "All of Us data", "role": "alias", "part": "references",
+                           "text": _REAL_SNIPPET}]
+    ev = build_evidence({"publications": [p]})
+    assert ev.verdicts[0].verdict == "mentioned" and ev.verdicts[0].overridden_from is None
+
+
+_DATA_TITLE = "Linking Example Research data to national registries of adults"
+_DATA_SNIPPET = f"Dupilumab in atopic dermatitis | {_DATA_TITLE} | Drug-induced liver injury"
+
+
+@pytest.mark.parametrize("quote", [
+    f"[62] {_DATA_TITLE}",
+    f"Denny JC, Rutter JL, et al. {_DATA_TITLE}. N Engl J Med. 2019;381:668-676",
+    f"{_DATA_TITLE} (ref 62)",
+    f"{_DATA_TITLE}¹⁴",
+])
+def test_citer_shapes_still_override_with_a_data_alias_term(quote):
+    p = _pub("r", 1, vd=_vd(False, quote=quote))
+    p["term_contexts"] = [{"term": "Example Research data", "role": "alias",
+                           "part": "references", "text": _DATA_SNIPPET}]
+    assert build_evidence({"publications": [p]}).verdicts[0].overridden_from == "mentioned"
+
+
+def test_cut_title_still_overrides_with_a_data_alias_term():
+    long = ("Linking Example Research data to national registries: design, recruitment, "
+            "consent and the first results of an international longitudinal cohort")
+    p = _pub("r", 1, vd=_vd(False, quote=f"62. {long}. Lancet. 2020"))
+    p["term_contexts"] = [{"term": "Example Research data", "role": "alias",
+                           "part": "references",
+                           "text": "…Drug-induced liver injury | Linking Example Research data "
+                                   "to national registries: design, recruitment…"}]
+    assert build_evidence({"publications": [p]}).verdicts[0].overridden_from == "mentioned"
+
+
+@pytest.mark.parametrize("term,core", [
+    ("All of Us data", ["all", "of", "us"]),
+    ("Example Cohort Study", None),  # one token left
+    ("Example Research Program dataset", None),
+    ("UK Biobank data repository", ["uk", "biobank"]),
+    ("data from the Example Registry", ["from", "the", "example", "registry"]),
+    ("Example Registry", None),  # nothing generic: no core apart from the term
+])
+def test_term_core_strips_generic_data_words_from_the_ends(term, core):
+    from dataset_agent.adapters.fulltext_evidence import term_core
+
+    assert term_core(term) == core
