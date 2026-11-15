@@ -274,6 +274,9 @@ class ProgramDatasets(BaseModel):
 
     program_names: list[str] = Field(default_factory=list)
     former_or_parent_names: list[str] = Field(default_factory=list)
+    #: Each program name's role in the final clause: standalone | gated | gate | not_used
+    #: (empty when no query was built).
+    program_name_status: dict[str, str] = Field(default_factory=dict)
     datasets: list[ProgramDataset] = Field(default_factory=list)
     #: Informational alternative, not the released query: the data-wording clause and its
     #: Dimensions count (dataset window); None when not built or not counted.

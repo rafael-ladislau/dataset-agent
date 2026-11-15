@@ -60,3 +60,24 @@ def test_kinds():
     assert data_kind("Curated Data Repository") == "repository"
     assert data_kind("Controlled Tier Dataset v7") == "release"
     assert data_kind("Something Else") == "other"
+
+
+def test_non_specific_names_are_not_searched_by_design_and_program_roles_are_reported():
+    from dataset_agent.domain.models import ResourceMap
+
+    rmap = ResourceMap(program_names=["Example Research Program", "EXRP", "Old Example Name"],
+                       data_resource_names=["Example Workbench", "Controlled Tier", "Big Portal"],
+                       specific_data_names=["Example Workbench", "Big Portal"])
+    clause = ('(\\"Example Research Program\\" OR \\"Example Workbench\\") OR '
+              '((\\"EXRP\\") AND (\\"National Agency\\"))')
+    pd = program_datasets(rmap, clause=clause)
+    rows = {d.name: d for d in pd.datasets}
+    assert rows["Controlled Tier"].status == "not_used"
+    assert rows["Controlled Tier"].reason.startswith("not searched by design")
+    assert "screened" not in rows["Controlled Tier"].reason
+    # A specific name missing from the final query keeps the screened/probe reason.
+    assert "screened, or dropped after a probe" in rows["Big Portal"].reason
+    assert pd.program_name_status == {"Example Research Program": "standalone",
+                                      "EXRP": "gated", "Old Example Name": "not_used"}
+    text = program_datasets_summary(pd)
+    assert "Example Research Program [standalone]" in text and "EXRP [gated]" in text

@@ -669,12 +669,19 @@ def clause_roles(clause: str) -> dict[str, str]:
     return roles
 
 
+#: Reason for a non-specific data name missing from the final query under the broad query.
+NOT_SEARCHED_BY_DESIGN = ("not searched by design: the query is broad on the program name "
+                          "and the full-text judge decides")
+
+
 def program_datasets(rmap: ResourceMap | None, *, safe: list[str] | None = None,
                      flags: list[str] | None = None, built: bool = True,
                      clause: str | None = None):
     """The output list: the program and every data name examined, with its status in the
     final query (``standalone``, ``gated``, ``gate`` or ``not_used`` with the reason); statuses are
-    None when no query was built (research record)."""
+    None when no query was built (research record). A non-specific data name missing from
+    the query is "not searched by design"; each program name's own role is reported in
+    ``program_name_status``."""
     from dataset_agent.domain.models import ProgramDataset, ProgramDatasets
 
     if rmap is None:
@@ -687,6 +694,7 @@ def program_datasets(rmap: ResourceMap | None, *, safe: list[str] | None = None,
         safe_f = {k for k, r in roles.items() if r == "standalone"}
         flag_f = {k for k, r in roles.items() if r == "gate"}
         gated_f = {k for k, r in roles.items() if r == "gated"}
+    specific_f = {d.casefold() for d in rmap.specific_data_names}
     rows = {r["name"].casefold(): dict(r) for r in rmap.found_names}
     for d in rmap.data_resource_names:  # names that entered without a record
         rows.setdefault(d.casefold(), {"name": d, "kept": True,
@@ -705,8 +713,10 @@ def program_datasets(rmap: ResourceMap | None, *, safe: list[str] | None = None,
                 status = "gated"
             else:
                 status = "not_used"
-                reason = r.get("reason") or ("kept by the map, not in the final query "
-                                             "(screened, or dropped after a probe)")
+                reason = r.get("reason") or (
+                    NOT_SEARCHED_BY_DESIGN if key not in specific_f
+                    else "kept by the map, not in the final query (screened, or dropped "
+                         "after a probe)")
         elif not r.get("kept"):
             reason = r.get("reason") or ""
         out.append(ProgramDataset(
@@ -714,9 +724,15 @@ def program_datasets(rmap: ResourceMap | None, *, safe: list[str] | None = None,
             source=r.get("source") or rmap.name_sources.get(r["name"], ""),
             where=r.get("where") or "", hits_alone=r.get("hits_alone"),
             hits_with_program=r.get("hits_with_program"), status=status, reason=reason))
+    program_status: dict[str, str] = {}
+    if built:
+        for p in rmap.program_names:
+            k = p.casefold()
+            program_status[p] = ("standalone" if k in safe_f else "gate" if k in flag_f
+                                 else "gated" if k in gated_f else "not_used")
     return ProgramDatasets(program_names=list(rmap.program_names),
                            former_or_parent_names=list(rmap.former_or_parent_names),
-                           datasets=out)
+                           program_name_status=program_status, datasets=out)
 
 
 DATA_WORDING_NOTE = ("informational: the data-wording clause (data phrases and specific data "
@@ -753,7 +769,8 @@ def program_datasets_summary(pd) -> str:
     """Human-readable lines for a run summary ("" when not split)."""
     if pd is None:
         return ""
-    lines = [f"Program: {', '.join(pd.program_names)}"]
+    roles = getattr(pd, "program_name_status", None) or {}
+    lines = [f"Program: {', '.join(f'{p} [{roles[p]}]' if p in roles else p for p in pd.program_names)}"]
     if pd.former_or_parent_names:
         lines.append(f"  former or parent names: {', '.join(pd.former_or_parent_names)}")
     lines.append(f"Datasets of the program ({len(pd.datasets)}):")
