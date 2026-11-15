@@ -186,3 +186,49 @@ def test_split_bar_keeps_the_minimum_sample(tmp_path):
     assert out.release_bar_met is False
     assert out.confidence.value == "low"
     assert "below the minimum sample" in out.notes
+
+
+def test_citers_only_sample_meets_the_split_bar_with_a_warning(tmp_path):
+    # 8 references-only citers + 2 unrelated: the unrelated share 0.20 meets the bar (no
+    # floor on the data share, an owner question), but the notes say no paper is data.
+    out = _run(tmp_path, _pubs(0, 0, 8, 2), split=True)
+    m = out.fulltext_iterations[0]
+    assert m.unrelated_share == 0.2 and m.data_share == 0.0
+    assert out.release_bar_met is True and out.confidence.value == "medium"
+    assert ("gate_iter0: full-text unrelated share meets the split-dataset bar (<= 0.20 on "
+            ">= 10 papers); data-only precision 0.00") in out.notes
+    assert "no sampled paper refers to the data resource" in out.notes
+
+
+def test_no_warning_when_a_sampled_paper_is_data(tmp_path):
+    out = _run(tmp_path, _pubs(1, 0, 7, 2), split=True)
+    assert out.release_bar_met is True
+    assert "no sampled paper refers to the data resource" not in out.notes
+
+
+def _metrics(it, n_data, n_refs, n_unrel, precision=None):
+    from dataset_agent.domain.proposals import IterationMetrics
+
+    n = n_data + n_refs + n_unrel
+    return IterationMetrics(
+        iteration=it, for_clause=f"q{it}", n_publications=n, n_fulltext_delivered=n,
+        n_evaluated=n, fulltext_precision=precision if precision is not None else n_data / n,
+        data_share=n_data / n, unrelated_share=n_unrel / n,
+        four_way={"data": {"count": n_data}, "program_only": {"count": 0},
+                  "references_only": {"count": n_refs}, "unrelated": {"count": n_unrel}})
+
+
+def test_selection_prefers_the_higher_data_share_among_iterations_meeting_the_split_bar(tmp_path):
+    uc = QueryOptimizationUseCase(
+        dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(),
+        settings=make_settings(tmp_path), extraction_client=FakeClient([]))
+    uc._resource_map = MAP
+    low_data = _metrics(0, 1, 8, 1, precision=0.95)  # bar met, data 0.10
+    high_data = _metrics(1, 6, 2, 2, precision=0.60)  # bar met, data 0.60
+    missed = _metrics(2, 9, 0, 3)  # unrelated 0.25: bar missed, data 0.75
+    best = max([low_data, high_data, missed], key=uc._selection_key)
+    assert best.iteration == 1
+    # Without a split the key is unchanged: bar, then precision.
+    uc._resource_map = None
+    a, b = _metrics(0, 9, 0, 1, precision=0.90), _metrics(1, 8, 0, 2, precision=0.85)
+    assert max([a, b], key=uc._selection_key).iteration == 0

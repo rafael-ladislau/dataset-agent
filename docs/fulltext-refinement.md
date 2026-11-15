@@ -210,7 +210,10 @@ called `not_mentioned` whose snippets all sit in the reference list). The split 
 before (such a paper counted as references-only) is kept as `PubVerdict.four_way_legacy`,
 and its unrelated share is reported as `unrelated_share_legacy` and in the release note. Data, program-only and
 references-only papers all count toward the bar, because the judge removes citers and
-program-only papers downstream. HIGH still needs precision of at least 0.90. Every other
+program-only papers downstream. There is no floor on the data share, but among iterations
+that meet the split bar the selection prefers the higher data-only share, the gate note
+prints the data-only precision, and the release note warns when no sampled paper refers to
+the data resource. HIGH still needs precision of at least 0.90. Every other
 dataset keeps the precision bar unchanged. The record states the bar (`release_bar`,
 `release_bar_met`), and for a split dataset the four-way split with counts, shares and Wilson
 95% intervals (`fulltext_four_way`) and the data-only precision (`fulltext_data_precision`);

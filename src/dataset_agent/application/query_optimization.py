@@ -2418,6 +2418,14 @@ class QueryOptimizationUseCase:
         p = m.fulltext_precision if precision is None else precision
         return p is not None and p >= s.fulltext_recall_min_precision
 
+    def _selection_key(self, m: IterationMetrics) -> tuple[bool, float, float, int]:
+        """Rank full-text iterations: the release bar first; among iterations meeting a split
+        dataset's bar the higher data-only share (no floor on it: an owner question); then
+        precision; then the earlier iteration."""
+        met = self._meets_release_bar(m)
+        data = (m.data_share or 0.0) if met and self._split_release() else 0.0
+        return (met, data, float(m.fulltext_precision or 0.0), -m.iteration)
+
     def _release_note(self, bar: str, met: bool, m: IterationMetrics | None,
                       gate_error: bool) -> str:
         """The bar applied, whether it was met and why, and for a split dataset the
@@ -2441,6 +2449,8 @@ class QueryOptimizationUseCase:
                 for k, v in m.four_way.items()
             ]
             note += f": {', '.join(parts)}; data-only precision {(m.data_share or 0):.2f}"
+            if not m.four_way.get("data", {}).get("count"):
+                note += " (warning: no sampled paper refers to the data resource)"
             if m.unrelated_share_legacy is not None:
                 note += f"; legacy unrelated share {m.unrelated_share_legacy:.2f}"
             note += " next to"
@@ -3362,7 +3372,8 @@ class QueryOptimizationUseCase:
                         notes_parts.append(
                             f"gate_iter{iteration}: full-text unrelated share meets the "
                             f"split-dataset bar (<= {self._settings.fulltext_split_unrelated_max:.2f} "
-                            f"on >= {self._settings.fulltext_recall_min_evidence} papers)."
+                            f"on >= {self._settings.fulltext_recall_min_evidence} papers); "
+                            f"data-only precision {(metrics.data_share or 0):.2f}."
                         )
                     else:
                         notes_parts.append(
@@ -3490,11 +3501,7 @@ class QueryOptimizationUseCase:
         best_ft_iter: int | None = None
         if ft_enabled:
             scored = [
-                (
-                    self._meets_release_bar(m),
-                    m.fulltext_precision,
-                    -m.iteration,
-                )
+                self._selection_key(m)
                 for m in ft_iterations
                 if m.fulltext_precision is not None
                 and m.n_evaluated >= self._settings.fulltext_min_evidence
@@ -3502,14 +3509,17 @@ class QueryOptimizationUseCase:
             ]
             if scored:
                 top = max(scored)
-                best_ft_iter = -top[2]
+                best_ft_iter = -top[3]
                 best_variant_entry = ft_entries[best_ft_iter]
                 bc = ft_candidates[best_ft_iter]
                 safe, risky = list(bc.safe), list(bc.risky)
                 flag_terms, exc_work = list(bc.flag_terms), list(bc.exclude_terms)
                 notes_parts.append(
                     f"Selected iteration {best_ft_iter} by full-text precision "
-                    f"({top[1]:.2f})."
+                    f"({top[2]:.2f})"
+                    + (f", data-only precision {top[1]:.2f} first among iterations "
+                       "meeting the split-dataset bar." if self._split_release() and top[0]
+                       else ".")
                 )
 
         recall_diffs: list[TermDiff] = []
