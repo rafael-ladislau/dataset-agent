@@ -32,8 +32,9 @@ def main():
     
     # Print specific checks
     print(f"- Markdown bold removed: {'**' not in cleaned_desc}")
-    print(f"- Newline escapes removed: {'\\n' not in cleaned_desc}")
-    print(f"- Unicode escapes removed: {'\\u' not in cleaned_desc}")
+    newline_escape, unicode_escape = "\\n", "\\u"
+    print(f"- Newline escapes removed: {newline_escape not in cleaned_desc}")
+    print(f"- Unicode escapes removed: {unicode_escape not in cleaned_desc}")
     
 if __name__ == "__main__":
     main() 

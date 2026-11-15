@@ -47,7 +47,7 @@ def main():
         "Usda National Agricultural Statistics Service Census of Agriculture"
     ]
     result6 = filter_aliases_by_substrings(test6)
-    print(f"Test 6 (Real world example):")
+    print("Test 6 (Real world example):")
     print(f"  Original: {len(test6)} aliases")
     print(f"  Filtered: {len(result6)} aliases")
     print(f"  Kept aliases: {result6}")
