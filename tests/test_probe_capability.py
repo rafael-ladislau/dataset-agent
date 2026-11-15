@@ -93,3 +93,15 @@ def test_an_ai_model_probe_against_a_target_without_probe_support_is_refused(tmp
     assert asyncio.run(uc._measure_seed(model, out, notes, 0)) is None
     assert server.started() == []
     assert any("does not declare probe support" in n for n in notes)
+
+
+def test_loop_off_a_split_dataset_is_not_released(tmp_path):
+    out = _run(tmp_path, _pubs(55, 20, 15, 10), split=True,
+               fulltext_refinement_enabled=False)
+    assert out.confidence.value == "low"
+    assert "full-text bar was not evaluated" in out.notes
+
+
+def test_loop_off_a_non_split_dataset_is_unchanged(tmp_path):
+    out = _run(tmp_path, _pubs(85, 0, 0, 15), split=False, fulltext_refinement_enabled=False)
+    assert "full-text bar was not evaluated" not in out.notes

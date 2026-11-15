@@ -3793,6 +3793,18 @@ class QueryOptimizationUseCase:
                 confidence = ConfidenceLevel.LOW
             if phase3_error is not None:
                 confidence = ConfidenceLevel.LOW
+            if self._split_release():
+                # The broad program query of a split dataset relies on the full-text judge
+                # to separate data papers from program-only ones; its bar is the unrelated
+                # limit and the data floor on full text. Without that measurement it is not
+                # released, whatever the abstract rate says.
+                confidence = ConfidenceLevel.LOW
+                notes_parts.append(
+                    "split dataset: the full-text bar was not evaluated (full-text refinement "
+                    "off), so the broad program query is not released (confidence LOW); "
+                    "enable full-text refinement against an extraction target with probe "
+                    "support to measure it."
+                )
 
         proposal = None
         if ft_enabled and ft_candidates:
