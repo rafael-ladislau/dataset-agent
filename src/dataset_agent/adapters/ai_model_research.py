@@ -32,7 +32,7 @@ from typing import Any
 
 import httpx
 
-from dataset_agent.adapters.literature import _stem_text
+from dataset_agent.adapters.dimensions_phrase import search_key
 from dataset_agent.adapters.name_grounding import content_tokens
 from dataset_agent.adapters.query_heuristics import is_short_acronym
 from dataset_agent.adapters.term_sanitizer import sanitize_term, sanitize_terms
@@ -627,7 +627,8 @@ def assemble_candidates(
             names.append((item["name"], str(kind)))
 
     seen: set[str] = set()
-    #: Dimensions folds punctuation: "PhaseNet+" and "PhaseNet" are one search.
+    #: One Dimensions search ("PhaseNet+" is "PhaseNet"; "Prithvi-EO-2.0" is not
+    #: "Prithvi-EO-2-0"): keyed by the measured phrase rules.
     searched: dict[str, str] = {}
     # Every own name written "<coined base> <version>" also has a joined spelling.
     own_bases = dedupe_strings_ci_preserve_order([model_name, fam])
@@ -666,7 +667,7 @@ def assemble_candidates(
         if key in seen:
             continue
         seen.add(key)
-        stem = _stem_text(name)
+        stem = search_key(name)
         if stem in searched:
             out.rejected.append(
                 ("alias", name, f"same search as {searched[stem]!r} for Dimensions")

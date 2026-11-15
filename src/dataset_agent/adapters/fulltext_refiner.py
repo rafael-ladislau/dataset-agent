@@ -19,10 +19,10 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from dataset_agent.adapters.term_sanitizer import sanitize_terms
+from dataset_agent.adapters.dimensions_phrase import same_search
 from dataset_agent.adapters.fulltext_evidence import (
     Evidence,
     PubVerdict,
-    _fold,
     _phrase_in,
     attribute_terms,
     singular_variants,
@@ -238,8 +238,8 @@ def _generic_word(term: str) -> bool:
 
 
 def _covered(term: str, existing: list[str]) -> bool:
-    stem = _fold(term)
-    return any(_fold(e) == stem for e in existing)
+    """*term* is the same Dimensions search as one of *existing*."""
+    return any(same_search(term, e) for e in existing)
 
 
 def refine_candidate(

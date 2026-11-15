@@ -13,6 +13,7 @@ from dataset_agent.adapters.dimensions_dsl import (
     parse_total_count,
     top_titles_from_result,
 )
+from dataset_agent.adapters.dimensions_phrase import search_key
 from dataset_agent.adapters.query_heuristics import apply_short_acronym_heuristic
 from dataset_agent.adapters.term_sanitizer import sanitize_term
 from dataset_agent.domain.ports import DimensionsDslPort
@@ -52,14 +53,11 @@ def _or_group(terms: list[str], server_quoting: bool = False) -> str:
     return "(" + " OR ".join(parts) + ")"
 
 
-def _fold_ws(term: str) -> str:
-    return " ".join(term.casefold().split())
-
-
 def drop_flags_equal_to_aliases(
     flag_terms: Sequence[str] | None, risky: Sequence[str] | None
 ) -> list[str]:
-    """Flags without any term equal (casefolded) to a risky alias.
+    """Flags without any term that is the same Dimensions search as a risky alias
+    (:func:`~dataset_agent.adapters.dimensions_phrase.search_key`: "GPT-4" is "GPT 4").
 
     A flag equal to a risky alias makes the gate ``(A OR B) AND (.. OR A)`` satisfy
     itself, so every bare ``A`` paper matches. If every flag would be dropped the
@@ -67,10 +65,10 @@ def drop_flags_equal_to_aliases(
     ungated, which is broader than the AND-gated original.
     """
     fl = _clean(flag_terms)
-    rk = {_fold_ws(t) for t in _clean(risky)}
+    rk = {search_key(t) for t in _clean(risky)}
     if not fl or not rk:
         return fl
-    kept = [t for t in fl if _fold_ws(t) not in rk]
+    kept = [t for t in fl if search_key(t) not in rk]
     return kept or fl
 
 

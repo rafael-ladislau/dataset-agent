@@ -16,6 +16,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from dataset_agent.adapters.dimensions_phrase import search_key
 from dataset_agent.adapters.fulltext_evidence import Evidence, _fold, _phrase_in, term_in
 from dataset_agent.adapters.fulltext_refiner import _NAME_JOINERS, _generic_word
 from dataset_agent.adapters.query_heuristics import (
@@ -159,9 +160,9 @@ def recall_candidates(
     or demoted on full-text evidence. *data_phrases*: generated data phrases of a resource
     map ("<program> data", "data from the <program>"); they are data references by
     construction, so the proper-name, generic-phrase and rhetorical filters do not apply."""
-    phrase_f = {_fold(p) for p in (data_phrases or [])}
-    against = {_fold(a) for a in (evidence_against or set())}
-    safe_f = {_fold(s) for s in current.safe}
+    phrase_f = {search_key(p) for p in (data_phrases or [])}
+    against = {search_key(a) for a in (evidence_against or set())}
+    safe_f = {search_key(s) for s in current.safe}
     all_names = [n for n in (sanitize_term(x) for x in main_names) if n]
     # Name-relatedness only: a multi-word alias (even a rhetorical one such as "All of Us"
     # when every main name is "All of Us NIH") also makes a containing flag a name of the dataset.
@@ -183,13 +184,13 @@ def recall_candidates(
     eligible: list[RecallCandidate] = []
     rejected: list[str] = []
     seen: set[str] = set()
-    risky_f = {_fold(r) for r in current.risky}
+    risky_f = {search_key(r) for r in current.risky}
     for raw, source, tier in pool:
         term = sanitize_term(raw)
-        if not term or _fold(term) in seen:
+        if not term or search_key(term) in seen:
             continue
-        seen.add(_fold(term))
-        if _fold(term) in safe_f:
+        seen.add(search_key(term))
+        if search_key(term) in safe_f:
             continue
 
         def reject(why: str, term: str = term) -> None:
@@ -201,15 +202,15 @@ def recall_candidates(
             reject("short acronym")
         elif is_acronym_suffix_form(term):
             reject("short acronym plus generic suffix")
-        elif _generic_word(term) and _fold(term) not in phrase_f:
+        elif _generic_word(term) and search_key(term) not in phrase_f:
             reject("not a proper name")
         elif _all_generic_words(term):
             reject("generic phrase")
-        elif _fold(term) in against:
+        elif search_key(term) in against:
             reject("full text already rejected it")
-        elif detect_rhetorical_name(term) and _fold(term) not in phrase_f:
+        elif detect_rhetorical_name(term) and search_key(term) not in phrase_f:
             reject("rhetorical phrase")
-        elif _fold(term) in risky_f and not current.flag_terms:
+        elif search_key(term) in risky_f and not current.flag_terms:
             reject("already matches without flags")
         elif source == "flag" and not _flag_names_dataset(term, related_forms, acronyms):
             reject("not a name of the dataset")

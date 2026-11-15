@@ -39,6 +39,7 @@ from dataset_agent.adapters.dimensions_dsl import (
     run_alias_count,
     short_dsl_error,
 )
+from dataset_agent.adapters.dimensions_phrase import search_key
 from dataset_agent.adapters.fp_analysis import (
     classify_alias_mention,
     classify_title,
@@ -1818,8 +1819,8 @@ class QueryOptimizationUseCase:
                 )
             # Joined version spellings ("FourCastNetv2") seen in the texts pulled above:
             # candidates like any name, within the name limit.
-            searched = {_stem_text(n) for n, _k in cands.names} | {
-                _stem_text(t) for k, t, _r in cands.rejected if k == "alias"
+            searched = {search_key(n) for n, _k in cands.names} | {
+                search_key(t) for k, t, _r in cands.rejected if k == "alias"
             }
             mined_names: list[str] = []
             mined = mine_joined_versions(model.pulled_texts, coined_bases)
@@ -1827,9 +1828,9 @@ class QueryOptimizationUseCase:
                 mined = [t for tok in mined
                          for t in (tok, version_sibling(tok, coined_bases)) if t]
             for tok in mined:
-                if _stem_text(tok) in searched:
+                if search_key(tok) in searched:
                     continue
-                searched.add(_stem_text(tok))
+                searched.add(search_key(tok))
                 if len(cands.names) >= s.ai_model_max_names:
                     model.decide(tok, "alias", "rejected",
                                  "joined version found in pulled abstracts; over the candidate limit")
