@@ -385,7 +385,9 @@ class QueryOptimizationRecord(BaseModel):
     release_bar_met: Optional[bool] = Field(
         default=None,
         description="Datasets with full text: the selected iteration met release_bar on at "
-        "least fulltext_recall_min_evidence evaluated papers (MEDIUM confidence or above)",
+        "least fulltext_recall_min_evidence evaluated papers. MEDIUM or HIGH confidence "
+        "implies it, except a split dataset released with a warning below its data floor "
+        "(data_floor_met false, MEDIUM)",
     )
     fulltext_four_way: Optional[dict[str, dict[str, Any]]] = Field(
         default=None,
@@ -397,6 +399,12 @@ class QueryOptimizationRecord(BaseModel):
         description="Split datasets: the data floor of the release bar for the selected "
         "iteration: min, share (confirmed data share: scope data / evaluated), wilson95, "
         "met, required (fulltext_split_floor_required) and rounds (full-text iterations run)",
+    )
+    data_floor_met: Optional[bool] = Field(
+        default=None,
+        description="Split datasets: the selected iteration reached the data floor "
+        "(fulltext_split_data_min). False with MEDIUM confidence: released with a warning "
+        "below the floor after the round limit",
     )
     fulltext_data_precision: Optional[float] = Field(
         default=None,

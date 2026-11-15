@@ -270,10 +270,10 @@ class Settings(BaseSettings):
     #: scope check labelled ``data`` / papers evaluated; ``unclear`` does not count). Below
     #: it the full-text loop keeps refining, for at most ``optimize_max_iterations`` rounds.
     fulltext_split_data_min: float = Field(default=0.50, ge=0.0, le=1.0)
-    #: End state when the rounds run out below the floor: True reports the release bar as
-    #: not met (the best iteration and its four-way split are still written); False
-    #: releases on the unrelated bar alone and records the missed floor.
-    fulltext_split_floor_required: bool = True
+    #: End state when the rounds run out below the floor. False (default, the owner's
+    #: decision): the best iteration is released with a warning (MEDIUM at most;
+    #: release_bar_met and data_floor_met false). True: not released (LOW).
+    fulltext_split_floor_required: bool = False
     #: Min full-text papers evaluated in a complement probe (and min Dimensions hits added);
     #: also the sample needed for MEDIUM or HIGH confidence and the early-stop bar of the
     #: full-text loop.

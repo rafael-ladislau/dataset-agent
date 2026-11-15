@@ -191,13 +191,14 @@ def test_split_bar_keeps_the_minimum_sample(tmp_path):
 
 
 def test_citers_only_sample_misses_the_data_floor_with_a_warning(tmp_path):
-    # 8 references-only citers + 2 unrelated: the unrelated share 0.20 meets that bar, but
-    # no paper is data, so the data floor (0.50) is not reached and the bar is not met.
+    # 8 references-only citers + 2 unrelated: the unrelated share 0.20 meets that limit,
+    # but no paper is data: released with a warning below the data floor (0.50).
     out = _run(tmp_path, _pubs(0, 0, 8, 2), split=True)
     m = out.fulltext_iterations[0]
     assert m.unrelated_share == 0.2 and m.data_share == 0.0
-    assert out.release_bar_met is False and out.confidence.value == "low"
-    assert "(not met: data floor not reached after 1 round)" in out.notes
+    assert out.release_bar_met is False and out.data_floor_met is False
+    assert out.confidence.value == "medium"
+    assert "released with a warning: data floor 0.50 not reached after 1 round" in out.notes
     assert "no sampled paper refers to the data resource" in out.notes
 
 
