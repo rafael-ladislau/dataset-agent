@@ -306,3 +306,23 @@ def test_a_request_no_split_is_recorded_as_a_request_decision(tmp_path):
     uc._run_research = researched
     out = asyncio.run(uc.execute(OptimizeRequest(dataset_name=NAME, resource_map_checked=True)))
     assert out.resource_map is None and out.resource_map_decision.origin == "request"
+
+
+@pytest.mark.parametrize(("enabled", "dsl"), [(False, True), (True, False)])
+def test_a_run_that_does_not_draw_keeps_the_stored_decision(tmp_path, enabled, dsl):
+    """Map step off (or no DSL port): the run saves its record, but the stored map fields
+    are carried forward, so the next run with the step on reuses them without a draw."""
+    _research_run(_research(tmp_path, lambda r: _map()))
+    s = Settings(output_dir=str(tmp_path), resource_map_enabled=enabled, dimensions_api_key="")
+    off = DatasetResearchUseCase(MagicMock(), MagicMock(), JsonDatasetRepository(tmp_path), s,
+                                 dsl_port=MagicMock() if dsl else None)
+    off._run_pipeline_once = lambda req: _rec()
+    record, _path = off.execute(ResearchRequest(dataset_name=NAME))
+    assert record.resource_map is None  # this run used no map
+    stored = JsonDatasetRepository(tmp_path).load(NAME)
+    assert stored.resource_map_checked and stored.resource_map is not None
+    draws = []
+    later = _research_run(_research(tmp_path, lambda r: draws.append(1) or _map("Other")))
+    assert draws == []
+    assert later.resource_map_decision.origin == "reused"
+    assert later.resource_map.data_resource_names == ["Researcher Workbench"]

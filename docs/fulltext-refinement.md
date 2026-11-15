@@ -285,7 +285,9 @@ and is retried on the next run; a refresh that fails leaves the dataset undecide
 run draws again. A map passed in an optimize request, or a firm "no split" passed as
 `resource_map_checked=true` with no map, wins over the stored one with `origin` request, with or
 without `dataset_names`. It applies to that run only and is not stored; without `dataset_names`
-research still runs and reuses (or draws and stores) its own decision. The catch: a poor first
+research still runs and reuses (or draws and stores) its own decision. A run that does not draw
+(`DATASET_AGENT_RESOURCE_MAP_ENABLED=false`, or no Dimensions client) uses no map, but its saves
+carry the stored map fields forward, so the stored decision survives it. The catch: a poor first
 draw persists until someone refreshes it, so check `program_datasets` and `found_names` after a
 first draw. The rest of research is not stored for reuse: aliases, flags and excludes come
 from each run's own research, and the stored map adds its program and data names to them; its

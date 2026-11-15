@@ -172,6 +172,11 @@ def _run_blocking(make_coro):
         return pool.submit(lambda: asyncio.run(make_coro())).result()
 
 
+#: The record fields that hold the program/data decision.
+_MAP_FIELDS = ("resource_map", "resource_map_checked", "resource_map_error",
+               "resource_map_decision", "program_datasets")
+
+
 class DatasetResearchUseCase:
     def __init__(
         self,
@@ -193,6 +198,7 @@ class DatasetResearchUseCase:
         self._map_error: str | None = None
         self._map_decision: ResourceMapDecision | None = None
         self._map_stored: DatasetRecord | None = None
+        self._map_carry: DatasetRecord | None = None
         self._map_refresh = False
 
     # -- the stored program/data decision ----------------------------------------------
@@ -263,8 +269,24 @@ class DatasetResearchUseCase:
         self._map_drawn, self._map_value, self._map_error = False, None, None
         self._map_decision = None
         self._map_refresh = bool(request.refresh_resource_map)
-        self._map_stored = (None if self._map_refresh or not self._settings.resource_map_enabled
+        self._map_stored = (None if self._map_refresh or not self._map_step_runs()
                             else self.stored_map_decision(request.dataset_name))
+        # A run that does not draw (map step off, or no DSL port) keeps the stored
+        # decision: its saves carry the stored map fields forward (see ``_save``).
+        self._map_carry = (None if self._map_step_runs()
+                           else self.stored_map_decision(request.dataset_name))
+
+    def _map_step_runs(self) -> bool:
+        return bool(self._settings.resource_map_enabled) and self._dsl_port is not None
+
+    def _save(self, record: DatasetRecord) -> Path:
+        """Save *record*; when this run did not draw, the stored map fields go with it, so
+        the save does not erase the stored decision. *record* itself keeps no map (this
+        run used none)."""
+        carry = self._map_carry
+        if carry is not None and not record.resource_map_checked:
+            record = record.model_copy(update={f: getattr(carry, f) for f in _MAP_FIELDS})
+        return self._repository.save(record)
 
     def execute(self, request: ResearchRequest) -> tuple[DatasetRecord, Path]:
         self.begin_map_decision(request)
@@ -286,7 +308,7 @@ class DatasetResearchUseCase:
             logger.info("Research cycle %s/%s", attempt, max_attempts)
             record = self._run_pipeline_once(request)
             logger.info("Saving record JSON (dataset=%r)...", request.dataset_name)
-            path = self._repository.save(record)
+            path = self._save(record)
             logger.info("File saved: %s", path)
 
             if self._literature_gate is None:
@@ -294,7 +316,7 @@ class DatasetResearchUseCase:
                 _attach_dimensions_preview_if_needed(
                     record, self._settings, request.sample_size
                 )
-                path = self._repository.save(record)
+                path = self._save(record)
                 return record, path
 
             logger.info(
@@ -358,7 +380,7 @@ class DatasetResearchUseCase:
                     reasoning=eval_result["reasoning"],
                 )
                 
-                path = self._repository.save(record)
+                path = self._save(record)
                 return record, path
 
             logger.warning("Literature gate failed (attempt %s): %s", attempt, result.detail)
@@ -404,7 +426,7 @@ class DatasetResearchUseCase:
                 reasoning=eval_result["reasoning"],
             )
             
-            path = self._repository.save(record)
+            path = self._save(record)
             logger.info("Final record saved with literature_validation and terms_evaluation")
 
         return record, path  # type: ignore[return-value]
@@ -676,7 +698,7 @@ class DatasetResearchUseCase:
             record.dataset_names = dedupe_strings_ci_preserve_order(record.dataset_names)
         record.dataset_names = sanitize_terms(record.dataset_names, "dataset name")
         record.flag_terms = sanitize_terms(record.flag_terms, "flag term")
-        if self._settings.resource_map_enabled and self._dsl_port is not None:
+        if self._map_step_runs():
             self._map_once(record)
         return record
 
