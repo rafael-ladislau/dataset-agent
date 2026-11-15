@@ -26,6 +26,25 @@ from dataset_agent.adapters.seed_mapping import QueryCandidate
         ("All of Us Research Program", "All of Us Research Programs"),
         ("all of us research program", "ALL OF US RESEARCH PROGRAM"),
         ("Prithvi-EO-2.0", "Prithvi EO 2.0"),
+        # Plural folding of every token: all-caps, short, letter-and-digit, CamelCase
+        # (matching is case-insensitive, so case cannot gate the stemmer).
+        ("CPS", "CP"),
+        ("NHANES", "NHANE"),
+        ("LLMs", "LLM"),
+        ("ERA5s", "ERA5"),
+        ("maps", "map"),
+        ("BioCLIPs", "BioCLIP"),
+        ("MegaDetectorV5s", "MegaDetectorV5"),
+        ("Parkinsons Progression Markers Initiative", "Parkinson Progression Markers Initiative"),
+        ("BioCLIP: A Vision Foundation Model", "BioCLIP A Vision Foundation Model"),
+        ("COVID-19:data", "COVID-19 data"),
+        ("Aurora, Colorado", "Aurora Colorado"),
+        ("Washington;DC", "Washington DC"),
+        ("Alzheimer's disease", "Alzheimer disease"),
+        ("Alzheimer\u2019s disease", "Alzheimers disease"),
+        ("Medical Information Mart for Intensive Care (MIMIC)",
+         "Medical Information Mart for Intensive Care MIMIC"),
+        ('The "All of Us" Research Program', "The All of Us Research Program"),
     ],
 )
 def test_one_search(a: str, b: str) -> None:
@@ -45,11 +64,17 @@ def test_one_search(a: str, b: str) -> None:
         ("v2.0", "v2 0"),
         # "&" is dropped, it is not the word "and" (122 vs 170 papers).
         ("Medical Imaging & Data Resource Center", "Medical Imaging and Data Resource Center"),
-        # Plural folding was measured for ordinary words only.
-        ("CPS", "CP"),
-        ("BioCLIPs", "BioCLIP"),
-        ("MegaDetectorV5s", "MegaDetectorV5"),
+        # A numeric token does not fold ("GPT-4s" 78 vs "GPT-4" 52,109).
+        ("GPT-4s", "GPT-4"),
+        ("GPT-4's", "GPT-4"),
+        # Not measured, conservative: "ss" and "us" endings are not plurals.
         ("Census", "Censu"),
+        ("GNSS", "GNS"),
+        # ":" between two letters stays inside the token ("BioCLIP:A" 0 vs 32).
+        ("BioCLIP:A Vision Foundation Model", "BioCLIP A Vision Foundation Model"),
+        ("Alzheimer's disease", "Alzheimer s disease"),
+        ("O'Brien", "O Brien"),
+        ("bert_base_uncased", "bert base uncased"),
     ],
 )
 def test_two_searches(a: str, b: str) -> None:
@@ -155,3 +180,126 @@ def test_a_dot_version_is_not_covered_by_its_shorter_name() -> None:
          "Prithvi-WxC-1.0-2300M", "scikit-learn", "scikit.learn"]
     )
     assert covered == {"Prithvi-WxC-1.0-2300M": "Prithvi WxC"}
+
+
+# --------------------------------------------------------------- mirrored table
+
+# Measured Dimensions phrase rules: MIRRORED TABLE.
+#
+# The same rows, with the same expected answers, are kept in three repositories:
+#   dataset-agent  tests/test_dimensions_phrase.py
+#   insights       tests/unit/services/test_snippet_matching_table.py
+#   extraction     tests/test_llm_results_term_contexts.py
+# Change all three together. Each row reads: does the quoted Dimensions phrase
+# ``term`` match a text whose words are ``text``? Counts are Dimensions full_data,
+# 2020-2024, quoted phrases.
+MEASURED_PHRASE_RULES: list[tuple[str, str, str, bool]] = [
+    # Separators: hyphen, slash, asterisk and the Unicode dashes fold to a space.
+    ("hyphen-is-space", "GPT-4", "GPT 4", True),
+    ("slash-is-space", "CPS/FSS", "CPS FSS", True),
+    ("asterisk-is-space", "O*NET", "O NET", True),
+    ("nb-hyphen-is-hyphen", "GPT\u20114", "GPT-4", True),
+    ("en-dash-is-space", "GPT\u20134", "GPT 4", True),
+    # A joined form is another token ("GPT4" 12,146 vs "GPT 4" 52,109).
+    ("joined-differs", "GPT4", "GPT 4", False),
+    ("split-differs", "O NET", "ONET", False),
+    # A dot between word characters is not a separator ("scikit.learn" 101).
+    ("dot-not-separator", "scikit-learn", "scikit.learn", False),
+    ("dot-version-is-one-token", "GPT-4", "GPT-4.5", False),
+    # "+" and "&" are dropped; "&" is not "and" (122 vs 170).
+    ("plus-dropped", "PhaseNet", "PhaseNet+", True),
+    ("ampersand-dropped", "Medical Imaging Data Resource Center",
+     "Medical Imaging & Data Resource Center", True),
+    ("ampersand-not-and", "Medical Imaging and Data Resource Center",
+     "Medical Imaging & Data Resource Center", False),
+    ("case-insensitive", "all of us", "ALL OF US", True),
+    # ":" with whitespace on either side is a separator (BioCLIP title 32 = 32 = 32).
+    ("colon-space-after", "BioCLIP A Vision Foundation Model",
+     "BioCLIP: A Vision Foundation Model", True),
+    ("colon-spaced", "BioCLIP A Vision Foundation Model",
+     "BioCLIP : A Vision Foundation Model", True),
+    ("colon-in-term", "BioCLIP: A Vision Foundation Model",
+     "BioCLIP A Vision Foundation Model", True),
+    # ":" between a digit and a letter is a separator ("COVID-19:data" 47,789).
+    ("colon-digit-letter", "COVID-19 data", "COVID-19:data", True),
+    ("colon-digit-letter-joined-differs", "COVID-19 data", "COVID-19data", False),
+    # ":" between two letters is not a separator ("BioCLIP:A ..." 0 vs 32). Dropped
+    # or kept cannot be told apart; conservative: it stays inside the token.
+    ("colon-letters-not-separator", "BioCLIP A Vision", "BioCLIP:A Vision", False),
+    ("colon-letters-one-token", "BioCLIP", "BioCLIP:A Vision", False),
+    ("colon-letters-same-text", "BioCLIP:A Vision", "BioCLIP:A Vision", True),
+    # "," and ";" are separators with or without a space (14,260 = 14,260; joined 10).
+    ("comma-space", "Aurora Colorado", "Aurora, Colorado", True),
+    ("comma-no-space", "Aurora Colorado", "Aurora,Colorado", True),
+    ("comma-in-term", "Washington, DC", "Washington DC", True),
+    ("comma-joined-differs", "Aurora Colorado", "AuroraColorado", False),
+    ("semicolon-space", "Washington DC", "Washington; DC", True),
+    ("semicolon-no-space", "Washington DC", "Washington;DC", True),
+    # An apostrophe before a final "s" is dropped, then the plural folds:
+    # "Alzheimer's" = "Alzheimer’s" = "Alzheimers" = "Alzheimer" (610,032), but
+    # "Alzheimer s" is another phrase (9,904).
+    ("apostrophe-s-straight", "Alzheimer disease", "Alzheimer's disease", True),
+    ("apostrophe-s-curly", "Alzheimer disease", "Alzheimer\u2019s disease", True),
+    ("apostrophe-s-in-term", "Alzheimer's disease", "Alzheimers disease", True),
+    ("apostrophe-s-curly-term", "Alzheimer\u2019s disease", "Alzheimer's disease", True),
+    ("apostrophe-s-split-differs", "Alzheimer's disease", "Alzheimer s disease", False),
+    ("apostrophe-s-split-differs-singular", "Alzheimer disease", "Alzheimer s disease",
+     False),
+    ("apostrophe-s-ppmi", "Parkinson Progression Markers Initiative",
+     "Parkinson's Progression Markers Initiative", True),
+    # Any other apostrophe was not measured: conservative, it stays inside the token.
+    ("apostrophe-other-not-separator", "O Brien", "O'Brien", False),
+    # "4's" is "4s", and a numeric token does not fold (follows from the two rules).
+    ("apostrophe-s-numeric-not-folded", "GPT-4", "GPT-4's", False),
+    # Parentheses are separators (MIMIC 2,164 = 2,164, escaped or raw).
+    ("parentheses-text", "Medical Information Mart for Intensive Care MIMIC",
+     "Medical Information Mart for Intensive Care (MIMIC)", True),
+    ("parentheses-term", "Medical Information Mart for Intensive Care (MIMIC)",
+     "Medical Information Mart for Intensive Care MIMIC", True),
+    # Inner double quotes break a Dimensions phrase (412,891 vs 3,876), so the query
+    # never sends one; for matching they are a separator.
+    ("double-quote-text", "All of Us Research Program",
+     'The "All of Us" Research Program', True),
+    ("double-quote-term", 'The "All of Us" Research Program',
+     "The All of Us Research Program", True),
+    # "_" is part of the token ("bert_base_uncased" 45 vs split 7,366 vs joined 11).
+    ("underscore-not-split-text", "bert base uncased", "bert_base_uncased", False),
+    ("underscore-not-split-term", "bert_base_uncased", "bert base uncased", False),
+    ("underscore-not-joined", "bert_base_uncased", "bertbaseuncased", False),
+    ("underscore-same-text", "ERA5_Land", "ERA5_Land", True),
+    ("underscore-not-hyphen", "ERA5 Land", "ERA5_Land", False),
+    # Plural folding, both ways, for ordinary words, all-caps tokens, short words and
+    # letter-and-digit tokens; also inside a phrase (Parkinsons ... = Parkinson ...).
+    ("plural-ordinary-word", "All of Us Research Program", "All of Us Research Programs",
+     True),
+    ("plural-inside-phrase", "Parkinsons Progression Markers Initiative",
+     "Parkinson Progression Markers Initiative", True),
+    ("plural-all-caps-singular", "NHANES", "NHANE", True),
+    ("plural-all-caps-plural", "NHANE", "NHANES", True),
+    ("plural-llm", "LLM", "LLMs", True),
+    ("plural-llms", "LLMs", "LLM", True),
+    ("plural-cnn", "CNN", "CNNs", True),
+    ("plural-mri", "MRI", "MRIs", True),
+    ("plural-letter-digit", "ERA5", "ERA5s", True),
+    ("plural-letter-digit-singular", "ERA5s", "ERA5", True),
+    ("plural-short-word", "map", "maps", True),
+    ("plural-short-word-singular", "maps", "map", True),
+    # A token that is all digits before the "s" does not fold ("GPT-4s" 78 vs 52,109).
+    ("plural-numeric-not-folded", "GPT-4", "GPT-4s", False),
+    ("plural-numeric-term-not-folded", "GPT-4s", "GPT-4", False),
+    # Not measured, conservative: "ss" and "us" endings are not plurals ("is" folds:
+    # MRIs = MRI above).
+    ("not-plural-us-ending", "Census", "Censu", False),
+    ("not-plural-ss-ending", "GNSS", "GNS", False),
+]
+
+
+@pytest.mark.parametrize(
+    ("term", "text", "matches"),
+    [pytest.param(t, x, m, id=i) for i, t, x, m in MEASURED_PHRASE_RULES],
+)
+def test_measured_phrase_rules(term: str, text: str, matches: bool) -> None:
+    """The phrase *term* matches *text* when its tokens occur in it (containment)."""
+    from dataset_agent.adapters.dimensions_phrase import phrase_contains
+
+    assert phrase_contains(text, term) is matches
