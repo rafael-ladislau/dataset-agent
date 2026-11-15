@@ -1,4 +1,5 @@
-"""Round 2, item 6: a refiner alias that names the program follows the phase-1 routing."""
+"""A refiner alias that names the program keeps the acronym and ordinary-phrase guards
+(round 3: otherwise it routes by its count, like any alias)."""
 
 from __future__ import annotations
 
@@ -31,12 +32,13 @@ def _refine(new_aliases, quote):
                             count_fn=lambda t: 50, reference_count=100, program_names=PROGRAMS)
 
 
-def test_refiner_alias_naming_the_program_is_gated():
+def test_refiner_alias_naming_the_program_keeps_the_guards_only():
     r = _refine(["AoE cohort", "Example Research Program"],
                 "we used the AoE cohort and the Example Research Program data")
     assert "AoE cohort" in r.candidate.risky and "AoE cohort" not in r.candidate.safe
-    assert "Example Research Program" in r.candidate.risky
-    assert any("names the program: gated" in d.reason for d in r.diffs if d.term == "AoE cohort")
+    assert "Example Research Program" in r.candidate.safe  # no gate by data names
+    assert any("names the program: acronym or ordinary phrase" in d.reason
+               for d in r.diffs if d.term == "AoE cohort")
 
 
 def test_data_noun_without_acronym_keeps_count_routing():

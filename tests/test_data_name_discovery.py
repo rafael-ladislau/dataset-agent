@@ -104,6 +104,6 @@ def test_literature_discovery_adds_checked_names_to_the_query(tmp_path):
         return await uc._discover_from_literature(ev, cand, notes, 0)
 
     out = asyncio.run(go())
-    assert out is not None and "Curated Data Repository" in out.flag_terms
+    assert out is not None and "Curated Data Repository" not in out.flag_terms
     assert uc._resource_map.name_sources["Curated Data Repository"] == "literature"
     assert any("literature discovery" in n for n in notes)

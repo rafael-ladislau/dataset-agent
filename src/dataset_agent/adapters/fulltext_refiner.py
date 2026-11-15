@@ -35,7 +35,7 @@ from dataset_agent.adapters.query_heuristics import (
     is_acronym_suffix_form,
     is_short_acronym,
 )
-from dataset_agent.adapters.scope_check import acronym_form, carries_data_noun, names_program
+from dataset_agent.adapters.scope_check import acronym_form, names_program
 from dataset_agent.adapters.seed_mapping import QueryCandidate
 from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
 from dataset_agent.adapters.tools import EMIT_REFINEMENT_CANDIDATES
@@ -93,16 +93,6 @@ def _paper_line(v: PubVerdict) -> str:
     return " ".join(bits)
 
 
-def _program_only_block(program_only: list[PubVerdict] | None, lines) -> str:
-    if not program_only:
-        return ""
-    return (
-        "\nPapers matched by the query that discuss only the program, not its data (program "
-        "only; never a source of exclude terms; they show which names pull in program talk):\n"
-        f"{lines(program_only)}\n"
-    )
-
-
 def propose_refinements(
     agent: AgentPort,
     *,
@@ -112,12 +102,10 @@ def propose_refinements(
     aliases: list[str],
     flag_terms: list[str],
     exclude_terms: list[str],
-    program_only: list[PubVerdict] | None = None,
 ) -> dict:
     """LLM pattern pass over all probe papers: false-positive groups with excludes,
-    flags and new aliases from the matching papers. *program_only* papers (scope check)
-    get their own block, never a source of excludes; the prompt is byte-identical
-    without them."""
+    flags and new aliases from the matching papers. Papers labelled program-only by the
+    scope check are genuine and listed with the matching papers."""
 
     def lines(vs: list[PubVerdict]) -> str:
         return "\n".join(_paper_line(v) for v in vs[:_MAX_PROMPT_PAPERS]) or "(none)"
@@ -132,7 +120,7 @@ Papers whose full text MENTIONS the dataset (correct matches, whether or not the
 
 Papers matched by the query whose full text does NOT mention the dataset at all (false positives):
 {lines(false_positives)}
-{_program_only_block(program_only, lines)}
+
 Look at the false positives TOGETHER: group them by the other meaning of the query term that pulled
 them in (for example an acronym that also names a medical condition, a technology or an author), and
 for each group give the query term that caused it and short exclude phrases that occur in that
@@ -275,8 +263,8 @@ def refine_candidate(
     impact is unknown (budget reserve reached, Dimensions error), is rejected.
 
     *program_names* (resource map): a new alias that equals, contains or abbreviates a
-    program name is gated like the program names in phase 1, unless it carries a data noun
-    and no acronym ("<program> cohort"); its next probe then decides.
+    program name keeps the phase-1 guards: an acronym form or an ordinary phrase is gated;
+    otherwise it routes by its count like any alias (the query is broad on the program).
     """
     abstract_fp = {a.lower() for a in (abstract_fp_aliases or set())}
     aliases = candidate.all_aliases()
@@ -286,10 +274,8 @@ def refine_candidate(
 
     stats = attribute_terms(evidence, aliases)
     flags_stats = attribute_terms(evidence, list(candidate.flag_terms), partial=False)
-    # Program-only papers (scope check) count against names in the alias statistics,
-    # so they can drop or demote a name, but they never create an exclude.
-    program_only = [v for v in evidence.false_positives if v.scope == "program_only"]
-    fps = [v for v in evidence.false_positives if v.scope != "program_only"]
+    # Papers labelled program-only stay genuine: never an exclude source, never against a name.
+    fps = evidence.false_positives
 
     # --- LLM proposals, validated against the quotes ------------------------------
     rejected: dict[str, list[str]] = {"exclude": [], "flag": [], "alias": []}
@@ -310,7 +296,7 @@ def refine_candidate(
     overlap_demote: dict[str, str] = {}
     if enough:
         notes.extend(category_patterns(evidence, settings.refine_category_min_fp_papers))
-    if enough and agent is not None and (evidence.genuine or fps or program_only):
+    if enough and agent is not None and (evidence.genuine or fps):
         prop = propose_refinements(
             agent,
             dataset_name=dataset_name,
@@ -319,7 +305,6 @@ def refine_candidate(
             aliases=aliases,
             flag_terms=candidate.flag_terms,
             exclude_terms=candidate.exclude_terms,
-            program_only=program_only,
         )
         if prop.get("failed"):
             notes.append(
@@ -544,10 +529,11 @@ def refine_candidate(
             continue
         risky = c > 10 * max(1, reference_count)
         prog = names_program(t, program_names or [])
-        gated = bool(prog) and not (carries_data_noun(t) and not acronym_form(t))
+        gated = bool(prog) and (acronym_form(t) or detect_rhetorical_name(t))
         if gated and not risky:
             risky = True
-            logger.info("refine: alias %r names the program %r: gated", t, prog)
+            logger.info("refine: alias %r names the program %r (acronym or ordinary phrase): "
+                        "gated", t, prog)
         if risky and not flags:
             reject("alias", t, f"{c} Dimensions hits: risky and there are no flag terms")
             continue
@@ -557,7 +543,7 @@ def refine_candidate(
         diffs.append(TermDiff(
             kind="alias", term=t, action="add", status="verified",
             reason=f"mention form in {len(hits)} matching quote(s); {c} Dimensions hits"
-            + (" (names the program: gated)" if gated else " (risky: requires flags)" if risky
+            + (" (names the program: acronym or ordinary phrase, gated)" if gated else " (risky: requires flags)" if risky
                else ""),
             stats={"dimensions_count": c, "matching_papers": len(hits)}, evidence=_quotes(hits, t)))
 

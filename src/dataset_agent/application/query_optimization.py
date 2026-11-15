@@ -2498,8 +2498,8 @@ class QueryOptimizationUseCase:
         """Split datasets only: capitalised names that co-occur with the program name in
         passages of papers judged "used" become data-name candidates. Each passes the map
         checks (co-occurrence and a high program share of its own hits); a specific one
-        joins the safe group and every one joins the gate. Returns the new candidate, or
-        None when nothing was added."""
+        joins the safe group (nothing is gated by data names). Returns the new candidate,
+        or None when no specific name was added."""
         from dataset_agent.adapters.resource_map import (
             check_data_names,
             literature_candidates,
@@ -2550,13 +2550,13 @@ class QueryOptimizationUseCase:
                            f"added {added}" + (f"; rejected {rejected}" if rejected else ""))
         if not added:
             return None
-        specific = [d for d in added if d in rmap.specific_data_names]
+        specific = [d for d in added if d in rmap.specific_data_names and not is_short_acronym(d)]
+        if not specific:
+            return None
         safe = dedupe_strings_ci_preserve_order([*cand.safe, *specific])
-        flags = dedupe_strings_ci_preserve_order(
-            [*cand.flag_terms, *[d for d in added if not is_short_acronym(d)]])
         import dataclasses
 
-        return dataclasses.replace(cand, safe=safe, flag_terms=flags)
+        return dataclasses.replace(cand, safe=safe)
 
     async def _run_research(self, request: OptimizeRequest) -> DatasetRecord:
         req = ResearchRequest(
