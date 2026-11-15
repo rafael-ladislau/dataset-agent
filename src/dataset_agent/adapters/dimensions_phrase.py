@@ -130,3 +130,16 @@ def ampersand_spellings(name: str) -> list[str]:
     if _AND.search(name):
         out.append(_AND.sub(r"\1 & ", name))
     return [o for o in dict.fromkeys(out) if o != name]
+
+
+def ampersand_additions(names: list[str]) -> list[str]:
+    """The "&" / "and" spellings of *names* that are not already one of their searches.
+
+    Deduplicated with :func:`same_search`, not by case: "Medical Imaging and Data
+    Resource Centers" already searches "... and Data Resource Center"."""
+    added: list[str] = []
+    for name in names:
+        for alt in ampersand_spellings(name):
+            if not any(same_search(alt, other) for other in (*names, *added)):
+                added.append(alt)
+    return added

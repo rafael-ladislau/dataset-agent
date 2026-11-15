@@ -40,7 +40,7 @@ from dataset_agent.adapters.dimensions_dsl import (
     short_dsl_error,
 )
 from dataset_agent.adapters.dimensions_phrase import (
-    ampersand_spellings,
+    ampersand_additions,
     phrase_contains,
     same_search,
     search_key,
@@ -2952,13 +2952,8 @@ class QueryOptimizationUseCase:
             logger.warning("optimize: dropped generic alias(es) %s", generic)
         # "A & B" searches as "A B", never as "A and B": a name written either way is
         # searched both ways (each spelling is counted and judged like any alias).
-        have = {a.casefold() for a in aliases}
-        spelled = []
-        for a in list(aliases):
-            for alt in ampersand_spellings(a):
-                if alt.casefold() not in have:
-                    have.add(alt.casefold())
-                    spelled.append(alt)
+        # Deduplicated by Dimensions search, not by case (the plural is the same search).
+        spelled = ampersand_additions(aliases)
         if spelled:
             aliases += spelled
             notes_parts.append(

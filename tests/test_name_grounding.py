@@ -338,3 +338,17 @@ def test_ampersand_and_and_spellings_are_both_searched(tmp_path, monkeypatch) ->
     counted = {e.alias: e.count for e in out.alias_counts}
     assert counted.get(amp) == 122 and counted.get(word) == 170
     assert "'&' and 'and' are different Dimensions searches" in out.notes
+
+
+def test_ampersand_spelling_already_searched_is_not_added_again(tmp_path, monkeypatch) -> None:
+    # The "and" spelling is already a search when the plural is listed ("Center" =
+    # "Centers" for Dimensions): no second, identical search is added.
+    amp = "Medical Imaging & Data Resource Center"
+    plural = "Medical Imaging and Data Resource Centers"
+    counts = {"Medical Imaging \\& Data Resource Center": 122, plural: 170, TITLE: 40}
+    out, _agent = _run(
+        tmp_path, monkeypatch, counts, aliases=[TITLE, amp, plural], suggested=[], llm_names=[],
+    )
+    counted = {e.alias for e in out.alias_counts}
+    assert "Medical Imaging and Data Resource Center" not in counted
+    assert "'&' and 'and' are different Dimensions searches" not in out.notes

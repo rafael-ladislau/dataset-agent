@@ -32,7 +32,11 @@ from typing import Any
 
 import httpx
 
-from dataset_agent.adapters.dimensions_phrase import search_key
+from dataset_agent.adapters.dimensions_phrase import (
+    ampersand_additions,
+    ampersand_spellings,
+    search_key,
+)
 from dataset_agent.adapters.name_grounding import content_tokens
 from dataset_agent.adapters.query_heuristics import is_short_acronym
 from dataset_agent.adapters.term_sanitizer import sanitize_term, sanitize_terms
@@ -647,6 +651,11 @@ def assemble_candidates(
                 sibling = version_sibling(joined, own_bases) if version_siblings else None
                 if sibling:
                     with_joined.append((sibling, "former"))
+    # "A & B" searches as "A B", never as "A and B": a name written either way is
+    # searched both ways, deduplicated by Dimensions search (same as the dataset path).
+    for alt in ampersand_additions([raw for raw, _kind in with_joined]):
+        kind = next(k for raw, k in with_joined if alt in ampersand_spellings(raw))
+        with_joined.append((alt, kind))
     names = with_joined
     # A paper title proposed as a name is measured as a title (an anchor), never as a
     # name: taking it as a name here would drop it from the titles below.

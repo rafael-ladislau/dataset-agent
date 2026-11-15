@@ -315,3 +315,31 @@ def test_measured_phrase_rules(term: str, text: str, matches: bool) -> None:
     from dataset_agent.adapters.dimensions_phrase import phrase_contains
 
     assert phrase_contains(text, term) is matches
+
+
+def test_ampersand_additions_dedupe_by_dimensions_search() -> None:
+    from dataset_agent.adapters.dimensions_phrase import ampersand_additions
+
+    amp = "Medical Imaging & Data Resource Center"
+    assert ampersand_additions([amp]) == ["Medical Imaging and Data Resource Center"]
+    assert ampersand_additions([amp, "Medical Imaging and Data Resource Centers"]) == []
+    assert ampersand_additions([amp, "MEDICAL IMAGING AND DATA RESOURCE CENTER"]) == []
+
+
+def test_ai_model_names_are_searched_in_both_ampersand_spellings() -> None:
+    c = assemble_candidates(
+        model_name="SatVision", family=None,
+        given_aliases=["Earth Imaging & Vision Foundation Model"],
+        hub=HubEvidence(), llm={}, max_names=14, max_context=12, max_excludes=8,
+    )
+    names = [n for n, _k in c.names]
+    assert "Earth Imaging & Vision Foundation Model" in names
+    assert "Earth Imaging and Vision Foundation Model" in names
+    c = assemble_candidates(
+        model_name="SatVision", family=None,
+        given_aliases=["Earth Imaging & Vision Foundation Model",
+                       "Earth Imaging and Vision Foundation Models"],
+        hub=HubEvidence(), llm={}, max_names=14, max_context=12, max_excludes=8,
+    )
+    names = [n for n, _k in c.names]
+    assert "Earth Imaging and Vision Foundation Model" not in names
