@@ -3324,8 +3324,7 @@ class QueryOptimizationUseCase:
                     notes_parts.append(
                         f"gate_iter{iteration}: Dimensions query failed ({reason}); "
                         "iteration not evaluated"
-                        + ("; it cannot be selected, and the selected iteration keeps "
-                           "its own confidence." if ft_enabled else
+                        + ("; it cannot be selected." if ft_enabled else
                            "; evaluation failed, result is partial and confidence is "
                            "capped at LOW.")
                     )
@@ -3334,8 +3333,7 @@ class QueryOptimizationUseCase:
                 else:
                     notes_parts.append(
                         f"gate_iter{iteration}: evaluation failed ({phase3_error}); "
-                        + ("this iteration cannot be selected, and the selected iteration "
-                           "keeps its own confidence." if ft_enabled else
+                        + ("this iteration cannot be selected." if ft_enabled else
                            "result is partial and confidence is capped at LOW.")
                     )
                 if ft_enabled:
@@ -3740,6 +3738,11 @@ class QueryOptimizationUseCase:
                 notes_parts.append(
                     f"gate iteration {phase3_error_iter} could not be evaluated; the selected "
                     f"iteration {best_ft_iter} keeps its own confidence."
+                )
+            elif phase3_error is not None and best_ft_iter is None:
+                notes_parts.append(
+                    f"gate iteration {phase3_error_iter} could not be evaluated and no "
+                    "full-text iteration could be selected; confidence LOW."
                 )
             if not gate_failed_here and best_ft_iter is not None:
                 sel = next(m for m in ft_iterations if m.iteration == best_ft_iter)

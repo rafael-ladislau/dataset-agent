@@ -167,3 +167,14 @@ def test_the_floor_needs_the_minimum_sample(tmp_path):
     uc = _uc(tmp_path)
     small = _metrics(0, 5, 0, 0)  # 5 papers, all data: below the minimum sample of 10
     assert uc._meets_data_floor(small) is False
+
+
+def test_a_failed_gate_with_nothing_selected_does_not_claim_a_selected_iteration(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(qopt_mod, "evaluate_for_clause_sync", lambda *a, **k: {
+        "error": "dimensions_query_failed: 500", "error_reason": "HTTP 500"})
+    out = _run(tmp_path, _pubs(40, 50, 0, 10), split=True, optimize_max_iterations=1)
+    assert out.confidence.value == "low"
+    assert "keeps its own confidence" not in out.notes
+    assert "cannot be selected" in out.notes
+    assert "no full-text iteration could be selected; confidence LOW" in out.notes
