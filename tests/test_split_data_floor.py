@@ -139,6 +139,27 @@ def test_the_floor_only_needs_precision_ranking_when_no_iteration_reaches_it(tmp
     assert max([precise, lower, reached], key=uc._selection_key).iteration == 2
 
 
+def test_a_failed_gate_in_the_floor_round_does_not_downgrade_the_selected_iteration(
+        tmp_path, monkeypatch):
+    _changing_refiner(monkeypatch)
+    calls = {"n": 0}
+
+    def evaluate(*a, **k):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            return {"error": "dimensions_query_failed: 500", "error_reason": "HTTP 500"}
+        return {"fp_rate_pct": 0.0, "genuine_count": 10, "fp_count": 0, "matched_count": 10,
+                "total_pubs": 100, "coverage_pct": 100.0, "for_clause": k.get("for_clause", ""),
+                "publications_total": 100, "fp_hits": []}
+
+    monkeypatch.setattr(qopt_mod, "evaluate_for_clause_sync", evaluate)
+    out = _run(tmp_path, _pubs(40, 50, 0, 10), split=True, optimize_max_iterations=2)
+    assert out.confidence.value == "medium"  # released with the floor warning, not LOW
+    assert out.data_floor_met is False
+    assert "a gate evaluation failed" not in out.notes.split("full-text release bar:")[-1]
+    assert "iteration 1 could not be evaluated" in out.notes
+
+
 def test_the_floor_needs_the_minimum_sample(tmp_path):
     uc = _uc(tmp_path)
     small = _metrics(0, 5, 0, 0)  # 5 papers, all data: below the minimum sample of 10

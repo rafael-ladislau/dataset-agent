@@ -3239,6 +3239,7 @@ class QueryOptimizationUseCase:
 
         best_ev: dict | None = None
         phase3_error: str | None = None
+        phase3_error_iter: int | None = None
         ft_probe_error: str | None = None
         ft_eval_error: tuple[int, str] | None = None
         best_variant_entry: VariantTestedEntry | None = None
@@ -3312,6 +3313,7 @@ class QueryOptimizationUseCase:
             if ev.get("error"):
                 # A failed evaluation says nothing about precision; never read it as 0% FP.
                 phase3_error = str(ev["error"])
+                phase3_error_iter = iteration
                 reason = str(ev.get("error_reason") or short_dsl_error(phase3_error))
                 if phase3_error.startswith("dimensions_query_failed"):
                     notes_parts.append(
@@ -3712,7 +3714,17 @@ class QueryOptimizationUseCase:
             # for most datasets, the unrelated share for a split dataset.
             confidence = ConfidenceLevel.LOW
             release_bar, release_met = self._release_bar_text(), False
-            if phase3_error is None and best_ft_iter is not None:
+            # A failed gate in an iteration other than the selected one (e.g. an extra
+            # floor round) says nothing about the selected iteration: it keeps its own
+            # confidence, and the failure is noted.
+            gate_failed_here = phase3_error is not None and (
+                best_ft_iter is None or phase3_error_iter == best_ft_iter)
+            if phase3_error is not None and not gate_failed_here:
+                notes_parts.append(
+                    f"gate iteration {phase3_error_iter} could not be evaluated; the selected "
+                    f"iteration {best_ft_iter} keeps its own confidence."
+                )
+            if not gate_failed_here and best_ft_iter is not None:
                 sel = next(m for m in ft_iterations if m.iteration == best_ft_iter)
                 prec = float(sel.fulltext_precision or 0.0)
                 if recall_min_precision is not None:
@@ -3765,7 +3777,7 @@ class QueryOptimizationUseCase:
                 data_floor = self._data_floor(sel_m, rounds=len(ft_iterations))
                 data_floor_met = data_floor["met"]
             notes_parts.append(self._release_note(
-                release_bar, bool(release_met), sel_m, phase3_error is not None, data_floor))
+                release_bar, bool(release_met), sel_m, gate_failed_here, data_floor))
         else:
             fp_sel = float(best.fp_rate_pct or 0.0)
             if best.fp_rate_pct is None:
