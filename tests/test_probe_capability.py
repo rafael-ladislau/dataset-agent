@@ -105,3 +105,14 @@ def test_loop_off_a_split_dataset_is_not_released(tmp_path):
 def test_loop_off_a_non_split_dataset_is_unchanged(tmp_path):
     out = _run(tmp_path, _pubs(85, 0, 0, 15), split=False, fulltext_refinement_enabled=False)
     assert "full-text bar was not evaluated" not in out.notes
+
+
+def test_an_ai_model_probe_without_an_extraction_target_is_a_note_not_a_failure(tmp_path):
+    from dataset_agent.application.query_optimization import QueryOptimizationUseCase
+    from tests.test_fulltext_loop import CountDSL, make_settings
+
+    uc = QueryOptimizationUseCase(dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(),
+                                  settings=make_settings(tmp_path, extraction_dev_url=""))
+    model, out, notes = MagicMock(), MagicMock(ai_model_seed={"main_dataset_name": "M"}), []
+    assert asyncio.run(uc._measure_seed(model, out, notes, 0)) is None
+    assert any("extraction_dev_url is not configured" in n for n in notes)

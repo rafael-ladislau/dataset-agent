@@ -2211,15 +2211,17 @@ class QueryOptimizationUseCase:
         """Probe *seed* exactly on extraction full text (cleaned up by the client), then
         run the referent check on the genuine papers. None when the probe failed."""
         s = self._settings
-        client = self._get_extraction()
         try:
+            # Inside the try: a missing or unsupported extraction target is a
+            # note ("full text not evaluated"), never a failed run.
+            client = self._get_extraction()
             top = await asyncio.to_thread(functools.partial(
                 client.run_probe_topup, seed, target=s.fulltext_target_delivered,
                 batch_size=s.fulltext_batch_size,
                 max_batches=max_batches or s.fulltext_max_batches,
                 pull_cap=s.probe_pull_cap, entity="ai_model",
             ))
-        except ExtractionError as exc:
+        except (ExtractionError, ValueError) as exc:
             logger.warning("model full-text probe failed: %s", exc)
             self._model_probe_error = str(exc)
             return None
