@@ -2419,12 +2419,22 @@ class QueryOptimizationUseCase:
         return p is not None and p >= s.fulltext_recall_min_precision
 
     def _selection_key(self, m: IterationMetrics) -> tuple[bool, float, float, int]:
-        """Rank full-text iterations: the release bar first; among iterations meeting a split
-        dataset's bar the higher data-only share (no floor on it: an owner question); then
-        precision; then the earlier iteration."""
+        """Rank full-text iterations: the release bar first; then precision; among
+        iterations meeting a split dataset's bar, the higher confirmed data share breaks a
+        precision tie (no floor on it: an owner question); then the earlier iteration."""
         met = self._meets_release_bar(m)
-        data = (m.data_share or 0.0) if met and self._split_release() else 0.0
-        return (met, data, float(m.fulltext_precision or 0.0), -m.iteration)
+        data = self._confirmed_data_share(m) if met and self._split_release() else 0.0
+        return (met, float(m.fulltext_precision or 0.0), data, -m.iteration)
+
+    @staticmethod
+    def _confirmed_data_share(m: IterationMetrics) -> float:
+        """Genuine papers the scope check labelled ``data`` / papers evaluated. A paper
+        whose scope call was ``unclear`` (a failed call) is not counted as data."""
+        if not m.paper_details or not m.n_evaluated:
+            return 0.0
+        n = sum(1 for p in m.paper_details
+                if p.get("verdict") in ("used", "mentioned") and p.get("scope") == "data")
+        return n / m.n_evaluated
 
     def _release_note(self, bar: str, met: bool, m: IterationMetrics | None,
                       gate_error: bool) -> str:

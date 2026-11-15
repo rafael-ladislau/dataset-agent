@@ -204,32 +204,65 @@ def test_no_warning_when_a_sampled_paper_is_data(tmp_path):
     assert "no sampled paper refers to the data resource" not in out.notes
 
 
-def _metrics(it, n_data, n_refs, n_unrel, precision=None):
+def _metrics(it, n_data, n_refs, n_unrel, precision=None, *, n_unclear=0, n_prog=0):
+    """Split-dataset iteration metrics: *n_data* genuine papers labelled data, *n_unclear*
+    genuine papers the scope check could not decide, *n_prog* program-only papers."""
     from dataset_agent.domain.proposals import IterationMetrics
 
-    n = n_data + n_refs + n_unrel
+    n = n_data + n_unclear + n_prog + n_refs + n_unrel
+    genuine = n_data + n_unclear + n_prog
+    details = (
+        [{"id": f"d{i}", "verdict": "used", "scope": "data"} for i in range(n_data)]
+        + [{"id": f"c{i}", "verdict": "mentioned", "scope": "unclear"} for i in range(n_unclear)]
+        + [{"id": f"p{i}", "verdict": "mentioned", "scope": "program_only"} for i in range(n_prog)]
+        + [{"id": f"r{i}", "verdict": "not_mentioned", "scope": None} for i in range(n_refs)]
+        + [{"id": f"u{i}", "verdict": "not_mentioned", "scope": None} for i in range(n_unrel)]
+    )
     return IterationMetrics(
         iteration=it, for_clause=f"q{it}", n_publications=n, n_fulltext_delivered=n,
-        n_evaluated=n, fulltext_precision=precision if precision is not None else n_data / n,
-        data_share=n_data / n, unrelated_share=n_unrel / n,
-        four_way={"data": {"count": n_data}, "program_only": {"count": 0},
-                  "references_only": {"count": n_refs}, "unrelated": {"count": n_unrel}})
+        n_evaluated=n, fulltext_precision=precision if precision is not None else genuine / n,
+        data_share=(n_data + n_unclear) / n, unrelated_share=n_unrel / n,
+        four_way={"data": {"count": n_data + n_unclear}, "program_only": {"count": n_prog},
+                  "references_only": {"count": n_refs}, "unrelated": {"count": n_unrel}},
+        paper_details=details)
 
 
-def test_selection_prefers_the_higher_data_share_among_iterations_meeting_the_split_bar(tmp_path):
+def _uc(tmp_path, split=True):
     uc = QueryOptimizationUseCase(
         dsl_port=CountDSL(), research=MagicMock(), agent=MagicMock(),
         settings=make_settings(tmp_path), extraction_client=FakeClient([]))
-    uc._resource_map = MAP
-    low_data = _metrics(0, 1, 8, 1, precision=0.95)  # bar met, data 0.10
-    high_data = _metrics(1, 6, 2, 2, precision=0.60)  # bar met, data 0.60
-    missed = _metrics(2, 9, 0, 3)  # unrelated 0.25: bar missed, data 0.75
-    best = max([low_data, high_data, missed], key=uc._selection_key)
-    assert best.iteration == 1
+    uc._resource_map = MAP if split else None
+    return uc
+
+
+def test_selection_ranks_precision_before_the_data_share_under_the_split_bar(tmp_path):
+    uc = _uc(tmp_path)
+    # The review's case: A data 5, program-only 4, unrelated 1 (precision 0.90); B data
+    # 6, references-only 2, unrelated 2 (precision 0.60). One paper of data share must not
+    # outrank 0.30 of precision.
+    a = _metrics(0, 5, 0, 1, n_prog=4)
+    b = _metrics(1, 6, 2, 2)
+    missed = _metrics(2, 9, 0, 3)  # unrelated 0.25: bar missed
+    assert max([a, b, missed], key=uc._selection_key).iteration == 0
     # Without a split the key is unchanged: bar, then precision.
     uc._resource_map = None
     a, b = _metrics(0, 9, 0, 1, precision=0.90), _metrics(1, 8, 0, 2, precision=0.85)
     assert max([a, b], key=uc._selection_key).iteration == 0
+
+
+def test_the_data_share_breaks_a_precision_tie_under_the_split_bar(tmp_path):
+    uc = _uc(tmp_path)
+    low = _metrics(0, 2, 0, 1, n_prog=7)  # precision 0.90, data 0.20
+    high = _metrics(1, 6, 0, 1, n_prog=3)  # precision 0.90, data 0.60
+    assert max([low, high], key=uc._selection_key).iteration == 1
+
+
+def test_unclear_scope_does_not_count_as_data_in_the_selection(tmp_path):
+    uc = _uc(tmp_path)
+    confirmed = _metrics(0, 5, 0, 1, n_prog=4)  # data 5 (share 0.50), precision 0.90
+    unclear = _metrics(1, 3, 0, 1, n_unclear=4, n_prog=2)  # data 3 + unclear 4, precision 0.90
+    assert unclear.data_share > confirmed.data_share
+    assert max([unclear, confirmed], key=uc._selection_key).iteration == 0
 
 
 def test_high_confidence_requires_the_release_bar(tmp_path):

@@ -217,7 +217,8 @@ for All of Us) is references-only too, because nothing in the snippets separates
 citer of the dataset paper. Data, program-only and
 references-only papers all count toward the bar, because the judge removes citers and
 program-only papers downstream. There is no floor on the data share, but among iterations
-that meet the split bar the selection prefers the higher data-only share, the gate note
+that meet the split bar and tie on precision the selection prefers the higher share of
+papers the scope check labelled data (an `unclear` scope does not count), the gate note
 prints the data-only precision, and the release note warns when no sampled paper refers to
 the data resource. HIGH still needs precision of at least 0.90 (`1 - optimize_fp_threshold_pct /
 100`), and for every dataset it also needs the release bar, so `release_bar_met` is true
