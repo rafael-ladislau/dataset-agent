@@ -444,9 +444,9 @@ class QueryOptimizationUseCase:
         return cfg
 
     @staticmethod
-    def _judge_config_note(label: str, cfg: dict, asks: str) -> str:
-        what = ("the measured configuration" if cfg.get("measured_configuration")
-                else "not the measured configuration")
+    def _judge_config_note(label: str, cfg: dict, asks: str, noun: str = "configuration") -> str:
+        what = (f"the measured {noun}" if cfg.get("measured_configuration")
+                else f"not the measured {noun}")
         fb = ("; fallback: the API style is not anthropic, thinking and sampling dropped"
               if cfg.get("fallback") else "")
         return (f"{label}: {cfg['agent']} agent, thinking budget {cfg['thinking_budget']}, "
@@ -2291,6 +2291,12 @@ class QueryOptimizationUseCase:
         stands and full text is reported only."""
         s = self._settings
         need, bar = s.ai_model_fulltext_min_papers, s.ai_model_fulltext_min_precision
+        # The judge that decides release: recorded, and marked when it is not the measured
+        # configuration (e.g. the openai-style fallback drops thinking and sampling).
+        judge = {**self._judge_config(), "votes": int(s.referent_votes)}
+        out.referent_judge_config = judge
+        notes.append(self._judge_config_note(
+            "full-text judge configuration", judge, "vote(s) per paper", noun="judge configuration"))
         ev = await self._measure_seed(model, out, notes, 0)
         if ev is None or ev.n_evaluated < need:
             n = 0 if ev is None else ev.n_evaluated

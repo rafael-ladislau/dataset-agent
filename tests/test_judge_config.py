@@ -67,3 +67,37 @@ def test_the_record_and_notes_carry_the_scope_check_configuration(tmp_path, monk
 
 def test_settings_default_votes_are_unchanged():
     assert Settings.model_fields["scope_votes"].default == 1
+
+
+def test_openai_style_fallback_is_marked_not_measured():
+    s = Settings(_env_file=None, llm_provider="lmstudio", referent_thinking_budget=4096)
+    cfg = s.referent_judge_config()
+    assert cfg["agent"] == "main" and cfg["fallback"] is True
+    assert cfg["thinking_budget"] == 0 and cfg["temperature"] is None
+    assert cfg["measured_configuration"] is False
+
+
+def test_ai_model_release_records_the_judge_and_flags_the_fallback(tmp_path, monkeypatch):
+    from tests.test_ai_model_fulltext_release import (
+        PHASENET_TITLE,
+        HubEvidence,
+        ModelClient,
+        _body,
+        _fake_eval,
+        _run,
+        qopt_mod,
+    )
+
+    state = _fake_eval()
+    monkeypatch.setattr(qopt_mod, "fetch_hub_evidence", lambda _id: HubEvidence(
+        hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE]))
+    monkeypatch.setattr(qopt_mod, "web_search", lambda _q: "")
+    monkeypatch.setattr(qopt_mod, "evaluate_for_clause_sync", lambda *a, **k: state(*a, **k))
+    out = _run(tmp_path, ModelClient(_body(20, 17)), ai_model_fulltext_enabled=True,
+               llm_provider="lmstudio", referent_thinking_budget=4096)
+    cfg = out.referent_judge_config
+    assert cfg is not None and cfg["fallback"] is True and cfg["votes"] == 1
+    assert cfg["measured_configuration"] is False
+    assert "not the measured judge configuration" in out.notes
+    assert "fallback: the API style is not anthropic" in out.notes
+    assert out.ai_model_seed is not None  # the fallback is kept: no error

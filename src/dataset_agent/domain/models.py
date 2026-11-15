@@ -358,6 +358,13 @@ class QueryOptimizationRecord(BaseModel):
         "measured_configuration (the configuration the reported figures were measured "
         "with); None when no resource map",
     )
+    referent_judge_config: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="AI models: the full-text referent judge that decided release: agent "
+        "(referent or main), api_style, fallback (thinking and sampling dropped because the "
+        "API style is not anthropic), thinking_budget, temperature, top_p, top_k, votes, "
+        "measured_configuration; None when full text did not run",
+    )
     resource_map_error: Optional[str] = Field(
         default=None,
         description="The resource map could not be decided in this run (LLM failure or no "
