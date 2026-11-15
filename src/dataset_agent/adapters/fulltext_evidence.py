@@ -561,11 +561,13 @@ def quote_allows_references_only(quote: str | None, contexts: list[dict]) -> boo
     q = _ref_norm(quote or "")
     if not q:
         return True
-    # Leading articles do not make a quote longer than the name ("the NHANES").
+    # Leading articles count on neither side: "the NHANES" is only the name, and
+    # "The Cancer Genome Atlas Program" is one word longer than "The Cancer Genome Atlas".
     n_words = len(_LEAD_ARTICLES.sub("", q).split())
     for c in contexts:
         t = _ref_norm(str(c.get("term") or ""))
-        if t and (_whole_words_in(t, q) or _whole_words_in(q, t)) and n_words <= len(t.split()):
+        if (t and (_whole_words_in(t, q) or _whole_words_in(q, t))
+                and n_words <= len(_LEAD_ARTICLES.sub("", t).split())):
             return False
     inside = re.compile(rf"(?<!\w){re.escape(q)}(?!\w)")
     return any(

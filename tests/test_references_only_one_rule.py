@@ -59,3 +59,15 @@ def test_a_leading_article_does_not_make_the_name_longer(quote):
 
 def test_a_longer_reference_fragment_still_allows_the_override():
     assert quote_allows_references_only("The Example Program cohort profile", [REF]) is True
+
+
+TCGA = {"term": "The Cancer Genome Atlas", "role": "alias", "part": "references",
+        "text": "The Cancer Genome Atlas Program. NCI. 2020."}
+
+
+def test_a_term_with_a_leading_article_is_counted_without_it():
+    # One word longer than the term once both drop the article: the override may apply.
+    assert quote_allows_references_only("The Cancer Genome Atlas Program", [TCGA]) is True
+    # The term itself, with or without its article, is name-only.
+    assert quote_allows_references_only("The Cancer Genome Atlas", [TCGA]) is False
+    assert quote_allows_references_only("Cancer Genome Atlas", [TCGA]) is False
