@@ -639,7 +639,7 @@ def program_datasets(rmap: ResourceMap | None, *, safe: list[str] | None = None,
                      flags: list[str] | None = None, built: bool = True,
                      clause: str | None = None):
     """The output list: the program and every data name examined, with its status in the
-    final query (``standalone``, ``gate`` or ``not_used`` with the reason); statuses are
+    final query (``standalone``, ``gated``, ``gate`` or ``not_used`` with the reason); statuses are
     None when no query was built (research record)."""
     from dataset_agent.domain.models import ProgramDataset, ProgramDatasets
 
@@ -647,10 +647,12 @@ def program_datasets(rmap: ResourceMap | None, *, safe: list[str] | None = None,
         return None
     safe_f = {s.casefold() for s in (safe or [])}
     flag_f = {f.casefold() for f in (flags or [])}
+    gated_f: set[str] = set()
     if clause is not None:
         roles = clause_roles(clause)
         safe_f = {k for k, r in roles.items() if r == "standalone"}
         flag_f = {k for k, r in roles.items() if r == "gate"}
+        gated_f = {k for k, r in roles.items() if r == "gated"}
     rows = {r["name"].casefold(): dict(r) for r in rmap.found_names}
     for d in rmap.data_resource_names:  # names that entered without a record
         rows.setdefault(d.casefold(), {"name": d, "kept": True,
@@ -665,6 +667,8 @@ def program_datasets(rmap: ResourceMap | None, *, safe: list[str] | None = None,
                 status = "standalone"
             elif key in flag_f:
                 status = "gate"
+            elif key in gated_f:
+                status = "gated"
             else:
                 status = "not_used"
                 reason = r.get("reason") or ("kept by the map, not in the final query "
@@ -679,6 +683,32 @@ def program_datasets(rmap: ResourceMap | None, *, safe: list[str] | None = None,
     return ProgramDatasets(program_names=list(rmap.program_names),
                            former_or_parent_names=list(rmap.former_or_parent_names),
                            datasets=out)
+
+
+DATA_WORDING_NOTE = ("informational: the data-wording clause (data phrases and specific data "
+                     "names alone, program names only together with a data name); not the "
+                     "released query")
+
+
+def data_wording_clause(rmap: ResourceMap | None, *, max_hits: int = 500_000) -> str | None:
+    """The data-wording alternative for a split dataset (the round-2 shape), reported next
+    to the released broad query: non-acronym data phrases (``<program> data``) and specific
+    data names stand alone; program names are AND-ed with the data resource names (not a
+    bare short acronym, at most *max_hits* hits). None without a map."""
+    from dataset_agent.adapters.query_builder import build_for_clause
+    from dataset_agent.adapters.query_heuristics import is_short_acronym
+    from dataset_agent.adapters.scope_check import acronym_form, generated_data_phrases
+
+    if rmap is None:
+        return None
+    programs = list(rmap.program_names)
+    phrases = [p for p in generated_data_phrases(programs) if not acronym_form(p)]
+    specific = [d for d in rmap.specific_data_names if not is_short_acronym(d)
+                and (rmap.data_name_hits.get(d) or 0) <= max_hits]
+    gate = [d for d in rmap.data_resource_names if not is_short_acronym(d)
+            and (rmap.data_name_hits.get(d) or 0) <= max_hits]
+    return build_for_clause(safe=list(dict.fromkeys([*phrases, *specific])), variant="V4",
+                            risky=programs, flag_terms=gate) or None
 
 
 def program_datasets_summary(pd) -> str:
@@ -696,6 +726,10 @@ def program_datasets_summary(pd) -> str:
         why = f" — {d.reason}" if d.reason else ""
         lines.append(f"  - {d.name} ({d.kind}; {d.source}"
                      f"{': ' + d.where if d.where else ''}; {hits}){status}{why}")
+    if getattr(pd, "data_wording_clause", None):
+        lines.append(f"Data-wording alternative ({pd.data_wording_note}): "
+                     f"{pd.data_wording_count if pd.data_wording_count is not None else '?'} "
+                     f"papers: {pd.data_wording_clause}")
     return "\n".join(lines)
 
 

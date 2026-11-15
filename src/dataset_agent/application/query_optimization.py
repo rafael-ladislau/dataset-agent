@@ -2428,6 +2428,30 @@ class QueryOptimizationUseCase:
         )
         return safe, risky, flags
 
+    async def _add_data_wording(self, program_ds, notes_parts: list[str]) -> None:
+        """Attach the informational data-wording clause and its count (one budgeted call)."""
+        from dataset_agent.adapters.resource_map import DATA_WORDING_NOTE, data_wording_clause
+
+        clause = data_wording_clause(self._resource_map,
+                                     max_hits=self._settings.optimize_flag_max_hits)
+        if not clause:
+            return
+        program_ds.data_wording_clause = clause
+        program_ds.data_wording_note = DATA_WORDING_NOTE
+        if self._room():
+            ys, ye = self._dataset_years()
+            runner = self._make_eval_runner(asyncio.get_running_loop())
+            try:
+                program_ds.data_wording_count = await asyncio.to_thread(
+                    lambda: parse_total_count(runner(build_for_clause_count_dsl(
+                        clause, where=f"year in [{ys}:{ye}] and type=\"article\""))))
+            except Exception as exc:
+                logger.warning("data-wording alternative: count failed: %s", exc)
+        notes_parts.append(
+            f"data-wording alternative ({DATA_WORDING_NOTE}): "
+            f"{program_ds.data_wording_count if program_ds.data_wording_count is not None else '?'}"
+            " papers")
+
     def _dataset_years(self) -> tuple[int, int]:
         """The dataset window: it starts at the first data release year when research
         found one and counts confirmed it (never before the default start)."""
@@ -3508,6 +3532,7 @@ class QueryOptimizationUseCase:
 
         program_ds = program_datasets(self._resource_map, clause=best.for_clause)
         if program_ds is not None:
+            await self._add_data_wording(program_ds, notes_parts)
             notes_parts.append(program_datasets_summary(program_ds).replace("\n", " | "))
             if proposal is not None:
                 proposal.program_datasets = program_ds.model_dump()

@@ -259,7 +259,7 @@ class ProgramDataset(BaseModel):
     where: str = ""
     hits_alone: Optional[int] = None
     hits_with_program: Optional[int] = None
-    #: standalone | gate | not_used (in the final query); None when no query was built.
+    #: standalone | gated | gate | not_used (in the final query); None when no query was built.
     status: Optional[str] = None
     reason: str = ""
 
@@ -270,6 +270,11 @@ class ProgramDatasets(BaseModel):
     program_names: list[str] = Field(default_factory=list)
     former_or_parent_names: list[str] = Field(default_factory=list)
     datasets: list[ProgramDataset] = Field(default_factory=list)
+    #: Informational alternative, not the released query: the data-wording clause and its
+    #: Dimensions count (dataset window); None when not built or not counted.
+    data_wording_clause: Optional[str] = None
+    data_wording_count: Optional[int] = None
+    data_wording_note: str = ""
 
 
 class ResourceMap(BaseModel):
