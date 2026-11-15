@@ -2441,6 +2441,8 @@ class QueryOptimizationUseCase:
                 for k, v in m.four_way.items()
             ]
             note += f": {', '.join(parts)}; data-only precision {(m.data_share or 0):.2f}"
+            if m.unrelated_share_legacy is not None:
+                note += f"; legacy unrelated share {m.unrelated_share_legacy:.2f}"
             note += " next to"
         else:
             note += ":"

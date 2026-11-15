@@ -204,8 +204,11 @@ unrelated share instead of precision: MEDIUM, the early stop and the selection p
 an unrelated share of at most `fulltext_split_unrelated_max` (0.20) on at least
 `fulltext_recall_min_evidence` (10) evaluated papers. Each evaluated paper falls in one of four
 classes (`PubVerdict.four_way`): `data` or `program_only` (genuine, by scope label),
-`references_only` (not genuine, every name snippet in the reference list or turned by the scope
-check's references-only rule) and `unrelated` (the rest). Data, program-only and
+`references_only` (turned to `not_mentioned` by the references-only override or the scope
+check's references-only rule) and `unrelated` (the rest, including a paper the judge itself
+called `not_mentioned` whose snippets all sit in the reference list). The split as it was
+before (such a paper counted as references-only) is kept as `PubVerdict.four_way_legacy`,
+and its unrelated share is reported as `unrelated_share_legacy` and in the release note. Data, program-only and
 references-only papers all count toward the bar, because the judge removes citers and
 program-only papers downstream. HIGH still needs precision of at least 0.90. Every other
 dataset keeps the precision bar unchanged. The record states the bar (`release_bar`,

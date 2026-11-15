@@ -84,23 +84,52 @@ def _run(tmp_path, pubs, *, split):
     return asyncio.run(uc.execute(req))
 
 
-def test_four_way_split_is_canonical_on_the_verdict_and_evidence():
-    def v(pid, verdict, *, scope=None, part="body", refs_rule=False):
-        return PubVerdict(publication_id=pid, doi=None, title="", citation_count=0,
-                          verdict=verdict, quote="", scope=scope, scope_references_only=refs_rule,
-                          contexts=[{"term": "X", "part": part, "text": "X"}])
+def _fv(pid, verdict, *, scope=None, part="body", refs_rule=False, overridden_from=None):
+    return PubVerdict(publication_id=pid, doi=None, title="", citation_count=0,
+                      verdict=verdict, quote="", scope=scope, scope_references_only=refs_rule,
+                      overridden_from=overridden_from,
+                      contexts=[{"term": "X", "part": part, "text": "X"}])
 
+
+def test_four_way_split_is_canonical_on_the_verdict_and_evidence():
     ev = Evidence(verdicts=[
-        v("a", "used", scope="data"), v("b", "mentioned", scope="program_only"),
-        v("c", "mentioned", scope="unclear"),  # genuine, not program-only: data
-        v("d", "not_mentioned", part="references"),  # every snippet in the references
-        v("e", "not_mentioned", refs_rule=True),  # turned by the scope check's rule
-        v("f", "not_mentioned"),
+        _fv("a", "used", scope="data"), _fv("b", "mentioned", scope="program_only"),
+        _fv("c", "mentioned", scope="unclear"),  # genuine, not program-only: data
+        # turned by the references-only override
+        _fv("d", "not_mentioned", part="references", overridden_from="mentioned"),
+        _fv("e", "not_mentioned", refs_rule=True,
+            overridden_from="mentioned"),  # turned by the scope check's rule
+        _fv("f", "not_mentioned"),
+        # The judge itself said not_mentioned; its snippets sit in the references (a
+        # homonym in a cited title): unrelated, references-only only in the legacy split.
+        _fv("g", "not_mentioned", part="references"),
     ])
     assert [x.four_way for x in ev.verdicts] == [
-        "data", "program_only", "data", "references_only", "references_only", "unrelated"]
+        "data", "program_only", "data", "references_only", "references_only", "unrelated",
+        "unrelated"]
     assert ev.four_way_counts() == {"data": 2, "program_only": 1, "references_only": 2,
-                                    "unrelated": 1}
+                                    "unrelated": 2}
+    assert [x.four_way_legacy for x in ev.verdicts] == [
+        "data", "program_only", "data", "references_only", "references_only", "unrelated",
+        "references_only"]
+    assert ev.four_way_counts(legacy=True) == {"data": 2, "program_only": 1,
+                                               "references_only": 3, "unrelated": 1}
+
+
+def test_unrelated_share_is_reported_both_ways():
+    ev = Evidence(scope_ran=True, verdicts=[
+        *[_fv(f"a{i}", "used", scope="data") for i in range(6)],
+        _fv("d", "not_mentioned", part="references", overridden_from="mentioned"),
+        *[_fv(f"g{i}", "not_mentioned", part="references") for i in range(2)],
+        _fv("f", "not_mentioned"),
+    ])
+    m = ev.metrics(0, "q", None)
+    assert m.unrelated_share == 0.3 and m.unrelated_share_legacy == 0.1
+    assert m.four_way["references_only"]["count"] == 1
+    assert ev.four_way_summary(legacy=True)["references_only"]["count"] == 3
+    # No scope check: neither share is reported.
+    plain = Evidence(verdicts=[_fv("g", "not_mentioned", part="references")])
+    assert plain.metrics(0, "q", None).unrelated_share_legacy is None
 
 
 def test_split_dataset_released_on_unrelated_share(tmp_path):
@@ -122,6 +151,7 @@ def test_split_dataset_released_on_unrelated_share(tmp_path):
     assert 0.0 < lo < 0.12 < hi < 1.0
     assert "release bar: split dataset: unrelated share <= 0.20 (met)" in out.notes
     assert "data-only precision 0.45" in out.notes and "precision 0.75" in out.notes
+    assert "legacy unrelated share 0.12" in out.notes
 
 
 def test_split_dataset_not_released_above_the_unrelated_bar(tmp_path):
