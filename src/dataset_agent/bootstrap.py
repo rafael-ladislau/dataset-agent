@@ -13,7 +13,7 @@ from dataset_agent.adapters.literature import literature_gate_from_settings
 from dataset_agent.adapters.storage_json import JsonDatasetRepository
 from dataset_agent.application.query_optimization import QueryOptimizationUseCase
 from dataset_agent.application.research import DatasetResearchUseCase
-from dataset_agent.domain.models import OptimizeRequest, ResearchRequest
+from dataset_agent.domain.models import LLMSampling, OptimizeRequest, ResearchRequest
 from dataset_agent.domain.ports import AgentPort
 from dataset_agent.settings import Settings
 
@@ -32,6 +32,54 @@ def _build_agent(settings: Settings) -> AgentPort:
         max_iterations=settings.agent_max_iterations,
         timeout_seconds=settings.agent_timeout_seconds,
     )
+
+
+#: Temperature of the main agent when a request does not override it (the adapters' default).
+MAIN_AGENT_TEMPERATURE = 0.6
+
+_SAMPLING_FIELDS = ("model", "temperature", "top_p", "top_k")
+
+
+def has_sampling_overrides(request: ResearchRequest) -> bool:
+    return any(getattr(request, f) is not None for f in _SAMPLING_FIELDS)
+
+
+def build_request_agent(
+    settings: Settings, request: ResearchRequest
+) -> tuple[AgentPort, LLMSampling]:
+    """The research/optimize agent for one request, with the request's model and sampling
+    overrides applied, and a record of what it runs with. Settings are never changed, so an
+    override lasts for this request only. ``top_k`` is not sent by the OpenAI-compatible
+    style and is recorded as not applied."""
+    endpoint = settings.llm_endpoint()
+    openai_style = endpoint.api_style == "openai"
+    requested = [f for f in _SAMPLING_FIELDS if getattr(request, f) is not None]
+    not_applied = ["top_k"] if openai_style and request.top_k is not None else []
+    sampling = LLMSampling(
+        api_style=endpoint.api_style,
+        model=request.model or endpoint.model,
+        temperature=(MAIN_AGENT_TEMPERATURE if request.temperature is None
+                     else request.temperature),
+        top_p=request.top_p,
+        top_k=None if openai_style else request.top_k,
+        overridden=[f for f in requested if f not in not_applied],
+        not_applied=not_applied,
+    )
+    if not requested:
+        return _build_agent(settings), sampling
+    common = dict(
+        model_name=sampling.model,
+        base_url=endpoint.base_url,
+        api_key=endpoint.api_key,
+        max_tokens=settings.llm_max_tokens,
+        max_iterations=settings.agent_max_iterations,
+        timeout_seconds=settings.agent_timeout_seconds,
+        temperature=sampling.temperature,
+        top_p=sampling.top_p,
+    )
+    if openai_style:
+        return OpenAICompatibleAgent(**common), sampling
+    return AnthropicAgent(**common, top_k=sampling.top_k), sampling
 
 
 def build_referent_agent(settings: Settings) -> AgentPort:
@@ -86,8 +134,13 @@ def build_optimize_use_case(
     settings: Settings,
     agent: AgentPort | None = None,
     dsl_port: AsyncThrottledDimensionsDsl | None = None,
+    referent_agent: AgentPort | None = None,
 ) -> QueryOptimizationUseCase:
-    """Dimensions query optimization (aliases → variants → gate evaluation → selection)."""
+    """Dimensions query optimization (aliases → variants → gate evaluation → selection).
+
+    ``referent_agent`` runs the full-text referent judge and the scope check; when not given
+    it is built from Settings only if ``referent_thinking_budget`` asks for it (otherwise
+    those questions run on ``agent``)."""
     resolved = agent or _build_agent(settings)
     dsl = dsl_port or _shared_dsl(settings)
     research = build_use_case(settings, agent=resolved, dsl_port=dsl)
@@ -97,7 +150,7 @@ def build_optimize_use_case(
         agent=resolved,
         settings=settings,
         proposal_repo=JsonProposalRepository(settings.output_dir),
-        referent_agent=(
+        referent_agent=referent_agent or (
             build_referent_agent(settings) if settings.referent_thinking_budget else None
         ),
     )
@@ -114,7 +167,11 @@ async def run_full_pipeline(
             "Dimensions API key is not configured (set DATASET_AGENT_DIMENSIONS_API_KEY)"
         )
 
-    agent = _build_agent(settings)
+    agent, sampling = build_request_agent(settings, request)
+    # Request overrides stop at the research/optimize agent: the full-text referent judge
+    # and the scope check keep the configured model and sampling.
+    referent_agent = (build_referent_agent(settings) if has_sampling_overrides(request)
+                      else None)
     dsl = _shared_dsl(settings)
     repo = JsonDatasetRepository(settings.output_dir)
 
@@ -123,7 +180,8 @@ async def run_full_pipeline(
     record, path = research_uc.execute(request)
 
     # Optimization (seeded with research terms to avoid double research)
-    optimize_uc = build_optimize_use_case(settings, agent=agent, dsl_port=dsl)
+    optimize_uc = build_optimize_use_case(settings, agent=agent, dsl_port=dsl,
+                                          referent_agent=referent_agent)
     # Flatten alias_collisions dict-of-lists into a single exclude list
     collision_excludes = []
     for terms in record.alias_collisions.values():
@@ -140,6 +198,8 @@ async def run_full_pipeline(
         dataset_description=record.description or "",
     )
     opt_record = await optimize_uc.execute(opt_req)
+
+    record.llm_sampling = sampling
 
     record.query_optimization = opt_record
     path = repo.save(record)

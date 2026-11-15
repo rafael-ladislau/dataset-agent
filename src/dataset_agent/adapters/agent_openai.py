@@ -88,11 +88,14 @@ class OpenAICompatibleAgent(AgentPort):
         timeout_seconds: int = 120,
         http_client: Any | None = None,
         max_retries: int | None = None,
+        top_p: float | None = None,
     ):
         self._model_name = model_name
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key or "local"
         self._temperature = temperature
+        #: Sent only when set; ``top_k`` is not an OpenAI chat-completions parameter.
+        self._top_p = top_p
         self._max_tokens = max_tokens
         self._max_iterations = max_iterations
         self._timeout_seconds = timeout_seconds
@@ -129,6 +132,8 @@ class OpenAICompatibleAgent(AgentPort):
         return self._client
 
     def _create(self, messages: list[dict[str, Any]], **extra: Any) -> Any:
+        if self._top_p is not None:
+            extra.setdefault("top_p", self._top_p)
         return self._get_client().chat.completions.create(
             model=self._model_name,
             messages=messages,

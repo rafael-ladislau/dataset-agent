@@ -74,10 +74,31 @@ class ResearchRequest(BaseModel):
         default=None,
         description="Optional official dataset URL (used for alias discovery / optimize pipeline)",
     )
+    # Optional per-request LLM overrides for this run only (research and optimize agent;
+    # the full-text referent judge and the scope check keep their configured settings).
+    model: Optional[str] = Field(
+        default=None, min_length=1, description="LLM model to use for this request"
+    )
+    temperature: Optional[float] = Field(
+        default=None, ge=0.0, le=2.0, description="Sampling temperature (0-2)"
+    )
+    top_p: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0, description="Top-P nucleus sampling (0-1)"
+    )
+    top_k: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Top-K sampling (>= 1); not sent by the OpenAI-compatible API style",
+    )
 
     @field_validator("dataset_name", mode="before")
     @classmethod
     def _strip_dataset_name(cls, v: object) -> object:
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def _strip_model(cls, v: object) -> object:
         return v.strip() if isinstance(v, str) else v
 
     @field_validator("dataset_url", mode="before")
@@ -89,6 +110,23 @@ class ResearchRequest(BaseModel):
             s = v.strip()
             return s or None
         return v
+
+
+class LLMSampling(BaseModel):
+    """The model and sampling the research and optimize agent ran with for one request."""
+
+    api_style: str
+    model: str
+    temperature: float
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    overridden: list[str] = Field(
+        default_factory=list, description="Fields the request overrode (applied ones)"
+    )
+    not_applied: list[str] = Field(
+        default_factory=list,
+        description="Fields the request set that the API style does not send (top_k on openai)",
+    )
 
 
 class ValidationRequest(BaseModel):
@@ -501,6 +539,10 @@ class DatasetRecord(BaseModel):
         description="Collision domains from web disambiguation → candidate exclude terms",
     )
     query_optimization: Optional[QueryOptimizationRecord] = None
+    llm_sampling: Optional[LLMSampling] = Field(
+        default=None,
+        description="Model and sampling of the research and optimize agent for this run",
+    )
     resource_map: Optional[ResourceMap] = Field(
         default=None,
         description="Set only when research found a program separate from its data",
