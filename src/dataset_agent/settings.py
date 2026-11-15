@@ -316,8 +316,8 @@ class Settings(BaseSettings):
     #: question only (0 = off; needs the Anthropic API style). Every other LLM step
     #: keeps the main agent's settings.
     #: Resource map (program versus data): one LLM step plus a deterministic split rule;
-    #: off by default (the owner decides). The scope check runs only with a map.
-    resource_map_enabled: bool = False
+    #: on by default (owner decision 2026-11-14). The scope check runs only with a map.
+    resource_map_enabled: bool = True
     resource_map_min_cooccurrence: int = 1
     #: The release year moves the window start only when at most this share of
     #: program-and-data papers comes before it.
