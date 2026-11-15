@@ -20,7 +20,7 @@ class Capture:
 
     def get_structured(self, prompt, _tool):
         self.prompts.append(prompt)
-        return {}
+        return {"names": []}
 
 
 def _search(q):

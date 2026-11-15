@@ -189,9 +189,10 @@ class DatasetResearchUseCase:
         self._dsl_port = dsl_port
         self._map_drawn = False
         self._map_value = None
+        self._map_error: str | None = None
 
     def execute(self, request: ResearchRequest) -> tuple[DatasetRecord, Path]:
-        self._map_drawn, self._map_value = False, None
+        self._map_drawn, self._map_value, self._map_error = False, None, None
         max_attempts = max(1, self._settings.literature_max_attempts)
         logger.info(
             "Research started: dataset_name=%r literature_max_attempts=%s gate=%s",
@@ -605,12 +606,21 @@ class DatasetResearchUseCase:
         return record
 
     def _map_once(self, record: DatasetRecord) -> None:
-        """One map decision per research run, not per literature attempt."""
+        """One map decision per research run, not per literature attempt. A map that could
+        not be decided is recorded (``resource_map_error``) and left unchecked, so the
+        optimize run draws it once more."""
+        from dataset_agent.adapters.resource_map import ResourceMapUndecided
+
         if not self._map_drawn:
-            self._map_value = self._resource_map(record)
+            try:
+                self._map_value = self._resource_map(record)
+            except ResourceMapUndecided as exc:
+                logger.warning("resource map: could not be decided: %s", exc)
+                self._map_value, self._map_error = None, str(exc)
             self._map_drawn = True
         record.resource_map = self._map_value
-        record.resource_map_checked = True
+        record.resource_map_error = self._map_error
+        record.resource_map_checked = self._map_error is None
         if self._map_value is not None:
             from dataset_agent.adapters.resource_map import program_datasets
 
@@ -622,7 +632,11 @@ class DatasetResearchUseCase:
             build_for_clause_count_dsl,
             parse_total_count,
         )
-        from dataset_agent.adapters.resource_map import map_for_record, map_options
+        from dataset_agent.adapters.resource_map import (
+            ResourceMapUndecided,
+            map_for_record,
+            map_options,
+        )
 
         def count_where(clause: str, where: str) -> int | None:
             dsl = build_for_clause_count_dsl(clause, where=where)
@@ -635,6 +649,8 @@ class DatasetResearchUseCase:
         try:
             return map_for_record(self._agent, record, count=lambda c: count_where(c, ""),
                                   count_where=count_where, **map_options(self._settings))
+        except ResourceMapUndecided:
+            raise
         except Exception as exc:
             logger.warning("resource map: research step failed: %s", exc)
-            return None
+            raise ResourceMapUndecided(f"the map step failed: {exc}") from exc

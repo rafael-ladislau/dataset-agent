@@ -74,6 +74,11 @@ EMIT_RESOURCE_MAP = {
     },
 }
 
+class ResourceMapUndecided(Exception):
+    """The map could not be decided (the LLM call failed or gave no answer, or no page
+    could be read). Never a firm "no split": the caller records it and may draw again."""
+
+
 _TAGS = re.compile(r"<(script|style)[^>]*>.*?</\1>|<[^>]+>", re.S | re.I)
 
 
@@ -779,7 +784,9 @@ def map_for_record(agent, record, *, count: Callable[[str], int | None],
                    discover: bool = False, search=None, fetch=None,
                    parts: list | None = None) -> ResourceMap | None:
     """Research the resource map of a DatasetRecord (pages fetched unless given). With
-    *discover*, a split dataset also gets the web discovery step (``discover_from_web``)."""
+    *discover*, a split dataset also gets the web discovery step (``discover_from_web``).
+    Returns None for a firm "no split"; raises :class:`ResourceMapUndecided` when there
+    are no pages or the LLM call failed."""
     name = record.main_dataset_name
     if pages is None:
         parts = []
@@ -787,9 +794,13 @@ def map_for_record(agent, record, *, count: Callable[[str], int | None],
                                                    fetch=fetch, parts_out=parts)
     elif parts is None:
         parts = [("pages given", pages)]
+    if not (pages or "").strip():
+        raise ResourceMapUndecided("no pages could be read")
     names = list(dict.fromkeys([name, *record.dataset_names, *record.flag_terms]))
     raw = propose(agent, dataset_name=name, description=record.description, names=names,
                   pages=pages, parts=parts)
+    if not isinstance(raw.get("names"), list):
+        raise ResourceMapUndecided("the map LLM call failed or returned no answer")
     m = build_map(raw, dataset_name=name, pages=pages, count=count,
                   min_cooccurrence=min_cooccurrence, count_where=count_where,
                   max_share_before=max_share_before, specific_min_share=specific_min_share,

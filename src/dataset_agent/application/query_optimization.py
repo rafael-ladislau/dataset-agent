@@ -367,6 +367,7 @@ class QueryOptimizationUseCase:
         self._dims_calls = 0
         self._cap_extra = 0
         self._resource_map = None
+        self._resource_map_error: str | None = None
         self._dataset_description = ""
         self._scope_calls = 0
 
@@ -2519,8 +2520,14 @@ class QueryOptimizationUseCase:
         )
 
     async def _research_resource_map(self, rec: DatasetRecord):
-        """Program versus data for a stored or fresh research record (counts are budgeted)."""
-        from dataset_agent.adapters.resource_map import map_for_record, map_options
+        """Program versus data for a stored or fresh research record (counts are budgeted).
+        None is a firm "no split"; raises ``ResourceMapUndecided`` when it could not be
+        decided."""
+        from dataset_agent.adapters.resource_map import (
+            ResourceMapUndecided,
+            map_for_record,
+            map_options,
+        )
 
         runner = self._make_eval_runner(asyncio.get_running_loop())
 
@@ -2536,9 +2543,29 @@ class QueryOptimizationUseCase:
                 map_for_record, self._agent, rec, count=lambda c: count_where(c, ""),
                 count_where=count_where, **map_options(self._settings),
             )
+        except ResourceMapUndecided:
+            raise
         except Exception as exc:
             logger.warning("resource map: failed: %s", exc)
-            return None
+            raise ResourceMapUndecided(f"the map step failed: {exc}") from exc
+
+    async def _draw_map_again(self, rec, previous: str | None,
+                              notes_parts: list[str]) -> tuple[object, str | None]:
+        """Draw the resource map (once). Returns (map or None, error or None); a failure is
+        noted and never read as a firm "no split"."""
+        from dataset_agent.adapters.resource_map import ResourceMapUndecided
+
+        if previous:
+            notes_parts.append(f"resource map: research could not decide it ({previous}); "
+                               "drawn once more")
+        try:
+            return await self._research_resource_map(rec), None
+        except ResourceMapUndecided as exc:
+            self._resource_map_error = str(exc)
+            notes_parts.append(
+                f"resource map: could not be decided ({exc}); this run has no program split, "
+                "which is not a firm 'no split'")
+            return None, str(exc)
 
     async def _discover_from_literature(self, evidence: Evidence, cand: QueryCandidate,
                                         notes_parts: list[str], iteration: int
@@ -2640,6 +2667,7 @@ class QueryOptimizationUseCase:
 
         self._cap_extra = 0
         self._resource_map = None
+        self._resource_map_error = None
         self._scope_calls = 0
         self._dataset_description = ""
         if request.entity_type == "ai_model":
@@ -2648,7 +2676,21 @@ class QueryOptimizationUseCase:
         desc_for_signal3 = ""
         rec: DatasetRecord | None = None
         if request.dataset_names:
-            # A research run's resource map comes with the request (full pipeline).
+            # A research run's resource map comes with the request (full pipeline). When
+            # research could not decide it, it is drawn once more here.
+            if (request.resource_map is None and request.resource_map_error
+                    and self._settings.resource_map_enabled):
+                from types import SimpleNamespace
+
+                shim = SimpleNamespace(
+                    main_dataset_name=request.dataset_name, home_url=request.dataset_url,
+                    description=request.dataset_description or "",
+                    dataset_names=list(request.dataset_names), flag_terms=list(request.flag_terms))
+                drawn, _err = await self._draw_map_again(shim, request.resource_map_error,
+                                                         notes_parts)
+                if drawn is not None:
+                    request = request.model_copy(update={"resource_map": drawn,
+                                                         "resource_map_error": None})
             if request.resource_map is not None:
                 self._resource_map = request.resource_map
                 self._dataset_description = request.dataset_description or ""
@@ -2674,11 +2716,14 @@ class QueryOptimizationUseCase:
                     notes="Provide dataset_names + flag_terms to skip research.",
                 )
             desc_for_signal3 = (rec.description or "")[:2000]
-            # One map decision per run: research already made it when it ran the step.
+            # One map decision per run: research already made it when it ran the step. A
+            # map research could not decide is drawn once more.
             if (self._settings.resource_map_enabled and rec.resource_map is None
                     and not rec.resource_map_checked):
-                rec.resource_map = await self._research_resource_map(rec)
-                rec.resource_map_checked = True
+                rec.resource_map, err = await self._draw_map_again(
+                    rec, rec.resource_map_error, notes_parts)
+                rec.resource_map_error = err
+                rec.resource_map_checked = err is None
             # The seed description (read by the full-text validator) names the program
             # and its data resources when research split them.
             desc_for_signal3 = resource_map_description(desc_for_signal3, rec.resource_map)
@@ -3618,5 +3663,6 @@ class QueryOptimizationUseCase:
             resource_map=self._resource_map,
             program_datasets=program_ds,
             scope_check_calls=self._scope_calls if self._resource_map is not None else None,
+            resource_map_error=self._resource_map_error,
             notes=" ".join(notes_parts),
         )

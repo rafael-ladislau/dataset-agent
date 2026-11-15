@@ -136,6 +136,7 @@ async def run_full_pipeline(
         exclude_terms=list(record.exclude_terms) + collision_excludes[:25],
         resource_map=record.resource_map,
         resource_map_checked=record.resource_map_checked,
+        resource_map_error=record.resource_map_error,
         dataset_description=record.description or "",
     )
     opt_record = await optimize_uc.execute(opt_req)

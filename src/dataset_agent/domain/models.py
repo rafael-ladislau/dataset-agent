@@ -156,6 +156,11 @@ class OptimizeRequest(BaseModel):
         default=False,
         description="True when research already ran the resource-map step (even with no map)",
     )
+    resource_map_error: Optional[str] = Field(
+        default=None,
+        description="Research could not decide the resource map (LLM failure or no pages); "
+        "the optimize run draws it once more",
+    )
     dataset_description: str = Field(
         default="", description="Research description, read by the scope check and the validator"
     )
@@ -346,6 +351,11 @@ class QueryOptimizationRecord(BaseModel):
     scope_check_calls: Optional[int] = Field(
         default=None, description="LLM calls the scope check made; None when it did not run"
     )
+    resource_map_error: Optional[str] = Field(
+        default=None,
+        description="The resource map could not be decided in this run (LLM failure or no "
+        "pages, after one retry): the run had no program split, which is not a firm 'no split'",
+    )
     fulltext_iterations: list[IterationMetrics] = Field(
         default_factory=list, description="Per-iteration full-text metrics (refinement enabled)"
     )
@@ -450,7 +460,12 @@ class DatasetRecord(BaseModel):
     )
     resource_map_checked: bool = Field(
         default=False,
-        description="True once the resource-map step ran for this record (map or not)",
+        description="True once the resource-map step decided this record (map or no split)",
+    )
+    resource_map_error: Optional[str] = Field(
+        default=None,
+        description="The resource map could not be decided (LLM failure or no pages); not "
+        "a firm 'no split', and resource_map_checked stays false",
     )
     retry_validation: Optional[ValidationRequest] = Field(
         default=None,
