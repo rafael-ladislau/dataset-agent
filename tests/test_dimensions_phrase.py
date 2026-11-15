@@ -118,3 +118,40 @@ def test_ampersand_spellings(name: str, others: list[str]) -> None:
     from dataset_agent.adapters.dimensions_phrase import ampersand_spellings
 
     assert ampersand_spellings(name) == others
+
+
+# --------------------------------------------------------------------------- dots
+
+
+@pytest.mark.parametrize(
+    ("outer", "inner", "contained"),
+    [
+        ("Prithvi-WxC-1.0-2300M", "Prithvi WxC", True),
+        ("Prithvi-EO-2.0", "Prithvi-EO", True),
+        ("NVIDIA FourCastNet", "FourCastNet", True),
+        # "." is part of the token: "2.0" and "4.5" are not "2" and "4".
+        ("Prithvi-EO-2.0", "Prithvi-EO-2", False),
+        ("GPT-4.5", "GPT-4", False),
+        ("scikit.learn", "scikit", False),
+        ("v2.0 release", "v2", False),
+        # Joined forms are other tokens.
+        ("FourCastNetv2", "FourCastNet", False),
+        ("phase unwrapping network", "phase unwrapping", True),
+    ],
+)
+def test_phrase_contains_treats_a_dot_as_part_of_the_token(
+    outer: str, inner: str, contained: bool
+) -> None:
+    from dataset_agent.adapters.dimensions_phrase import phrase_contains
+
+    assert phrase_contains(outer, inner) is contained
+
+
+def test_a_dot_version_is_not_covered_by_its_shorter_name() -> None:
+    from dataset_agent.application.query_optimization import covered_safe_names
+
+    covered = covered_safe_names(
+        ["GPT-4", "GPT-4.5", "Prithvi-EO-2", "Prithvi-EO-2.0", "Prithvi WxC",
+         "Prithvi-WxC-1.0-2300M", "scikit-learn", "scikit.learn"]
+    )
+    assert covered == {"Prithvi-WxC-1.0-2300M": "Prithvi WxC"}

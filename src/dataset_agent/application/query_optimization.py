@@ -39,7 +39,12 @@ from dataset_agent.adapters.dimensions_dsl import (
     run_alias_count,
     short_dsl_error,
 )
-from dataset_agent.adapters.dimensions_phrase import ampersand_spellings, search_key
+from dataset_agent.adapters.dimensions_phrase import (
+    ampersand_spellings,
+    phrase_contains,
+    same_search,
+    search_key,
+)
 from dataset_agent.adapters.fp_analysis import (
     classify_alias_mention,
     classify_title,
@@ -133,6 +138,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _VARIANT_ORDER = {"V4": 0, "V3": 1, "V2": 2, "V1": 3, "V5": 4}
+
+
+def covered_safe_names(safe: list[str]) -> dict[str, str]:
+    """``{name: covering name}`` for each safe name whose every Dimensions match is a
+    match of another, broader safe name (compared the way Dimensions searches: hyphens
+    fold to spaces, a dot stays inside its token, so "GPT-4.5" is not covered by "GPT-4")."""
+    out: dict[str, str] = {}
+    for a in safe:
+        cover = next(
+            (b for b in safe if not same_search(a, b) and phrase_contains(a, b)), None
+        )
+        if cover:
+            out[a] = cover
+    return out
 
 
 def _pct_text(value: float | None) -> str:
@@ -1487,7 +1506,7 @@ class QueryOptimizationUseCase:
             if added >= s.ai_model_refine_max_excludes:
                 break
             tried.add(key)
-            holder = next((e for e in new_excl if contains_word(term, e)), None)
+            holder = next((e for e in new_excl if phrase_contains(term, e)), None)
             if holder is not None:
                 # Every paper it matches is already excluded: no call, no slot.
                 model.decide(term, "exclude", "rejected",
@@ -1897,7 +1916,7 @@ class QueryOptimizationUseCase:
                 if own:
                     gate.append((nm, c, reason))
                     continue
-                cover = next((g for g, _c, _r in gate if contains_word(nm, g)), None)
+                cover = next((g for g, _c, _r in gate if phrase_contains(nm, g)), None)
                 if cover:
                     model.decide(nm, "alias", "rejected",
                                  f"{reason}; already covered by flag-gated {cover!r}", c, **stats)
@@ -1913,18 +1932,12 @@ class QueryOptimizationUseCase:
                 await self._clause_count(model.reference_clause) or 0 if reference else 0
             )
             # A safe name containing another safe name adds no papers to the query.
-            # Compared the way Dimensions searches: punctuation folded.
-            covered: set[str] = set()
-            for a in safe:
-                cover = next((b for b in safe
-                              if _stem_text(b) != _stem_text(a)
-                              and contains_word(_stem_text(a), _stem_text(b))), None)
-                if cover:
-                    covered.add(a)
-                    d = next(d for d in model.decisions if d.kind == "alias" and d.term == a)
-                    d.decision = "rejected"
-                    d.reason += (f"; covered by {cover!r}: kept in the reference set, left out "
-                                 "of the query")
+            covered = covered_safe_names(safe)
+            for a, cover in covered.items():
+                d = next(d for d in model.decisions if d.kind == "alias" and d.term == a)
+                d.decision = "rejected"
+                d.reason += (f"; covered by {cover!r}: kept in the reference set, left out "
+                             "of the query")
             safe = [a for a in safe if a not in covered]
 
             # 4. Excludes (other meanings of the name).

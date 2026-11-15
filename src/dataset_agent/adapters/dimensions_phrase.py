@@ -66,6 +66,17 @@ def same_search(a: str, b: str) -> bool:
     return bool(ka) and ka == search_key(b)
 
 
+def phrase_contains(outer: str, inner: str) -> bool:
+    """True when every match of the phrase *outer* is also a match of *inner*: the
+    tokens of *inner* occur contiguously in *outer*. A dot is part of its token, so
+    "GPT-4.5" does not contain "GPT-4" and "Prithvi-EO-2.0" does not contain
+    "Prithvi-EO-2"; no plural folding (it was measured for a whole phrase only)."""
+    o, i = phrase_tokens(outer), phrase_tokens(inner)
+    if not i or len(i) > len(o):
+        return False
+    return any(o[k:k + len(i)] == i for k in range(len(o) - len(i) + 1))
+
+
 _AMP = re.compile(r"(?<=\S) +& +(?=\S)")
 _AND = re.compile(r"(\b[A-Z][\w.'-]*) +and +(?=[A-Z])")
 
