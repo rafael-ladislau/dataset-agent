@@ -2393,6 +2393,59 @@ class QueryOptimizationUseCase:
                 fp_hits += 1
         return 100.0 * fp_hits / float(len(sample))
 
+    def _split_release(self) -> bool:
+        """A dataset the resource map splits (the broad program query): its release bar is
+        the unrelated share, not precision."""
+        rmap = self._resource_map
+        return rmap is not None and bool(rmap.program_names)
+
+    def _release_bar_text(self) -> str:
+        s = self._settings
+        if self._split_release():
+            return f"split dataset: unrelated share <= {s.fulltext_split_unrelated_max:.2f}"
+        return f"precision >= {s.fulltext_recall_min_precision:.2f}"
+
+    def _meets_release_bar(self, m: IterationMetrics, precision: float | None = None) -> bool:
+        """The release bar on at least ``fulltext_recall_min_evidence`` evaluated papers.
+        A split dataset: unrelated share <= ``fulltext_split_unrelated_max`` (data,
+        program-only and references-only papers all count toward it); any other dataset:
+        precision (*precision*, else the iteration's) >= ``fulltext_recall_min_precision``."""
+        s = self._settings
+        if m.n_evaluated < s.fulltext_recall_min_evidence:
+            return False
+        if self._split_release():
+            return m.unrelated_share is not None and m.unrelated_share <= s.fulltext_split_unrelated_max
+        p = m.fulltext_precision if precision is None else precision
+        return p is not None and p >= s.fulltext_recall_min_precision
+
+    def _release_note(self, bar: str, met: bool, m: IterationMetrics | None,
+                      gate_error: bool) -> str:
+        """The bar applied, whether it was met and why, and for a split dataset the
+        four-way split with Wilson intervals and the data-only precision."""
+        need = self._settings.fulltext_recall_min_evidence
+        if m is None:
+            why = "not met: no full-text iteration reached the minimum sample"
+        elif m.n_evaluated < need:
+            why = f"not met: {m.n_evaluated} of {need} papers, below the minimum sample"
+        elif gate_error:
+            why = "not met: a gate evaluation failed"
+        else:
+            why = "met" if met else "not met"
+        note = f"full-text release bar: {bar} ({why})"
+        if m is None:
+            return note
+        if m.four_way:
+            parts = [
+                f"{k} {v['count']} ({v['share']:.2f}, Wilson 95% "
+                f"{v['wilson95'][0]:.2f}-{v['wilson95'][1]:.2f})"
+                for k, v in m.four_way.items()
+            ]
+            note += f": {', '.join(parts)}; data-only precision {(m.data_share or 0):.2f}"
+            note += " next to"
+        else:
+            note += ":"
+        return note + f" precision {(m.fulltext_precision or 0):.2f} on {m.n_evaluated} papers"
+
     @staticmethod
     def _own_program_names(rmap) -> list[str]:
         """The program's own names: program names minus former or parent names (those
@@ -3275,10 +3328,13 @@ class QueryOptimizationUseCase:
                         f"(n_evaluated={metrics.n_evaluated})"
                     )
                 if metrics.data_share is not None:
+                    fw = metrics.four_way or {}
                     notes_parts.append(
                         f"gate_iter{iteration}: split dataset, program-only counted genuine; "
                         f"shares: data {metrics.data_share:.2f}, program-only "
                         f"{(metrics.program_only_rate or 0):.2f}, used {(metrics.used_rate or 0):.2f}"
+                        + (f", references-only {fw['references_only']['share']:.2f}, "
+                           f"unrelated {fw['unrelated']['share']:.2f}" if fw else "")
                     )
                 if iteration == 0 and iteration < max_iters - 1:
                     found = await self._discover_from_literature(
@@ -3294,16 +3350,19 @@ class QueryOptimizationUseCase:
                 ):
                     notes_parts.append(f"gate_iter{iteration}: full-text precision within threshold.")
                     break
-                if (
-                    prec is not None
-                    and metrics.n_evaluated >= self._settings.fulltext_recall_min_evidence
-                    and prec >= self._settings.fulltext_recall_min_precision
-                ):
-                    notes_parts.append(
-                        f"gate_iter{iteration}: full-text precision meets the bar "
-                        f"(>= {self._settings.fulltext_recall_min_precision:.2f} on >= "
-                        f"{self._settings.fulltext_recall_min_evidence} papers)."
-                    )
+                if prec is not None and self._meets_release_bar(metrics):
+                    if self._split_release():
+                        notes_parts.append(
+                            f"gate_iter{iteration}: full-text unrelated share meets the "
+                            f"split-dataset bar (<= {self._settings.fulltext_split_unrelated_max:.2f} "
+                            f"on >= {self._settings.fulltext_recall_min_evidence} papers)."
+                        )
+                    else:
+                        notes_parts.append(
+                            f"gate_iter{iteration}: full-text precision meets the bar "
+                            f"(>= {self._settings.fulltext_recall_min_precision:.2f} on >= "
+                            f"{self._settings.fulltext_recall_min_evidence} papers)."
+                        )
                     break
                 if iteration == max_iters - 1:
                     break
@@ -3425,8 +3484,7 @@ class QueryOptimizationUseCase:
         if ft_enabled:
             scored = [
                 (
-                    m.n_evaluated >= self._settings.fulltext_recall_min_evidence
-                    and m.fulltext_precision >= self._settings.fulltext_recall_min_precision,
+                    self._meets_release_bar(m),
                     m.fulltext_precision,
                     -m.iteration,
                 )
@@ -3547,11 +3605,17 @@ class QueryOptimizationUseCase:
             else:
                 best = max(candidates, key=lambda x: (x[0], x[1], x[2]))[3]
 
+        release_bar: str | None = None
+        release_met: bool | None = None
+        four_way: dict | None = None
+        data_precision: float | None = None
         if ft_enabled:
             # In full-text mode confidence comes from the selected iteration's full-text
             # precision and sample size only; the abstract FP rate stays in the notes and
-            # in IterationMetrics.abstract_fp_rate_pct.
+            # in IterationMetrics.abstract_fp_rate_pct. MEDIUM is the release bar: precision
+            # for most datasets, the unrelated share for a split dataset.
             confidence = ConfidenceLevel.LOW
+            release_bar, release_met = self._release_bar_text(), False
             if phase3_error is None and best_ft_iter is not None:
                 sel = next(m for m in ft_iterations if m.iteration == best_ft_iter)
                 prec = float(sel.fulltext_precision or 0.0)
@@ -3559,10 +3623,11 @@ class QueryOptimizationUseCase:
                     # A promoted complement may dominate the result set and was accepted
                     # at its own (possibly lower) bar; never report more than it supports.
                     prec = min(prec, recall_min_precision)
+                release_met = self._meets_release_bar(sel, prec)
                 if sel.n_evaluated >= self._settings.fulltext_recall_min_evidence:
                     if prec >= 1.0 - threshold / 100.0:
                         confidence = ConfidenceLevel.HIGH
-                    elif prec >= self._settings.fulltext_recall_min_precision:
+                    elif release_met:
                         confidence = ConfidenceLevel.MEDIUM
                 if confidence == ConfidenceLevel.HIGH:
                     # HIGH needs more than a precise sample: a sample cut short of its paper
@@ -3593,6 +3658,12 @@ class QueryOptimizationUseCase:
                         capped = True
                     if capped:
                         confidence = ConfidenceLevel.MEDIUM
+            sel_m = (next(m for m in ft_iterations if m.iteration == best_ft_iter)
+                     if best_ft_iter is not None else None)
+            if sel_m is not None and self._split_release():
+                four_way, data_precision = sel_m.four_way, sel_m.data_share
+            notes_parts.append(self._release_note(
+                release_bar, bool(release_met), sel_m, phase3_error is not None))
         else:
             fp_sel = float(best.fp_rate_pct or 0.0)
             if best.fp_rate_pct is None:
@@ -3699,6 +3770,10 @@ class QueryOptimizationUseCase:
             exclusion_terms=exc_work,
             all_variants_tested=tested,
             fulltext_iterations=ft_iterations,
+            release_bar=release_bar,
+            release_bar_met=release_met,
+            fulltext_four_way=four_way,
+            fulltext_data_precision=data_precision,
             proposal=proposal,
             resource_map=self._resource_map,
             program_datasets=program_ds,

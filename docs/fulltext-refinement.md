@@ -190,6 +190,20 @@ and its notes say why. A probe failure in a later iteration ends the loop: the b
 iteration is proposed with its own confidence, and the recall check is skipped. After a recall promotion the precision used is the lower of the
 iteration's and the complement's.
 
+For a dataset the resource map splits (the broad program query), the release bar is the
+unrelated share instead of precision: MEDIUM, the early stop and the selection preference need
+an unrelated share of at most `fulltext_split_unrelated_max` (0.20) on at least
+`fulltext_recall_min_evidence` (10) evaluated papers. Each evaluated paper falls in one of four
+classes (`PubVerdict.four_way`): `data` or `program_only` (genuine, by scope label),
+`references_only` (not genuine, every name snippet in the reference list or turned by the scope
+check's references-only rule) and `unrelated` (the rest). Data, program-only and
+references-only papers all count toward the bar, because the judge removes citers and
+program-only papers downstream. HIGH still needs precision of at least 0.90. Every other
+dataset keeps the precision bar unchanged. The record states the bar (`release_bar`,
+`release_bar_met`), and for a split dataset the four-way split with counts, shares and Wilson
+95% intervals (`fulltext_four_way`) and the data-only precision (`fulltext_data_precision`);
+the note `full-text release bar: ...` repeats them.
+
 HIGH is capped at MEDIUM, with a note saying why, in two cases: the selected iteration's
 probe pool was exhausted before the target was reached (for example 16 of 30 papers), or the
 recall check rejected a candidate only on the Wilson lower bound although its point

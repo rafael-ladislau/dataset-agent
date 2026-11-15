@@ -108,6 +108,16 @@ class IterationMetrics(BaseModel):
         default=None,
         description="papers the scope check turned under its references-only rule; None when not run",
     )
+    four_way: Optional[dict[str, dict[str, Any]]] = Field(
+        default=None,
+        description="Split datasets: data | program_only | references_only | unrelated, "
+        "each with count, share (0-1) and wilson95; None when the scope check did not run",
+    )
+    unrelated_share: Optional[float] = Field(
+        default=None,
+        description="Split datasets: unrelated papers / papers evaluated (0-1), the release "
+        "bar for a split dataset; None when the scope check did not run",
+    )
     cited_only_unknown_count: Optional[int] = Field(
         default=None,
         description="AI models: genuine papers whose name location is unknown; None for datasets",

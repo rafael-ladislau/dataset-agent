@@ -261,6 +261,11 @@ class Settings(BaseSettings):
     #: Min complement precision (papers matching the candidate but not the current query);
     #: also the MEDIUM confidence floor and the early-stop bar of the full-text loop.
     fulltext_recall_min_precision: float = Field(default=0.8, ge=0.0, le=1.0)
+    #: Release bar for a dataset the resource map splits (the broad program query): max
+    #: share of unrelated papers (not data, program-only or references-only citers; the
+    #: judge removes citers and program-only papers downstream). Replaces the precision bar
+    #: above for split datasets only; the same minimum sample applies.
+    fulltext_split_unrelated_max: float = Field(default=0.20, ge=0.0, le=1.0)
     #: Min full-text papers evaluated in a complement probe (and min Dimensions hits added);
     #: also the sample needed for MEDIUM or HIGH confidence and the early-stop bar of the
     #: full-text loop.

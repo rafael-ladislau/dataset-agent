@@ -115,6 +115,20 @@ class PubVerdict:
         return self.verdict == "used"
 
     @property
+    def four_way(self) -> str:
+        """Datasets: ``data`` | ``program_only`` | ``references_only`` | ``unrelated``, the
+        split the reports and the split-dataset release bar use. Genuine papers are data or
+        program-only (scope label); a non-genuine paper whose name snippets all sit in the
+        reference list, or which the scope check turned under its references-only rule, is
+        references-only; every other evaluated paper is unrelated."""
+        if self.genuine:
+            return "program_only" if self.scope == "program_only" else "data"
+        parts = {str(c.get("part") or "") for c in self.contexts if c.get("text")}
+        if self.scope_references_only or (parts and parts <= {"references", "reference"}):
+            return "references_only"
+        return "unrelated"
+
+    @property
     def cited_only(self) -> bool | None:
         """AI models: a genuine paper naming the model only in its reference list; None
         when unknown; False for papers that are not genuine."""
@@ -145,6 +159,10 @@ class PubVerdict:
             quote=self.evidence_quote_text(term),
             verdict=self.verdict,  # type: ignore[arg-type]
         )
+
+
+#: The four-way split of evaluated dataset papers (``PubVerdict.four_way``).
+FOUR_WAY = ("data", "program_only", "references_only", "unrelated")
 
 
 @dataclass
@@ -217,6 +235,24 @@ class Evidence:
             return None
         return sum(1 for v in self.verdicts if v.genuine and v.scope != "program_only")
 
+    def four_way_counts(self) -> dict[str, int]:
+        """Papers per ``PubVerdict.four_way`` class, in the order of ``FOUR_WAY``."""
+        counts = dict.fromkeys(FOUR_WAY, 0)
+        for v in self.verdicts:
+            counts[v.four_way] += 1
+        return counts
+
+    def four_way_summary(self) -> dict[str, dict[str, Any]] | None:
+        """Split datasets: count, share and Wilson 95% interval per four-way class; None
+        when the scope check did not run or nothing was evaluated."""
+        n = self.n_evaluated
+        if not self.scope_checked or not n:
+            return None
+        return {
+            k: {"count": c, "share": c / n, "wilson95": _wilson(c, n)}
+            for k, c in self.four_way_counts().items()
+        }
+
     @property
     def corrected_precision(self) -> float | None:
         """Precision after the referent check (equal to raw when it did not run)."""
@@ -273,6 +309,7 @@ class Evidence:
         matched = len(self.genuine)
         cited = self.n_cited_only
         not_run = self.n_not_run
+        four_way = self.four_way_summary()
         return IterationMetrics(
             iteration=iteration,
             for_clause=for_clause,
@@ -311,6 +348,8 @@ class Evidence:
             ),
             scope_unclear_count=self.n_scope_unclear,
             scope_references_only_count=self.n_scope_references_only,
+            four_way=four_way,
+            unrelated_share=four_way["unrelated"]["share"] if four_way else None,
             referent_rejected_count=(
                 self.n_referent_rejected if self.entity == "ai_model" else None
             ),

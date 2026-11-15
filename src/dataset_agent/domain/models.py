@@ -376,6 +376,27 @@ class QueryOptimizationRecord(BaseModel):
     fulltext_iterations: list[IterationMetrics] = Field(
         default_factory=list, description="Per-iteration full-text metrics (refinement enabled)"
     )
+    release_bar: Optional[str] = Field(
+        default=None,
+        description="Datasets with full text: the bar the release decision used, "
+        "'split dataset: unrelated share <= X' (resource map split) or 'precision >= X'; "
+        "None without full-text refinement",
+    )
+    release_bar_met: Optional[bool] = Field(
+        default=None,
+        description="Datasets with full text: the selected iteration met release_bar on at "
+        "least fulltext_recall_min_evidence evaluated papers (MEDIUM confidence or above)",
+    )
+    fulltext_four_way: Optional[dict[str, dict[str, Any]]] = Field(
+        default=None,
+        description="Split datasets: the selected iteration's data | program_only | "
+        "references_only | unrelated split, each with count, share and wilson95",
+    )
+    fulltext_data_precision: Optional[float] = Field(
+        default=None,
+        description="Split datasets: data-only precision of the selected iteration (data "
+        "papers / evaluated), next to fulltext_precision which counts program-only papers",
+    )
     proposal: Optional[QueryProposal] = Field(
         default=None, description="Full-text-backed query proposal awaiting human approval"
     )
