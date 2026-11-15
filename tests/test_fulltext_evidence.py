@@ -471,3 +471,50 @@ def test_references_only_override_applies_on_an_empty_or_reference_quote(quote):
     ev = build_evidence({"publications": [_quoted_refpub(quote)]})
     assert ev.verdicts[0].verdict == "not_mentioned"
     assert ev.verdicts[0].overridden_from == "used"
+
+
+# Real reference snippets (extraction term_contexts._parts) hold only cited titles joined by
+# " | " in a ~200-character window, with no authors, numbers or years; the judge quotes the
+# full bibliography entry.
+_TITLE = "The Example Research Program: a national cohort for precision medicine"
+_LONG = ("The Example Research Program: design, recruitment, consent, data collection and "
+         "the first results of an international longitudinal cohort of one million adults")
+
+
+def _title_refpub(quote, snippet):
+    p = _pub("r", 1, vd=_vd(False, quote=quote))
+    p["term_contexts"] = [{"term": "Example Research Program", "role": "alias",
+                           "part": "references", "text": snippet}]
+    return p
+
+
+_SNIPPET = f"Dupilumab in atopic dermatitis | {_TITLE} | Drug-induced liver injury"
+# The window cut the long title after "design, recruitment".
+_CUT = "…Drug-induced liver injury | The Example Research Program: design, recruitment…"
+
+
+@pytest.mark.parametrize("quote,snippet", [
+    (f"[62] {_TITLE}", _SNIPPET),
+    (f"Denny JC, Rutter JL, Goldstein DB, et al. {_TITLE}. N Engl J Med. 2019;381:668-676",
+     _SNIPPET),
+    (f"{_TITLE} (ref 62)", _SNIPPET),
+    (f"62. {_LONG}. Lancet. 2020", _CUT),
+    (f"{_TITLE}¹⁴", _SNIPPET),
+])
+def test_references_only_override_applies_on_bibliography_style_quotes(quote, snippet):
+    ev = build_evidence({"publications": [_title_refpub(quote, snippet)]})
+    assert ev.verdicts[0].verdict == "not_mentioned"
+    assert ev.verdicts[0].overridden_from == "mentioned"
+
+
+@pytest.mark.parametrize("quote", ["", "[62]"])
+def test_references_only_override_applies_on_an_empty_quote_with_title_snippets(quote):
+    ev = build_evidence({"publications": [_title_refpub(quote, _SNIPPET)]})
+    assert ev.verdicts[0].overridden_from == "mentioned"
+
+
+def test_body_sentence_sharing_title_words_keeps_the_verdict():
+    quote = ("We linked records from the Example Research Program to a national registry "
+             "of adults.")
+    ev = build_evidence({"publications": [_title_refpub(quote, _SNIPPET)]})
+    assert ev.verdicts[0].verdict == "mentioned" and ev.verdicts[0].overridden_from is None

@@ -36,6 +36,7 @@ found only in the reference list IS a mention):
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
@@ -507,21 +508,76 @@ def _references_only(contexts: list[dict]) -> bool:
     return all(c.get("part") == "references" for c in contexts if c.get("role") == "flag")
 
 
+#: Citation markers in a quoted bibliography entry: "[62]", "[3, 5-7]", "(ref 62)",
+#: "(refs. 3,4)" and superscript-like digits.
+_CITATION_MARKER = re.compile(
+    r"\[\s*\d+(?:\s*[-\u2013,]\s*\d+)*\s*\]"
+    r"|\(\s*(?:refs?|reference)\.?\s*\d+(?:\s*[-\u2013,]\s*\d+)*\s*\)"
+    r"|[\u00b9\u00b2\u00b3\u2070\u2074-\u2079]+",
+    re.IGNORECASE,
+)
+#: A leading entry number ("62. ", "62) ").
+_LEAD_NUMBER = re.compile(r"^\s*\d+\s*[.)]\s+")
+#: Pieces of a bibliography entry: authors, title, journal and year are separated by a
+#: full stop or semicolon; cited titles in a references snippet by " | ".
+_ENTRY_PIECE = re.compile(r"[.;]\s+|\s\|\s|\s*;\s*")
+
+
+def _quote_pieces(quote: str) -> list[list[str]]:
+    """Token lists of the quote's pieces, after citation markers are stripped (authors and
+    the journal/year tail become pieces of their own)."""
+    text = _LEAD_NUMBER.sub("", _CITATION_MARKER.sub(" ", quote or ""))
+    return [t for t in (_tokens(x) for x in _ENTRY_PIECE.split(text)) if t]
+
+
+def _snippet_pieces(snippet: str) -> list[list[str]]:
+    """Token lists of a references snippet's pieces (cited titles, a title's sub-parts),
+    without the window's ellipses."""
+    text = (snippet or "").replace("\u2026", " ")
+    return [t for t in (_tokens(x) for x in _ENTRY_PIECE.split(text)) if t]
+
+
+def _longest_run(a: list[str], b: list[str]) -> tuple[int, int, int]:
+    """(start in a, start in b, length) of the longest common contiguous token run."""
+    best = (0, 0, 0)
+    prev = [0] * (len(b) + 1)
+    for i in range(1, len(a) + 1):
+        cur = [0] * (len(b) + 1)
+        for j in range(1, len(b) + 1):
+            if a[i - 1] == b[j - 1]:
+                cur[j] = prev[j - 1] + 1
+                if cur[j] > best[2]:
+                    best = (i - cur[j], j - cur[j], cur[j])
+        prev = cur
+    return best
+
+
 def quote_allows_references_only(quote: str | None, contexts: list[dict]) -> bool:
-    """The references-only override may apply: the validator's quote is empty, or it
-    matches one of the snippet texts in ``references`` (normalized tokens, contained
-    either way). A quote taken from the text (a short form or a glued citation number
-    the seeded-name snippets never matched) keeps the judge's verdict. General rule: no
-    dataset names."""
-    want = _tokens(quote or "")
-    if not want:
+    """The references-only override may apply: the validator's quote is empty (once citation
+    markers are stripped), or it quotes a cited entry from a ``references`` snippet.
+
+    Both sides are normalized (folded tokens; citation markers, entry numbers and
+    superscript digits removed) and cut into pieces: the quote's authors, title and
+    journal/year tail, the snippet's cited titles. A quote piece and a snippet piece match
+    when their longest shared token run covers the snippet's name term and is the whole of
+    one of them: the quoted title holds the whole cited piece (a title the window cut
+    short too) or the quoted piece lies inside the cited title. A sentence from the text
+    that only shares a few title words around the name keeps the judge's verdict. General
+    rule: no dataset names."""
+    pieces = _quote_pieces(quote or "")
+    if not pieces:
         return True
     for c in contexts:
         if c.get("part") != "references":
             continue
-        have = _tokens(str(c.get("text") or ""))
-        if have and (_in_tokens(want, have, False) or _in_tokens(have, want, False)):
-            return True
+        term = _tokens(str(c.get("term") or ""))
+        for have in _snippet_pieces(str(c.get("text") or "")):
+            for want in pieces:
+                i, j, n = _longest_run(want, have)
+                if not n or (term and not _in_tokens(term, want[i:i + n], False)):
+                    continue
+                if n == len(want) or n == len(have):
+                    return True
     return False
 
 
