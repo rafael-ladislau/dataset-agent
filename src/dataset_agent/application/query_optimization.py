@@ -3323,15 +3323,20 @@ class QueryOptimizationUseCase:
                 if phase3_error.startswith("dimensions_query_failed"):
                     notes_parts.append(
                         f"gate_iter{iteration}: Dimensions query failed ({reason}); "
-                        "iteration not evaluated; evaluation failed, result is partial "
-                        "and confidence is capped at LOW."
+                        "iteration not evaluated"
+                        + ("; it cannot be selected, and the selected iteration keeps "
+                           "its own confidence." if ft_enabled else
+                           "; evaluation failed, result is partial and confidence is "
+                           "capped at LOW.")
                     )
                     if ft_enabled:
                         ft_eval_error = (iteration, reason)
                 else:
                     notes_parts.append(
                         f"gate_iter{iteration}: evaluation failed ({phase3_error}); "
-                        "result is partial and confidence is capped at LOW."
+                        + ("this iteration cannot be selected, and the selected iteration "
+                           "keeps its own confidence." if ft_enabled else
+                           "result is partial and confidence is capped at LOW.")
                     )
                 if ft_enabled:
                     ft_iterations.append(
@@ -3597,14 +3602,21 @@ class QueryOptimizationUseCase:
                 bc = ft_candidates[best_ft_iter]
                 safe, risky = list(bc.safe), list(bc.risky)
                 flag_terms, exc_work = list(bc.flag_terms), list(bc.exclude_terms)
-                met, _floor, top_prec, top_data, _ = top
-                notes_parts.append(
-                    f"Selected iteration {best_ft_iter} by full-text precision "
-                    f"({top_prec:.2f})"
-                    + (f"; confirmed data share {top_data:.2f} breaks precision ties among "
-                       "iterations meeting the unrelated limit." if self._split_release() and met
-                       else ".")
-                )
+                met, floor, top_prec, top_data, _ = top
+                if self._split_release() and floor:
+                    notes_parts.append(
+                        f"Selected iteration {best_ft_iter}: it reaches the data floor "
+                        f"(confirmed data share {top_data:.2f}) within the unrelated limit; "
+                        f"full-text precision {top_prec:.2f}."
+                    )
+                else:
+                    notes_parts.append(
+                        f"Selected iteration {best_ft_iter} by full-text precision "
+                        f"({top_prec:.2f})"
+                        + (f"; confirmed data share {top_data:.2f} breaks precision ties among "
+                           "iterations meeting the unrelated limit." if self._split_release()
+                           and met else ".")
+                    )
 
         recall_diffs: list[TermDiff] = []
         recall_min_precision: float | None = None

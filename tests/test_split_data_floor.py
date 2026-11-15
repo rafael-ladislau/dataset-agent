@@ -128,6 +128,8 @@ def test_an_iteration_that_reaches_the_floor_beats_a_more_precise_one_below_it(
     assert out.data_floor_met is True and out.release_bar_met is True
     assert out.fulltext_data_floor["share"] == 0.55
     assert "not reached" not in out.notes
+    assert "Selected iteration 1: it reaches the data floor (confirmed data share 0.55)" in out.notes
+    assert "Selected iteration 1 by full-text precision" not in out.notes
 
 
 def test_the_floor_only_needs_precision_ranking_when_no_iteration_reaches_it(tmp_path):
@@ -158,6 +160,7 @@ def test_a_failed_gate_in_the_floor_round_does_not_downgrade_the_selected_iterat
     assert out.data_floor_met is False
     assert "a gate evaluation failed" not in out.notes.split("full-text release bar:")[-1]
     assert "iteration 1 could not be evaluated" in out.notes
+    assert "confidence is capped at LOW" not in out.notes  # the record is MEDIUM
 
 
 def test_the_floor_needs_the_minimum_sample(tmp_path):
