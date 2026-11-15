@@ -52,7 +52,10 @@ extraction term-context tests carry the same table; change all three together.
 So the builder (`adapters/query_builder.py`) writes operators in uppercase and parenthesises every
 group: an OR group is `("x" OR "y")`, a gate is `((R) AND (F))`, and a clause with excludes is
 `((S) OR ((R) AND (F))) NOT (E)`; a single positive group is `(S) NOT (E)`. A bare `NOT (E)` with no
-positive part is never emitted. The result therefore never depends on precedence.
+positive part is never emitted. The result therefore never depends on precedence. A flag whose
+tokens occur inside a risky alias under these rules ("Research Programs" inside "All of Us Research
+Program", plural folded) is dropped from that gate, since `(R) AND (F)` would then match every `R`
+paper.
 
 **Identity check (65 queries).** Every emitted shape was checked by counts: the 10 released AI-model
 queries, the All of Us clauses, the data-wording alternative and the recall complement. All 18

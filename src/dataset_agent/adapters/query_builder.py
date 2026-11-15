@@ -15,7 +15,7 @@ from dataset_agent.adapters.dimensions_dsl import (
     parse_total_count,
     top_titles_from_result,
 )
-from dataset_agent.adapters.dimensions_phrase import search_key
+from dataset_agent.adapters.dimensions_phrase import phrase_contains
 from dataset_agent.adapters.query_heuristics import apply_short_acronym_heuristic
 from dataset_agent.adapters.term_sanitizer import sanitize_term
 from dataset_agent.domain.ports import DimensionsDslPort
@@ -58,19 +58,22 @@ def _or_group(terms: list[str], server_quoting: bool = False) -> str:
 def drop_flags_equal_to_aliases(
     flag_terms: Sequence[str] | None, risky: Sequence[str] | None
 ) -> list[str]:
-    """Flags without any term that is the same Dimensions search as a risky alias
-    (:func:`~dataset_agent.adapters.dimensions_phrase.search_key`: "GPT-4" is "GPT 4").
+    """Flags without any term contained in a risky alias as a token sequence, under the
+    measured Dimensions folding, plurals included
+    (:func:`~dataset_agent.adapters.dimensions_phrase.phrase_contains`): "GPT 4" in
+    "GPT-4", "Research Programs" in "All of Us Research Program". Equality is the
+    special case.
 
-    A flag equal to a risky alias makes the gate ``(A OR B) AND (.. OR A)`` satisfy
-    itself, so every bare ``A`` paper matches. If every flag would be dropped the
-    flags are returned unchanged: an empty flag group would emit the risky group
-    ungated, which is broader than the AND-gated original.
+    Such a flag makes the gate ``(A OR B) AND (.. OR F)`` satisfy itself, since every
+    ``A`` paper also matches ``F``, so every bare ``A`` paper matches. If every flag
+    would be dropped the flags are returned unchanged: an empty flag group would emit
+    the risky group ungated, which is broader than the AND-gated original.
     """
     fl = _clean(flag_terms)
-    rk = {search_key(t) for t in _clean(risky)}
+    rk = _clean(risky)
     if not fl or not rk:
         return fl
-    kept = [t for t in fl if search_key(t) not in rk]
+    kept = [t for t in fl if not any(phrase_contains(r, t) for r in rk)]
     return kept or fl
 
 

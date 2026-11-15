@@ -97,6 +97,24 @@ def test_flag_equal_to_a_risky_alias_under_dimensions_folding_is_dropped() -> No
     ]
 
 
+def test_flag_contained_in_a_risky_alias_is_dropped() -> None:
+    """(R) AND (F) satisfies itself when F's tokens occur inside R, under the measured
+    folding (plurals included): every R paper would pass its own gate."""
+    assert drop_flags_equal_to_aliases(
+        ["Research Programs", "NIH"], ["All of Us Research Program"]) == ["NIH"]
+    assert drop_flags_equal_to_aliases(
+        ["UNAVCO", "GNSS"], ["UNAVCO geodetic data"]) == ["GNSS"]
+    assert drop_flags_equal_to_aliases(
+        ["cohort studies", "NIH"], ["Example Cohort Study"]) == ["NIH"]
+    # Not contained: another token ("4.5" is one token), or a partial token.
+    assert drop_flags_equal_to_aliases(["GPT-4", "OpenAI"], ["GPT-4.5"]) == ["GPT-4", "OpenAI"]
+    assert drop_flags_equal_to_aliases(["Research", "NIH"], ["Researcher Workbench"]) == [
+        "Research", "NIH"]
+    # A flag containing the alias is a narrower gate, not a self-satisfying one.
+    assert drop_flags_equal_to_aliases(["UK Biobank data", "NIH"], ["UK Biobank"]) == [
+        "UK Biobank data", "NIH"]
+
+
 def test_ai_model_name_expansion_keeps_dot_versions_apart() -> None:
     c = assemble_candidates(
         model_name="Prithvi-EO", family=None,
