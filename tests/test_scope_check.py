@@ -160,13 +160,22 @@ def test_no_map_or_ai_models_never_enter():
     assert judge.prompts == [] and ev.verdicts[0].scope is None
 
 
-def test_close_calls_lean_toward_data():
+def test_list_rules_and_the_unsure_case_do_not_contradict():
     from dataset_agent.adapters.scope_check import scope_prompt
 
     p = scope_prompt(dataset_name="E", description="", program_names=["P"], data_names=["D"],
                      title="t", passages=["x"], quote="q")
-    assert "answer PROGRAM_ONLY only when you are confident the paper" in p
-    assert "a list mention, a mixed passage or an unsure case is DATA" in p
+    flat = " ".join(p.split())
+    # Owner rule: a list of data nouns is DATA; a list of program nouns with no data noun is
+    # PROGRAM_ONLY; only the genuinely unsure case leans toward DATA.
+    assert ("named in a list of biobanks, cohorts, datasets, repositories or resources, "
+            "or of data sources: DATA") in flat
+    assert ("named in a list of initiatives, programs, efforts or projects with no data noun: "
+            "PROGRAM_ONLY") in flat
+    assert "Only a genuinely unsure case" in flat and "leans toward DATA" in flat
+    # The old unqualified close-call sentence is gone.
+    assert "a list mention" not in flat
+    assert "an unsure case is DATA" not in flat
 
 
 def test_availability_acknowledgement_funding_or_annex_snippets_are_not_references():

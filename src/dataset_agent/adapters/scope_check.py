@@ -207,17 +207,15 @@ Validator quote: {quote!r}
 
 The paper counts as DATA when its text refers to the data resource itself: its data, the
 access platform, the repository, a tier, a release or version, an existing data type, data
-availability; or when it names the resource in a list of biobanks, cohorts, datasets,
-repositories or resources; or names it as a data source for possible future analyses.
+availability; or names it as a data source for possible future analyses.
 Use is not required.
 It is PROGRAM_ONLY when it discusses only the program: its goals, history or renaming,
 recruitment targets, the program's own plans to collect data, ethics, consent, policy or
-funding, a definition quoted from it, or when it names the program as an example in a
-list of initiatives, programs, efforts or projects.
-Noun test for lists: {DATA_LIST_NOUNS} mean DATA;
-{PROGRAM_LIST_NOUNS} mean PROGRAM_ONLY.
-Close calls lean toward DATA: answer PROGRAM_ONLY only when you are confident the paper
-discusses the program alone; a list mention, a mixed passage or an unsure case is DATA.
+funding, or a definition quoted from it.
+Lists (noun test):
+- named in a list of {DATA_LIST_NOUNS}, or of data sources: DATA;
+- named in a list of {PROGRAM_LIST_NOUNS} with no data noun: PROGRAM_ONLY.
+Only a genuinely unsure case, one that the rules above do not decide, leans toward DATA.
 Answer unclear only when the passages do not let you decide.
 
 Use emit_scope_classification exactly once; scope is data, program_only or unclear."""
