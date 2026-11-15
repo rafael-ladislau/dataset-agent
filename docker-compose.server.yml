@@ -17,7 +17,6 @@ services:
     image: docker.io/ollama/ollama:latest
     environment:
       - OLLAMA_KEEP_ALIVE=24h
-      - OLLAMA_MODEL=qwen3:32b
       - OLLAMA_NUM_PARALLEL=2
       - OLLAMA_MAX_LOADED_MODELS=2
     networks:
@@ -45,6 +44,8 @@ services:
       DATASET_AGENT_OUTPUT_DIR: /data/output
       DATASET_AGENT_TASKS_DB: /data/tasks.db
       DATASET_AGENT_OLLAMA_BASE_URL: http://ollama:11434
+      # The model the agent asks Ollama for (the Ollama service itself reads no model variable).
+      DATASET_AGENT_OLLAMA_MODEL: qwen3:32b
     volumes:
       - "/mnt/volume/sqlite/data:/data"
     networks:
