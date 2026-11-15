@@ -95,3 +95,9 @@ def test_below_the_floor_the_loop_keeps_refining_until_the_round_limit(tmp_path,
     calls.clear()
     _run(tmp_path, _pubs(55, 20, 15, 10), split=True, optimize_max_iterations=2)
     assert not calls, "a sample at the floor stops the loop"
+
+
+def test_the_floor_needs_the_minimum_sample(tmp_path):
+    uc = _uc(tmp_path)
+    small = _metrics(0, 5, 0, 0)  # 5 papers, all data: below the minimum sample of 10
+    assert uc._meets_data_floor(small) is False

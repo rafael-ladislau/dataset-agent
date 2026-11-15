@@ -2416,8 +2416,11 @@ class QueryOptimizationUseCase:
                 and m.unrelated_share <= s.fulltext_split_unrelated_max)
 
     def _meets_data_floor(self, m: IterationMetrics) -> bool:
-        """Split dataset: confirmed data share >= ``fulltext_split_data_min``."""
-        return self._confirmed_data_share(m) >= self._settings.fulltext_split_data_min
+        """Split dataset: confirmed data share >= ``fulltext_split_data_min`` on at least
+        ``fulltext_recall_min_evidence`` evaluated papers (the unrelated bar's sample)."""
+        s = self._settings
+        return (m.n_evaluated >= s.fulltext_recall_min_evidence
+                and self._confirmed_data_share(m) >= s.fulltext_split_data_min)
 
     def _meets_split_target(self, m: IterationMetrics) -> bool:
         """Split dataset: the unrelated bar and the data floor; the full-text loop refines
