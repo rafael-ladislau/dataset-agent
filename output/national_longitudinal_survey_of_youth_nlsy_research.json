@@ -1,0 +1,39 @@
+{
+  "dataset_name": "National Longitudinal Survey of Youth (NLSY)",
+  "home_url": "https://www.bls.gov/nls/",
+  "description": "National Longitudinal Survey of Youth (NLSY) The NLSY is a pair of ongoing, nationally‑representative panel surveys administered by the U.S. Bureau of Labor Statistics (BLS), a division of the Department of Labor. The two cohorts – NLSY79 (≈12,700 respondents born 1957‑1964) and NLSY97 (≈9,000 respondents born 1980‑1984) – were first interviewed in 1979 and 1997, respectively. Each wave follows participants annually (biennially after the early years) and collects detailed information on education, employment/earnings, training, income and assets, health, family formation, child‑bearing, fertility, attitudes, civic engagement, substance use, and a wide range of demographic and contextual variables (e.g., geographic location, parental background, household composition). The survey was created to give researchers and policymakers a long‑term view of how individuals transition through key life‑course stages – schooling, labor‑market entry, marriage, parenthood, and retirement – and how macro‑economic changes affect those transitions. Its longitudinal design, large sample size, and rich “roster” data on households, jobs, and schools make it uniquely suited for intergenerational analyses, cohort‑comparisons, policy evaluation (e.g., welfare reform, labor market programs), and methodological work on life‑course trajectories. Key features include: (1) detailed job‑level data (including self‑employment and informal work), (2) a wealth of “created” variables that link respondents across waves, (3) oversamples of Hispanic, Black and economically‑disadvantaged groups for subgroup study, and (4) publicly‑available documentation and weights that enable robust, nationally‑representative inference.",
+  "aliases": [
+    "National Longitudinal Survey of Youth",
+    "NLSY",
+    "NLSY79",
+    "NLSY97",
+    "NLS Youth",
+    "NLS-Y",
+    "National Longitudinal Surveys"
+  ],
+  "organizations": [
+    "Bureau of Labor Statistics",
+    "BLS",
+    "U.S. Bureau of Labor Statistics",
+    "U.S. Department of Labor",
+    "DOL",
+    "Department of Labor",
+    "Center for Human Resource Research",
+    "CHRR",
+    "Ohio State University",
+    "OSU",
+    "The Ohio State University",
+    "National Institute for Child Health and Human Development",
+    "NICHD",
+    "National Institutes of Health",
+    "NIH"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://www.bls.gov/nls/",
+  "schema_url": "https://www.nlsinfo.org/content/cohorts/nlsy97/using-and-understanding-the-data/nlsy97-documentation",
+  "documentation_url": "https://www.nlsinfo.org/content/cohorts/nlsy97/using-and-understanding-the-data/nlsy97-documentation",
+  "official_name": "National Longitudinal Survey of Youth 1979 (NLSY79)",
+  "relationship_type": "component_of",
+  "official_name_reasoning": "The term “National Longitudinal Survey of Youth (NLSY)” refers to the overall program run by the U.S. Bureau of Labor Statistics, which encompasses multiple cohort‑specific surveys. Official documentation (e.g., the NLSY79 sample introduction) consistently uses the full title **“National Longitudinal Survey of Youth 1979 (NLSY79)”** as the catalog name for the original cohort dataset, and similarly “National Longitudinal Survey of Youth 1997 (NLSY97)” for the later cohort. Because the provided name lacks the year qualifier, it denotes the program as a whole rather than any single catalog‑recorded dataset. Consequently, the provided name is a **component of** the officially titled datasets (NLSY79, NLSY97) that appear in data catalogs.",
+  "_metadata": {}
+}

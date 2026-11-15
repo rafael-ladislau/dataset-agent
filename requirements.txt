@@ -1,0 +1,27 @@
+# Runtime dependencies for `pip install -r requirements.txt`.
+# pyproject.toml is the source of truth (`pip install .` / `uv sync`); keep the two in sync.
+
+# Core framework
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+pydantic-settings>=2.2
+python-dotenv>=1.0.0
+python-multipart>=0.0.7
+typer>=0.12
+jsonschema>=4.20
+
+# LLM clients (OpenAI-compatible and Anthropic-style adapters)
+anthropic>=0.42
+openai>=1.40
+
+# HTTP, web search and literature
+httpx>=0.27
+requests>=2.31.0
+ddgs>=9.0
+tavily-python>=0.5
+dimcli>=0.9
+
+# Spreadsheet export (scripts/dataset_metadata_spreadsheet.py)
+pandas>=2.0
+openpyxl>=3.1

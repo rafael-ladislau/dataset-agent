@@ -68,7 +68,10 @@ class Settings(BaseSettings):
     #: openai_compatible; ``anthropic`` for ollama and openrouter).
     llm_api_style: LLMApiStyle | None = None
     ollama_model: str = "gemma4-31b"
-    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_base_url: str = Field(
+        default="http://127.0.0.1:11434",
+        validation_alias=AliasChoices("DATASET_AGENT_OLLAMA_BASE_URL", "DATASET_AGENT_URL"),
+    )
     lmstudio_base_url: str = Field(
         default="http://127.0.0.1:1234",
         validation_alias=AliasChoices(

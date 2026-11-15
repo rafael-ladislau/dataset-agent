@@ -1,0 +1,32 @@
+{
+  "dataset_name": "FRBNY Consumer Credit Panel Equifax (CCP)",
+  "home_url": "https://www.newyorkfed.org/microeconomics/hhdc",
+  "description": "The FRBNY Consumer Credit Panel (CCP) is a longitudinal database with detailed information on consumer debt and credit, created by the Federal Reserve Bank of New York in partnership with Equifax. The panel uses a unique sample design based on a nationally representative 5% random sample of U.S. consumers with credit reports, tracking individuals' and households' access to and use of credit over time. The dataset contains quarterly data on mortgage balances, credit card debt, auto loans, student loans, home equity lines of credit, delinquency rates, and bankruptcy filings, with historical coverage dating back to 1999. The CCP is the primary data source for the New York Fed's Quarterly Report on Household Debt and Credit, which monitors trends in total household debt (currently over $18 trillion). Key use cases include research on consumer financial behavior, credit market dynamics, housing markets, student loan policy, and household financial stress. The dataset provides geographic detail at state and county levels, enabling regional economic analysis. The CCP was developed after the Great Recession highlighted the importance of understanding household debt dynamics for financial stability monitoring.",
+  "aliases": [
+    "Consumer Credit Panel",
+    "CCP",
+    "Household Debt and Credit",
+    "HHDC",
+    "Credit Panel Data",
+    "Consumer Credit Data"
+  ],
+  "organizations": [
+    "Federal Reserve Bank of New York",
+    "FRBNY",
+    "New York Fed",
+    "NY Fed",
+    "Federal Reserve",
+    "Federal Reserve System",
+    "Equifax",
+    "Center for Microeconomic Data",
+    "CMD"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.newyorkfed.org/microeconomics/hhdc",
+  "schema_url": "https://www.newyorkfed.org/medialibrary/interactives/householdcredit/data/pdf/data_dictionary_hhdc.pdf",
+  "documentation_url": "https://www.newyorkfed.org/research/staff_reports/sr479.html",
+  "official_name": "FRBNY Consumer Credit Panel Equifax (CCP)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

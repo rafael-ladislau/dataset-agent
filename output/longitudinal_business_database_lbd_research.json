@@ -1,0 +1,31 @@
+{
+  "dataset_name": "Longitudinal Business Database (LBD)",
+  "home_url": "https://www.census.gov/programs-surveys/ces/data/restricted-use-data/longitudinal-business-database.html",
+  "description": "The Longitudinal Business Database (LBD) is a census of all business establishments and firms in the United States with paid employees, created and maintained by the U.S. Census Bureau's Center for Economic Studies (CES). The database combines survey and administrative records to track establishments and firms longitudinally from 1976 to present, covering all industries and all U.S. states. With over 8.5 million establishment observations annually, the LBD provides unique insights into business formation and growth, firm entry and exit, competition dynamics, labor market dynamics, business cycles, productivity growth, and credit market connections. The LBD is the source data for the publicly available Business Dynamics Statistics (BDS), which tabulates establishment and firm entry, exit, expansion, and contraction. A key strength is providing consistent measures of economic activity at both establishment and firm levels over a long time period. The restricted-use microdata is accessible only to qualified researchers through Federal Statistical Research Data Centers (FSRDCs). A synthetic version (SynLBD) is available for public use to develop code before accessing confidential data.",
+  "aliases": [
+    "LBD",
+    "Longitudinal Business Database",
+    "SynLBD"
+  ],
+  "organizations": [
+    "U.S. Census Bureau",
+    "United States Census Bureau",
+    "Census Bureau",
+    "Center for Economic Studies",
+    "CES",
+    "U.S. Department of Commerce",
+    "Department of Commerce",
+    "Cornell University",
+    "Cornell Institute for Social and Economic Research",
+    "CISER",
+    "Labor Dynamics Institute"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://www.census.gov/programs-surveys/ces/data/restricted-use-data/longitudinal-business-database.html",
+  "schema_url": "https://www.census.gov/programs-surveys/ces/data/public-use-data/synthetic-longitudinal-business-database/definitions.html",
+  "documentation_url": "https://www.census.gov/programs-surveys/ces/data/restricted-use-data/longitudinal-business-database.html",
+  "official_name": "Longitudinal Business Database (LBD)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

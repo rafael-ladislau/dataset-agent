@@ -1,0 +1,32 @@
+{
+  "dataset_name": "Swedish Register Data (Swedish Administrative Registers)",
+  "home_url": "https://www.scb.se/en/services/guidance-for-researchers-and-universities/",
+  "description": "Swedish Register Data refers to a comprehensive system of administrative registers maintained by Statistics Sweden (SCB, Statistiska centralbyrån) that cover the entire Swedish population. The flagship database is LISA (Longitudinell Integrationsdatabas för Sjukförsäkrings- och Arbetsmarknadsstudier), the Longitudinal Integrated Database for Health Insurance and Labour Market Studies, which contains annual data since 1990 on all individuals aged 15+ registered in Sweden. LISA includes approximately 500 variables on individuals, 100 variables on firms, and 30 variables on workplaces. Key data domains include education, income, occupation, employment, sick leave, disability pension, unemployment benefits, civil status, migration, and social welfare payments. The registers draw from multiple sources including the Total Population Register (TPR), RAMS (labor market statistics), Education Register, Income and Taxation Register, and the Swedish Social Insurance Agency. Participation is compulsory, minimizing selection bias. The data enable longitudinal tracking of individuals' education, labor market outcomes, and health over time. Researchers access data through Statistics Sweden with ethical approval required. The registers are widely used in economics, epidemiology, sociology, and public health research for studying labor market dynamics, health outcomes, intergenerational mobility, and policy evaluation.",
+  "aliases": [
+    "Swedish Register Data",
+    "Swedish Administrative Registers",
+    "Swedish Registry Data",
+    "Sweden Register Data"
+  ],
+  "organizations": [
+    "Statistics Sweden",
+    "SCB",
+    "Statistiska centralbyrån",
+    "Swedish Government",
+    "Ministry of Finance Sweden",
+    "Swedish Research Council",
+    "Vetenskapsrådet",
+    "Swedish National Board of Health and Welfare",
+    "Socialstyrelsen",
+    "IFAU",
+    "Institute for Evaluation of Labour Market and Education Policy"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://www.scb.se/en/services/guidance-for-researchers-and-universities/",
+  "schema_url": "https://www.scb.se/en/services/guidance-for-researchers-and-universities/",
+  "documentation_url": "https://www.scb.se/en/documentation/",
+  "official_name": "Swedish Register Data (Swedish Administrative Registers)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

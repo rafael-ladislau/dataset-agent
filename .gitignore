@@ -160,6 +160,7 @@ faiss_store/
 # Project-specific
 ###############################
 .agent-os/
+.claude/
 
 # Agent run outputs (new runs during development)
 output/

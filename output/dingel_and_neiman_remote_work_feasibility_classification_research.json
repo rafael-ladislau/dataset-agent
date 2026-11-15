@@ -1,0 +1,34 @@
+{
+  "dataset_name": "Dingel and Neiman Remote Work Feasibility Classification",
+  "home_url": "https://github.com/jdingel/DingelNeiman-workathome",
+  "description": "The Dingel and Neiman Remote Work Feasibility Classification is a dataset that classifies the feasibility of working from home for all occupations in the U.S. Standard Occupational Classification (SOC) system. Created by economists Jonathan I. Dingel and Brent Neiman at the University of Chicago Booth School of Business, the classification was developed in response to COVID-19 social distancing measures to answer a fundamental question: how many jobs can be performed at home? The methodology uses O*NET survey responses about work context and activities to determine whether each occupation can be performed remotely. Key findings show that 37 percent of U.S. jobs can be performed entirely at home, with significant variation across cities and industries. These remote-feasible jobs typically pay more and account for 46 percent of all U.S. wages. The classification has been applied to 85 other countries, revealing that lower-income economies have fewer jobs that can be done at home. The dataset is publicly available on GitHub and has been widely cited in labor economics and COVID-19 research. Published in the Journal of Public Economics (2020) and as NBER Working Paper 26948.",
+  "aliases": [
+    "Dingel and Neiman Remote Work Feasibility Classification",
+    "Dingel-Neiman Work from Home",
+    "Work from Home Classification",
+    "Remote Work Feasibility",
+    "Work at Home Classification",
+    "WFH Feasibility",
+    "Teleworkability Index",
+    "Remote Work Index",
+    "Occupation Telework Score"
+  ],
+  "organizations": [
+    "BFI",
+    "Becker Friedman Institute",
+    "Booth School of Business",
+    "NBER",
+    "National Bureau of Economic Research",
+    "UChicago",
+    "University of Chicago",
+    "University of Chicago Booth School of Business"
+  ],
+  "access_type": "Unknown",
+  "data_url": "https://github.com/jdingel/DingelNeiman-workathome",
+  "schema_url": "https://github.com/jdingel/DingelNeiman-workathome",
+  "documentation_url": "https://github.com/jdingel/DingelNeiman-workathome",
+  "official_name": "Dingel and Neiman Remote Work Feasibility Classification",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

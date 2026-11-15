@@ -1,0 +1,39 @@
+{
+  "dataset_name": "RAIS - Relacao Anual de Informacoes Sociais (Brazilian Employer-Employee Dataset)",
+  "home_url": "https://www.gov.br/trabalho-e-emprego/pt-br/assuntos/estatisticas-trabalho/rais",
+  "description": "RAIS – Relação Anual de Informações Sociais (Brazilian Employer‑Employee Dataset) The RAIS is an annual administrative census that records every formal employment relationship in Brazil. Each record (one per worker‑establishment link) contains individual characteristics (age, gender, race, education, occupation, wage, work‑time), establishment attributes (CNPJ, sector, size, location) and contract details (type of hire, duration, benefits). The file covers the whole formal labor market from 1975 to the present and is released each year as micro‑data (publicly de‑identified) together with aggregated tables. The dataset is produced by the Ministry of Labour and Employment (now part of the Ministry of Economy), instituted by Decree 76.900/1975 and updated by subsequent decrees (e.g., Decree 10.854/2021). Its primary purpose is to supply the government, researchers and private‑sector analysts with reliable information for labor‑market monitoring, policy evaluation, social‑security verification and academic studies. Key features that set RAIS apart: * Full‑population coverage of formal contracts, making it the most comprehensive source on Brazil’s salaried workforce. * Matched employer–employee structure, enabling analyses of wage differentials, firm‑level dynamics, and regional labor‑market disparities. * Annual frequency with increasing timeliness after the 2021 integration of RAIS reporting into the e‑Social system. * Open micro‑data (available through the government portal and platforms such as DataZoom, Bades Dados, or the Ministry’s “Painel de Informações da RAIS”), facilitating reproducible research. These attributes make RAIS a cornerstone for labor‑economics, public‑policy, and market‑research projects in Brazil.",
+  "aliases": [
+    "RAIS",
+    "Relação Anual de Informações Sociais",
+    "Relacao Anual de Informacoes Sociais",
+    "Brazilian Employer-Employee Dataset",
+    "Brazil Employer-Employee Data",
+    "RAIS-CAGED"
+  ],
+  "organizations": [
+    "Ministério do Trabalho e Emprego",
+    "MTE",
+    "Ministry of Labour and Employment",
+    "Ministry of Labor Brazil",
+    "Ministério da Economia",
+    "Ministry of Economy Brazil",
+    "IBGE",
+    "Instituto Brasileiro de Geografia e Estatística",
+    "Brazilian Institute of Geography and Statistics",
+    "IPEA",
+    "Instituto de Pesquisa Econômica Aplicada",
+    "Institute for Applied Economic Research",
+    "DataZoom",
+    "Base dos Dados",
+    "PDET",
+    "Programa de Disseminação de Estatísticas do Trabalho"
+  ],
+  "access_type": "Open",
+  "data_url": "https://www.rais.gov.br/sitio/sobre.jsf",
+  "schema_url": "https://ces.ibge.gov.br/base-de-dados/metadados/mte/relacao-anual-de-informacoes-sociais-rais",
+  "documentation_url": "https://www.rais.gov.br/sitio/rais_ftp/ManualRAIS2024.pdf",
+  "official_name": "RAIS - Relacao Anual de Informacoes Sociais (Brazilian Employer-Employee Dataset)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

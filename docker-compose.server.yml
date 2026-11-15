@@ -1,0 +1,57 @@
+# Server deployment: API plus a GPU Ollama container on a private network.
+#   docker compose -f docker-compose.server.yml up -d --build
+# Local development uses docker-compose.yml instead.
+#
+# The API image is the one built from the Dockerfile (CMD dataset-research-api, port 8000 in
+# the container), published on host port 8888. Settings come from .env when it exists; set
+# DATASET_AGENT_LLM_PROVIDER=ollama there to use the Ollama container below.
+
+services:
+  ollama:
+    volumes:
+      - "/mnt/volume/ollama/data:/root/.ollama"
+    container_name: ollama
+    pull_policy: always
+    tty: true
+    restart: unless-stopped
+    image: docker.io/ollama/ollama:latest
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_MODEL=qwen3:32b
+      - OLLAMA_NUM_PARALLEL=2
+      - OLLAMA_MAX_LOADED_MODELS=2
+    networks:
+      - dataset
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+
+  api:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    ports:
+      - "8888:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATASET_AGENT_OUTPUT_DIR: /data/output
+      DATASET_AGENT_TASKS_DB: /data/tasks.db
+      DATASET_AGENT_OLLAMA_BASE_URL: http://ollama:11434
+    volumes:
+      - "/mnt/volume/sqlite/data:/data"
+    networks:
+      - dataset
+    depends_on:
+      - ollama
+
+networks:
+  dataset:
+    driver: bridge

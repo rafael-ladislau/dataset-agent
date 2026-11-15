@@ -1,0 +1,32 @@
+{
+  "dataset_name": "Health and Retirement Study (HRS)",
+  "home_url": "https://hrs.isr.umich.edu/",
+  "description": "Health and Retirement Study (HRS) The Health and Retirement Study is a longitudinal panel survey of ≈20,000 U.S. adults aged 50+ that has been collecting data biennially since 1992. It was created and is administered by the University of Michigan Institute for Social Research (ISR) with core funding from the National Institute on Aging and the Social Security Administration. The primary purpose is to provide researchers, policymakers, and program planners with nationally representative information on the economic, health‑care, and family‑life transitions that accompany late‑career work, retirement, and aging. Typical use cases include studying labor‑force participation, pension and wealth accumulation, health‑insurance coverage, disability trajectories, cognitive decline, and health‑care utilization; the data are also used to evaluate behavioral responses to Social Security or Medicare policy changes. Key features / unique aspects - Rich, multidisciplinary content: income, assets, employment, pension plans, health‑insurance status, physical and mental health measures, functional limitations, cognitive tests, and detailed demographic variables. - Large, nationally representative sample with oversamples of Hispanics, Blacks, and Floridians. - Linked to the AHEAD study (the oldest‑old cohort) and to genetics, biomarkers, and Medicare claims for a subset of respondents. - Well‑documented modules, publicly released weights and design variables, and support for SAS, Stata, R, etc., enabling rigorous population‑level inference. These attributes make HRS one of the most widely used resources for aging, health‑economics, and social‑science research. Sources: [3] National Institute on Aging overview; [4] HRS “About” page (University of Michigan ISR).",
+  "aliases": [
+    "HRS",
+    "Health and Retirement Study"
+  ],
+  "organizations": [
+    "University of Michigan",
+    "Institute for Social Research",
+    "ISR",
+    "Survey Research Center",
+    "SRC",
+    "National Institute on Aging",
+    "NIA",
+    "National Institutes of Health",
+    "NIH",
+    "Social Security Administration",
+    "SSA",
+    "RAND Corporation",
+    "RAND"
+  ],
+  "access_type": "Restricted",
+  "data_url": "https://hrs.isr.umich.edu/",
+  "schema_url": "https://hrs.isr.umich.edu/",
+  "documentation_url": "https://hrs.isr.umich.edu/",
+  "official_name": "Health and Retirement Study (HRS)",
+  "relationship_type": "official_name",
+  "official_name_reasoning": "Could not determine official name from research; using provided name as fallback.",
+  "_metadata": {}
+}

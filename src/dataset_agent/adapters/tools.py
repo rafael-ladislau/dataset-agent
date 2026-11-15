@@ -20,6 +20,9 @@ def web_search(query: str) -> str:
         )
     qprev = (q[:120] + "…") if len(q) > 120 else q
     provider, tavily_key = _search_config()
+    if tavily_key:
+        # Prefer Tavily automatically when an API key is present.
+        provider = "tavily"
     logger.info("Tool web_search: provider=%s query=%r", provider, qprev)
 
     if provider == "tavily":

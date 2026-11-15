@@ -1,6 +1,12 @@
 # API HTTP (dataset-research-api). Python 3.12 alinhado a requires-python >=3.11
 FROM python:3.12-slim-bookworm
 
+# Network diagnostics used on the server (ping, curl, wget).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    iputils-ping curl wget \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \

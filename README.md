@@ -211,6 +211,29 @@ docker compose up
 
 The API is exposed on port `8000`. Data is persisted in `./data` (output JSON + SQLite). Set environment variables in a `.env` file at the project root before starting.
 
+For the server deployment (API on host port `8888` plus a GPU Ollama container, data under
+`/mnt/volume`), use `docker-compose.server.yml`:
+
+```bash
+docker compose -f docker-compose.server.yml up -d --build
+```
+
+`requirements.txt` mirrors the runtime dependencies in `pyproject.toml` for `pip install -r
+requirements.txt`.
+
+## Batch scripts and spreadsheet export
+
+`scripts/run_*_datasets.sh` run the agent over predefined dataset lists (see
+[`scripts/README.md`](scripts/README.md)). They still call the pre-refactor CLI
+(`python -m src.dataset_agent.main` with `--llm-provider`, `--llm-model`, `--output-dir`) and
+need porting to `dataset-research run` before use.
+
+Convert result JSON files to an Excel workbook:
+
+```bash
+python scripts/dataset_metadata_spreadsheet.py results/ data/output.xlsx
+```
+
 ## Tests
 
 ```bash
@@ -244,3 +267,6 @@ Reference outputs from previous agent runs are stored in `results/` (70 datasets
 | `docs/lmstudio-provider-spec.md` | LMStudio provider specification |
 | `docs/aliases-agent-summary.md` | Summary of alias extraction behavior |
 | `docs/fulltext-refinement.md` | Full-text query refinement loop, settings, proposal/approve/submit flow |
+| `docs/agent-os-overview.md` | Agent OS structure and product context |
+| `docs/official-name-detection-summary.md` | Official name detection (pre-refactor implementation) |
+| `results/TRACKING.md` | History of batch runs and agent evolution |
