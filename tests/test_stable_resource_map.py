@@ -326,3 +326,23 @@ def test_a_run_that_does_not_draw_keeps_the_stored_decision(tmp_path, enabled, d
     assert draws == []
     assert later.resource_map_decision.origin == "reused"
     assert later.resource_map.data_resource_names == ["Researcher Workbench"]
+
+
+def test_a_checked_record_with_no_map_and_no_decision_is_drawn_again(tmp_path):
+    """Records saved before failed draws stopped being marked checked can hold
+    resource_map=None, checked=True and no decision: not a firm "no split"."""
+    JsonDatasetRepository(tmp_path).save(_rec(resource_map_checked=True))
+    draws = []
+    rec = _research_run(_research(tmp_path, lambda r: draws.append(1) or _map()))
+    assert draws == [1] and rec.resource_map_decision.origin == "drawn"
+
+
+def test_a_stored_decision_of_another_name_sharing_the_file_is_not_reused(tmp_path):
+    repo = JsonDatasetRepository(tmp_path)
+    assert repo.path_for("C++ Corpus") == repo.path_for("C# Corpus")
+    other = _rec(resource_map=_map(), resource_map_checked=True).model_copy(
+        update={"main_dataset_name": "C++ Corpus"})
+    repo.save(other)
+    uc = _research(tmp_path, lambda r: _map())
+    assert uc.stored_map_decision("C# Corpus") is None
+    assert uc.stored_map_decision("c++ corpus") is not None

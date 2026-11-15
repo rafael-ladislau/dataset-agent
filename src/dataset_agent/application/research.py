@@ -212,14 +212,29 @@ class DatasetResearchUseCase:
     # map was reused and when it was drawn (``resource_map_decision``), and the map itself
     # (``program_datasets``, ``found_names``) is on the record for inspection.
 
-    def stored_map_decision(self, main_dataset_name: str) -> DatasetRecord | None:
-        """The stored research record of *main_dataset_name* when it holds a decided map
-        (``resource_map_checked``); else None."""
+    def _load_own(self, main_dataset_name: str) -> DatasetRecord | None:
+        """The stored record of *main_dataset_name*. The store key is a lossy filename
+        ("C++ Corpus" and "C# Corpus" share one), so a record stored under another name
+        counts as none."""
         load = getattr(self._repository, "load", None)
         stored = load(main_dataset_name) if callable(load) else None
-        if isinstance(stored, DatasetRecord) and stored.resource_map_checked:
-            return stored
-        return None
+        if not isinstance(stored, DatasetRecord):
+            return None
+        if stored.main_dataset_name.strip().casefold() != main_dataset_name.strip().casefold():
+            return None
+        return stored
+
+    def stored_map_decision(self, main_dataset_name: str) -> DatasetRecord | None:
+        """The stored research record of *main_dataset_name* when it holds a decided map;
+        else None. Decided: ``resource_map_checked`` with a map, or with a
+        ``resource_map_decision``. A checked record with neither (written while a failed
+        draw was still marked checked) is not a firm "no split" and is drawn again."""
+        stored = self._load_own(main_dataset_name)
+        if stored is None or not stored.resource_map_checked:
+            return None
+        if stored.resource_map is None and stored.resource_map_decision is None:
+            return None
+        return stored
 
     def stored_in(self, main_dataset_name: str) -> str | None:
         path_for = getattr(self._repository, "path_for", None)
@@ -245,10 +260,8 @@ class DatasetResearchUseCase:
     def remember_map(self, record, rmap, decision: ResourceMapDecision) -> Path | None:
         """Store a decided map on the dataset's research record (the stored record when one
         exists, else *record* when it is a DatasetRecord). Only map fields change."""
-        name = record.main_dataset_name
-        load = getattr(self._repository, "load", None)
-        stored = load(name) if callable(load) else None
-        target = stored if isinstance(stored, DatasetRecord) else record
+        stored = self._load_own(record.main_dataset_name)
+        target = stored if stored is not None else record
         if not isinstance(target, DatasetRecord):
             return None
         target.resource_map = rmap.model_copy(deep=True) if rmap is not None else None

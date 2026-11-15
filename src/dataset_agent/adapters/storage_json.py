@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+import tempfile
 from pathlib import Path
 
 from dataset_agent.domain.models import DatasetRecord
@@ -45,5 +47,14 @@ class JsonDatasetRepository(DatasetRepositoryPort):
             record.main_dataset_name,
             path,
         )
-        path.write_text(record.model_dump_json(indent=2), encoding="utf-8")
+        # Atomic: a concurrent load() never reads a half-written file.
+        fd, tmp = tempfile.mkstemp(dir=self._output_dir, prefix=f".{path.name}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(record.model_dump_json(indent=2))
+            os.chmod(tmp, 0o644)  # mkstemp creates 0600; keep the old file mode
+            os.replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
         return path
