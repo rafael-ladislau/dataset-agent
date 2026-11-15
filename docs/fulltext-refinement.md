@@ -247,6 +247,21 @@ dataset keeps the precision bar unchanged. The record states the bar (`release_b
 95% intervals (`fulltext_four_way`) and the data-only precision (`fulltext_data_precision`);
 the note `full-text release bar: ...` repeats them.
 
+**Stored program/data decision.** A decided resource map (a split, or a firm "no split") is
+stored on the dataset's research record (`<output_dir>/<dataset name>_research.json`) with
+where each name was found (`name_sources`, `found_names`, `page_sources`) and when it was drawn
+(`resource_map_decision.decided_at`). Later runs reuse it instead of drawing again; the output
+records `resource_map_decision` (`origin` drawn, reused or request; `split`; `decided_at`;
+`refreshed`; `stored_in`) and a note, and the CLI prints it next to the program datasets. It is
+drawn again only when the request sets `refresh_resource_map` (CLI `--refresh-map`) or no
+decided map is stored. An undecided draw (`resource_map_error`) is never stored as a decision
+and is retried on the next run; a refresh that fails leaves the dataset undecided, so the next
+run draws again. A map passed in the request wins over the stored one. The catch: a poor first
+draw persists until someone refreshes it, so check `program_datasets` and `found_names` after a
+first draw. The rest of research is not stored for reuse: aliases, flags and excludes come
+from each run's own research, and the stored map adds its program and data names to them; its
+counts (`cooccurrence`, `data_name_hits`) are from the drawing date.
+
 HIGH is capped at MEDIUM, with a note saying why, in two cases: the selected iteration's
 probe pool was exhausted before the target was reached (for example 16 of 30 papers), or the
 recall check rejected a candidate only on the Wilson lower bound although its point

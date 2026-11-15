@@ -124,6 +124,7 @@ from dataset_agent.domain.models import (
     QueryOptimizationAliases,
     QueryOptimizationRecord,
     ResearchRequest,
+    ResourceMapDecision,
     TermDecision,
     VariantTestedEntry,
 )
@@ -393,6 +394,7 @@ class QueryOptimizationUseCase:
         self._cap_extra = 0
         self._resource_map = None
         self._resource_map_error: str | None = None
+        self._map_decision = None
         self._dataset_description = ""
         self._scope_calls = 0
 
@@ -2772,6 +2774,53 @@ class QueryOptimizationUseCase:
                 "which is not a firm 'no split'")
             return None, str(exc)
 
+    async def _stored_or_drawn_map(self, rec, previous: str | None, notes_parts: list[str],
+                                   *, refresh: bool) -> tuple[object, str | None]:
+        """The map for a record research did not decide: the stored decision (the dataset's
+        research record, see ``DatasetResearchUseCase.stored_map_decision``) unless
+        *refresh*, else drawn once here and stored when decided. Sets ``_map_decision``."""
+        research = self._research
+        stored_fn = getattr(research, "stored_map_decision", None)
+        name = rec.main_dataset_name
+        if not refresh and callable(stored_fn):
+            stored = stored_fn(name)
+            if isinstance(stored, DatasetRecord):
+                self._map_decision = research.reused_decision(stored)
+                return (stored.resource_map.model_copy(deep=True)
+                        if stored.resource_map is not None else None), None
+        drawn, err = await self._draw_map_again(rec, previous, notes_parts)
+        if err is not None:
+            return None, err
+        drawn_fn = getattr(research, "drawn_decision", None)
+        if callable(drawn_fn):
+            decision = drawn_fn(name, drawn, refreshed=refresh)
+            if isinstance(decision, ResourceMapDecision):
+                self._map_decision = decision
+                try:
+                    if research.remember_map(rec, drawn, decision) is None:
+                        self._map_decision = decision.model_copy(update={"stored_in": None})
+                except Exception as exc:  # the run goes on; the next run draws again
+                    logger.warning("resource map: could not be stored: %s", exc)
+                    notes_parts.append(f"resource map: could not be stored ({exc})")
+                    self._map_decision = decision.model_copy(update={"stored_in": None})
+        return drawn, None
+
+    def _map_decision_note(self) -> str | None:
+        d = self._map_decision
+        if d is None:
+            return None
+        what = "a program/data split" if d.split else "no split"
+        when = f"drawn {d.decided_at}" if d.decided_at else "drawing date unknown"
+        where = f" in {d.stored_in}" if d.stored_in else ""
+        if d.origin == "reused":
+            return (f"resource map: reused the stored decision ({what}, {when}{where}); "
+                    "refresh it with refresh_resource_map=true (CLI --refresh-map)")
+        if d.origin == "request":
+            return f"resource map: passed in the request ({what}); it wins over a stored map"
+        stored = f"; stored{where} for later runs" if d.stored_in else "; not stored"
+        return (f"resource map: drawn in this run ({what}, {when}"
+                f"{', refresh asked' if d.refreshed else ''}){stored}")
+
     async def _discover_from_literature(self, evidence: Evidence, cand: QueryCandidate,
                                         notes_parts: list[str], iteration: int
                                         ) -> QueryCandidate | None:
@@ -2843,6 +2892,7 @@ class QueryOptimizationUseCase:
             dataset_name=request.dataset_name,
             dataset_url=request.dataset_url,
             sample_size=min(50, self._settings.fp_sample_size),
+            refresh_resource_map=request.refresh_resource_map,
         )
         record, _path = await asyncio.to_thread(self._research.execute, req)
         return record
@@ -2876,6 +2926,7 @@ class QueryOptimizationUseCase:
         self._cap_extra = 0
         self._resource_map = None
         self._resource_map_error = None
+        self._map_decision = None
         self._scope_calls = 0
         self._dataset_description = ""
         if request.entity_type == "ai_model":
@@ -2886,6 +2937,12 @@ class QueryOptimizationUseCase:
         if request.dataset_names:
             # A research run's resource map comes with the request (full pipeline). When
             # research could not decide it, it is drawn once more here.
+            # A map passed in the request wins over a stored one. Research passes its own
+            # decision along (drawn or reused); a map without one was passed by the caller.
+            if request.resource_map is not None or request.resource_map_checked:
+                self._map_decision = request.resource_map_decision or (
+                    ResourceMapDecision(origin="request", split=True)
+                    if request.resource_map is not None else None)
             if (request.resource_map is None and request.resource_map_error
                     and self._settings.resource_map_enabled):
                 from types import SimpleNamespace
@@ -2894,13 +2951,16 @@ class QueryOptimizationUseCase:
                     main_dataset_name=request.dataset_name, home_url=request.dataset_url,
                     description=request.dataset_description or "",
                     dataset_names=list(request.dataset_names), flag_terms=list(request.flag_terms))
-                drawn, _err = await self._draw_map_again(shim, request.resource_map_error,
-                                                         notes_parts)
+                drawn, _err = await self._stored_or_drawn_map(
+                    shim, request.resource_map_error, notes_parts,
+                    refresh=request.refresh_resource_map)
                 if drawn is not None:
                     request = request.model_copy(update={"resource_map": drawn,
                                                          "resource_map_error": None})
             if request.resource_map is not None:
-                self._resource_map = request.resource_map
+                # A copy: literature discovery adds names during the run, and the caller's
+                # (stored) map must stay the decision that was drawn.
+                self._resource_map = request.resource_map.model_copy(deep=True)
                 self._dataset_description = request.dataset_description or ""
                 desc_for_signal3 = resource_map_description(
                     (request.dataset_description or "")[:2000], request.resource_map)
@@ -2926,16 +2986,23 @@ class QueryOptimizationUseCase:
             desc_for_signal3 = (rec.description or "")[:2000]
             # One map decision per run: research already made it when it ran the step. A
             # map research could not decide is drawn once more.
-            if (self._settings.resource_map_enabled and rec.resource_map is None
-                    and not rec.resource_map_checked):
-                rec.resource_map, err = await self._draw_map_again(
-                    rec, rec.resource_map_error, notes_parts)
+            # Research reuses the stored decision unless asked to refresh; a record it did
+            # not decide (or a stored research output from before the map was stored)
+            # reads the stored decision here, else draws once and stores it.
+            if rec.resource_map_checked:
+                self._map_decision = rec.resource_map_decision
+            elif self._settings.resource_map_enabled and rec.resource_map is None:
+                rec.resource_map, err = await self._stored_or_drawn_map(
+                    rec, rec.resource_map_error, notes_parts,
+                    refresh=request.refresh_resource_map)
                 rec.resource_map_error = err
                 rec.resource_map_checked = err is None
+                rec.resource_map_decision = self._map_decision
             # The seed description (read by the full-text validator) names the program
             # and its data resources when research split them.
             desc_for_signal3 = resource_map_description(desc_for_signal3, rec.resource_map)
-            self._resource_map = rec.resource_map
+            self._resource_map = (rec.resource_map.model_copy(deep=True)
+                                  if rec.resource_map is not None else None)
             self._dataset_description = rec.description or ""
             if rec.resource_map is not None and rec.resource_map.first_release_year:
                 notes_parts.append(
@@ -2953,6 +3020,9 @@ class QueryOptimizationUseCase:
                 list(rec.exclude_terms) + list(request.exclude_terms)
             )
 
+        decision_note = self._map_decision_note()
+        if decision_note:
+            notes_parts.append(decision_note)
         aliases = sanitize_terms(aliases, "alias")
         # A lone generic word ("dataset", "data") matches every paper; it is never a name.
         generic = [a for a in aliases if not content_tokens(a)]
@@ -3960,6 +4030,7 @@ class QueryOptimizationUseCase:
             program_datasets=program_ds,
             scope_check_calls=self._scope_calls if self._resource_map is not None else None,
             resource_map_error=self._resource_map_error,
+            resource_map_decision=self._map_decision,
             scope_check_config=scope_cfg,
             notes=" ".join(notes_parts),
         )

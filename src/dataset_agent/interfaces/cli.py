@@ -13,17 +13,24 @@ from dataset_agent.settings import Settings
 
 app = typer.Typer(help="Dataset metadata research (LOGICA_DO_PROJETO.md)")
 
+_REFRESH_HELP = (
+    "Draw the program/data resource map again and replace the stored one (by default a "
+    "decided map stored on the dataset's research record is reused)"
+)
+
 
 @app.command("run")
 def run_cmd(
     dataset_name: str = typer.Argument(..., help="Dataset name"),
     webhook: Optional[str] = typer.Option(None, "--webhook", help="Optional notification URL"),
+    refresh_map: bool = typer.Option(False, "--refresh-map", help=_REFRESH_HELP),
 ) -> None:
     import asyncio
     from dataset_agent.bootstrap import run_full_pipeline
 
     settings = Settings()
-    req = ResearchRequest(dataset_name=dataset_name.strip(), webhook_url=webhook)
+    req = ResearchRequest(dataset_name=dataset_name.strip(), webhook_url=webhook,
+                          refresh_resource_map=refresh_map)
 
     try:
         record, path = asyncio.run(run_full_pipeline(req, settings))
@@ -47,6 +54,7 @@ def optimize_cmd(
         "--url",
         help="Official dataset page URL (aliases / platform heuristics)",
     ),
+    refresh_map: bool = typer.Option(False, "--refresh-map", help=_REFRESH_HELP),
 ) -> None:
     """Optimize a Dimensions publications query (runs research unless --names-style inputs are added later)."""
     import asyncio
@@ -55,7 +63,8 @@ def optimize_cmd(
 
     settings = Settings()
     uc = build_optimize_use_case(settings)
-    req = OptimizeRequest(dataset_name=dataset_name.strip(), dataset_url=url.strip() if url else None)
+    req = OptimizeRequest(dataset_name=dataset_name.strip(), dataset_url=url.strip() if url else None,
+                          refresh_resource_map=refresh_map)
 
     try:
         record = asyncio.run(uc.execute(req))
@@ -76,6 +85,13 @@ def _echo_program_datasets(record) -> None:
     text = program_datasets_summary(getattr(record, "program_datasets", None))
     if text:
         typer.echo("\n" + text, err=True)
+    opt = getattr(record, "query_optimization", None)
+    decision = getattr(record, "resource_map_decision", None) or getattr(
+        opt, "resource_map_decision", None)
+    if decision is not None:
+        when = decision.decided_at or "date unknown"
+        typer.echo(f"Resource map: {decision.origin} ({'split' if decision.split else 'no split'}, "
+                   f"drawn {when}); --refresh-map draws it again", err=True)
 
 
 @app.command("optimize-model")

@@ -91,6 +91,11 @@ class ResearchRequest(BaseModel):
         ge=1,
         description="Top-K sampling (>= 1); not sent by the OpenAI-compatible API style",
     )
+    refresh_resource_map: bool = Field(
+        default=False,
+        description="Draw the program/data resource map again and replace the stored one. "
+        "Without it a decided map stored on this dataset's research record is reused",
+    )
 
     @field_validator("dataset_name", mode="before")
     @classmethod
@@ -111,6 +116,28 @@ class ResearchRequest(BaseModel):
             s = v.strip()
             return s or None
         return v
+
+
+class ResourceMapDecision(BaseModel):
+    """Where a run's program/data decision came from (see ``application.research``).
+
+    A decided map (a split or a firm "no split") is stored on the dataset's research record
+    and reused by later runs; it is drawn again only on ``refresh_resource_map`` or when no
+    decided map is stored. An undecided draw (``resource_map_error``) is never stored as a
+    decision."""
+
+    #: drawn (this run drew it) | reused (read from the stored record) | request (the
+    #: caller passed the map; it wins over the stored one).
+    origin: Literal["drawn", "reused", "request"]
+    #: True when the decision is a program/data split, False for a firm "no split".
+    split: bool
+    #: When the decision was drawn (UTC, ISO 8601); None when unknown (a stored record
+    #: from before decisions were dated, or a map passed in the request).
+    decided_at: Optional[str] = None
+    #: Drawn because the run asked for a refresh.
+    refreshed: bool = False
+    #: The research record file that holds the decision; None when it is not stored.
+    stored_in: Optional[str] = None
 
 
 class LLMSampling(BaseModel):
@@ -199,6 +226,16 @@ class OptimizeRequest(BaseModel):
         default=None,
         description="Research could not decide the resource map (LLM failure or no pages); "
         "the optimize run draws it once more",
+    )
+    resource_map_decision: Optional[ResourceMapDecision] = Field(
+        default=None,
+        description="Where research got the map (drawn or reused, and its date); with a "
+        "resource_map and no decision the map counts as passed by the caller",
+    )
+    refresh_resource_map: bool = Field(
+        default=False,
+        description="Draw the resource map again instead of reusing the stored decision. A "
+        "resource_map passed in the request still wins",
     )
     dataset_description: str = Field(
         default="", description="Research description, read by the scope check and the validator"
@@ -415,6 +452,12 @@ class QueryOptimizationRecord(BaseModel):
         description="The resource map could not be decided in this run (LLM failure or no "
         "pages, after one retry): the run had no program split, which is not a firm 'no split'",
     )
+    resource_map_decision: Optional[ResourceMapDecision] = Field(
+        default=None,
+        description="Where this run's program/data decision came from: drawn, reused from the "
+        "stored research record, or passed in the request; with its date. None when no "
+        "decision was made (map step off, or undecided: see resource_map_error)",
+    )
     fulltext_iterations: list[IterationMetrics] = Field(
         default_factory=list, description="Per-iteration full-text metrics (refinement enabled)"
     )
@@ -564,6 +607,11 @@ class DatasetRecord(BaseModel):
         default=None,
         description="The resource map could not be decided (LLM failure or no pages); not "
         "a firm 'no split', and resource_map_checked stays false",
+    )
+    resource_map_decision: Optional[ResourceMapDecision] = Field(
+        default=None,
+        description="The stored program/data decision: drawn or reused, and when it was drawn. "
+        "Later runs reuse it until refresh_resource_map; None while undecided",
     )
     retry_validation: Optional[ValidationRequest] = Field(
         default=None,

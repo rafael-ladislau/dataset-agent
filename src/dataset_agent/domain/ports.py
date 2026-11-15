@@ -60,6 +60,10 @@ class DatasetRepositoryPort(ABC):
     def save(self, record: DatasetRecord) -> Path:
         pass
 
+    def load(self, main_dataset_name: str) -> DatasetRecord | None:
+        """The stored record of *main_dataset_name*, or None (default: nothing stored)."""
+        return None
+
 
 class LiteratureGateResult:
     __slots__ = ("passed", "indicator", "detail")

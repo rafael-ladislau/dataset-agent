@@ -198,11 +198,23 @@ async def run_full_pipeline(
         resource_map=record.resource_map,
         resource_map_checked=record.resource_map_checked,
         resource_map_error=record.resource_map_error,
+        resource_map_decision=record.resource_map_decision,
+        refresh_resource_map=request.refresh_resource_map,
         dataset_description=record.description or "",
     )
     opt_record = await optimize_uc.execute(opt_req)
 
     record.llm_sampling = sampling
+    if not record.resource_map_checked:
+        # Research could not decide the map and optimize drew it (and stored it): carry
+        # the stored decision onto the record saved below, or that save would drop it.
+        stored = research_uc.stored_map_decision(record.main_dataset_name)
+        if stored is not None:
+            record.resource_map = stored.resource_map
+            record.resource_map_checked = True
+            record.resource_map_error = None
+            record.resource_map_decision = stored.resource_map_decision
+            record.program_datasets = stored.program_datasets
 
     record.query_optimization = opt_record
     path = repo.save(record)

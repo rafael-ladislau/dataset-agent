@@ -47,6 +47,7 @@ from dataset_agent.domain.models import (
     DatasetRecord,
     LiteratureValidation,
     ResearchRequest,
+    ResourceMapDecision,
     TermsEvaluation,
     build_record_from_pipeline,
 )
@@ -190,9 +191,83 @@ class DatasetResearchUseCase:
         self._map_drawn = False
         self._map_value = None
         self._map_error: str | None = None
+        self._map_decision: ResourceMapDecision | None = None
+        self._map_stored: DatasetRecord | None = None
+        self._map_refresh = False
+
+    # -- the stored program/data decision ----------------------------------------------
+    # A decided resource map (a split or a firm "no split") is stored on the dataset's
+    # research record (the JSON repository, one file per dataset name) and reused by later
+    # runs, so the program/data decision does not change from run to run. It is drawn
+    # again only on ``refresh_resource_map`` or when no decided map is stored. An
+    # undecided draw (``resource_map_error``) is never stored as a decision: the record
+    # keeps ``resource_map_checked`` false and the next run draws again. The catch: a poor
+    # first draw persists until someone refreshes it, so the output always says whether the
+    # map was reused and when it was drawn (``resource_map_decision``), and the map itself
+    # (``program_datasets``, ``found_names``) is on the record for inspection.
+
+    def stored_map_decision(self, main_dataset_name: str) -> DatasetRecord | None:
+        """The stored research record of *main_dataset_name* when it holds a decided map
+        (``resource_map_checked``); else None."""
+        load = getattr(self._repository, "load", None)
+        stored = load(main_dataset_name) if callable(load) else None
+        if isinstance(stored, DatasetRecord) and stored.resource_map_checked:
+            return stored
+        return None
+
+    def stored_in(self, main_dataset_name: str) -> str | None:
+        path_for = getattr(self._repository, "path_for", None)
+        path = path_for(main_dataset_name) if callable(path_for) else None
+        return path.name if isinstance(path, Path) else None
+
+    def reused_decision(self, stored: DatasetRecord) -> ResourceMapDecision:
+        prev = stored.resource_map_decision
+        return ResourceMapDecision(
+            origin="reused", split=stored.resource_map is not None,
+            decided_at=prev.decided_at if prev is not None else None,
+            stored_in=self.stored_in(stored.main_dataset_name))
+
+    def drawn_decision(self, main_dataset_name: str, rmap, *, refreshed: bool
+                       ) -> ResourceMapDecision:
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        return ResourceMapDecision(
+            origin="drawn", split=rmap is not None, decided_at=now.replace("+00:00", "Z"),
+            refreshed=refreshed, stored_in=self.stored_in(main_dataset_name))
+
+    def remember_map(self, record, rmap, decision: ResourceMapDecision) -> Path | None:
+        """Store a decided map on the dataset's research record (the stored record when one
+        exists, else *record* when it is a DatasetRecord). Only map fields change."""
+        name = record.main_dataset_name
+        load = getattr(self._repository, "load", None)
+        stored = load(name) if callable(load) else None
+        target = stored if isinstance(stored, DatasetRecord) else record
+        if not isinstance(target, DatasetRecord):
+            return None
+        target.resource_map = rmap.model_copy(deep=True) if rmap is not None else None
+        target.resource_map_checked = True
+        target.resource_map_error = None
+        target.resource_map_decision = decision
+        if rmap is not None:
+            from dataset_agent.adapters.resource_map import program_datasets
+
+            target.program_datasets = program_datasets(target.resource_map, built=False)
+        else:
+            target.program_datasets = None
+        return self._repository.save(target)
+
+    def begin_map_decision(self, request: ResearchRequest) -> None:
+        """Start of a research run: read the stored decision before this run saves over
+        it (none on a refresh)."""
+        self._map_drawn, self._map_value, self._map_error = False, None, None
+        self._map_decision = None
+        self._map_refresh = bool(request.refresh_resource_map)
+        self._map_stored = (None if self._map_refresh or not self._settings.resource_map_enabled
+                            else self.stored_map_decision(request.dataset_name))
 
     def execute(self, request: ResearchRequest) -> tuple[DatasetRecord, Path]:
-        self._map_drawn, self._map_value, self._map_error = False, None, None
+        self.begin_map_decision(request)
         max_attempts = max(1, self._settings.literature_max_attempts)
         logger.info(
             "Research started: dataset_name=%r literature_max_attempts=%s gate=%s",
@@ -612,15 +687,26 @@ class DatasetResearchUseCase:
         from dataset_agent.adapters.resource_map import ResourceMapUndecided
 
         if not self._map_drawn:
-            try:
-                self._map_value = self._resource_map(record)
-            except ResourceMapUndecided as exc:
-                logger.warning("resource map: could not be decided: %s", exc)
-                self._map_value, self._map_error = None, str(exc)
+            stored = self._map_stored
+            if stored is not None:
+                self._map_value = (stored.resource_map.model_copy(deep=True)
+                                   if stored.resource_map is not None else None)
+                self._map_decision = self.reused_decision(stored)
+                logger.info("resource map: reused the stored decision %s",
+                            self._map_decision.model_dump())
+            else:
+                try:
+                    self._map_value = self._resource_map(record)
+                    self._map_decision = self.drawn_decision(
+                        record.main_dataset_name, self._map_value, refreshed=self._map_refresh)
+                except ResourceMapUndecided as exc:
+                    logger.warning("resource map: could not be decided: %s", exc)
+                    self._map_value, self._map_error = None, str(exc)
             self._map_drawn = True
         record.resource_map = self._map_value
         record.resource_map_error = self._map_error
         record.resource_map_checked = self._map_error is None
+        record.resource_map_decision = self._map_decision
         if self._map_value is not None:
             from dataset_agent.adapters.resource_map import program_datasets
 
