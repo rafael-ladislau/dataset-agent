@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from dataset_agent.adapters.resource_map import (
     build_map,
     candidates,
@@ -210,3 +212,27 @@ def test_a_remainder_needs_half_of_its_hits_with_the_program():
                                ["Example Program", "Example Cohort"], count=count, found=found)
     assert "Research Hub" not in hits and "Example Workbench" in hits
     assert found["research hub"]["reason"] == "only 100 of 2000 hits carry a program name"
+
+
+def test_map_is_undecided_when_every_count_failed():
+    # Dimensions outage, throttling or an exhausted budget: no count is not "no split".
+    from dataset_agent.adapters.resource_map import ResourceMapUndecided
+
+    calls = []
+
+    def failed(clause):
+        calls.append(clause)
+        return None
+
+    with pytest.raises(ResourceMapUndecided, match="every count failed"):
+        build_map(_raw(), dataset_name="Example Program", pages=PAGES, count=failed)
+    assert calls  # candidates existed and were counted
+
+
+def test_low_counts_or_one_failed_count_stay_a_firm_answer():
+    assert build_map(_raw(), dataset_name="Example Program", pages=PAGES, count=_count({})) is None
+
+    def one_failed(clause):
+        return None if "Example Workbench" in clause else 0
+
+    assert build_map(_raw(), dataset_name="Example Program", pages=PAGES, count=one_failed) is None

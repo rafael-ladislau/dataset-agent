@@ -363,16 +363,29 @@ def build_map(raw: dict, *, dataset_name: str, pages: str,
               count_where: Callable[[str, str], int | None] | None = None,
               max_share_before: float = 0.05, specific_min_share: float = 0.5,
               max_hits: int = 500_000) -> ResourceMap | None:
-    """Apply the deterministic split rule; *count* returns Dimensions hits of a clause and
-    *count_where* (optional) the hits under a ``where`` filter, to confirm the release year."""
+    """Apply the deterministic split rule; *count* returns Dimensions hits of a clause (None
+    when the count failed) and *count_where* (optional) the hits under a ``where`` filter, to
+    confirm the release year. Raises :class:`ResourceMapUndecided` when candidates were
+    counted and every count failed."""
     found: dict = {}
     cand = candidates(raw, dataset_name=dataset_name, pages=pages, found=found)
     if cand is None:
         return None
     programs, data = cand
-    hits, alone = check_data_names(data, programs, count=count, min_cooccurrence=min_cooccurrence,
-                                   found=found, source="pages")
+    results: list[int | None] = []
+
+    def counted(clause: str) -> int | None:
+        n = count(clause)
+        results.append(n)
+        return n
+
+    hits, alone = check_data_names(data, programs, count=counted,
+                                   min_cooccurrence=min_cooccurrence, found=found, source="pages")
     if not hits:
+        if results and all(n is None for n in results):
+            # Every count failed (outage, throttling, exhausted budget): not a firm answer.
+            raise ResourceMapUndecided(
+                f"every count failed ({len(results)} Dimensions count(s) for the data names)")
         return None
     specific = specific_names(hits, alone, min_share=specific_min_share, max_hits=max_hits)
     former = [n for n in (raw.get("former_or_parent_program_names") or [])
@@ -807,7 +820,7 @@ def map_for_record(agent, record, *, count: Callable[[str], int | None],
     """Research the resource map of a DatasetRecord (pages fetched unless given). With
     *discover*, a split dataset also gets the web discovery step (``discover_from_web``).
     Returns None for a firm "no split"; raises :class:`ResourceMapUndecided` when there
-    are no pages or the LLM call failed."""
+    are no pages, the LLM call failed or every Dimensions count failed."""
     name = record.main_dataset_name
     if pages is None:
         parts = []
