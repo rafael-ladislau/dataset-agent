@@ -844,6 +844,60 @@ def test_surface_form_anchored_resource_name_stays_an_alias():
     assert r.candidate.flag_terms == []
 
 
+def test_acronym_parenthetical_surface_form_stays_an_alias():
+    """No over-demotion: 'Name (ACRO)' — the dataset's own name written with its
+    acronym in a parenthetical — is a wording of the dataset's surface form, so an
+    organization classification must not demote it to a flag term."""
+    pubs = [pub(f"g{i}", 40 - i, True, "the Nevada Geodetic Laboratory (NGL) computed the orbits")
+            for i in range(3)]
+    r = refine_candidate(
+        QueryCandidate("X", safe=["NHIS"]), ev(pubs), settings=S,
+        agent=FakeLLM({"new_aliases": [{"name": "Nevada Geodetic Laboratory (NGL)",
+                                        "kind": "organization"}]}),
+        dataset_name="Nevada Geodetic Laboratory", count_fn=lambda t: 5, reference_count=100,
+    )
+    added = [d.term for d in r.diffs if d.kind == "alias" and d.action == "add"]
+    assert added == ["Nevada Geodetic Laboratory (NGL)"]
+    assert not [d for d in r.diffs if d.kind == "flag" and d.action == "add"]
+
+
+def test_sanitizer_changed_alias_name_keeps_its_classification():
+    """The classification of a typed alias row survives a sanitizer change of the name
+    (a trailing period): with and without it the outcome is identical."""
+    pubs = ([pub(f"g{i}", 40 - i, True, "records from the Alpine Seismology Facility")
+             for i in range(3)]
+            + [pub("f0", 5, False, "NHIS nursing"), pub("f1", 4, False, "NHIS nursing")])
+
+    def out(name):
+        return refine_candidate(
+            QueryCandidate("X", safe=["NHIS"]), ev(pubs), settings=S,
+            agent=FakeLLM({"new_aliases": [{"name": name, "kind": "organization"}]}),
+            dataset_name="X", count_fn=lambda t: 5, reference_count=100,
+        )
+
+    a, b = out("Alpine Seismology Facility"), out("Alpine Seismology Facility.")
+    assert [(d.kind, d.term, d.action, d.reason) for d in a.diffs] \
+        == [(d.kind, d.term, d.action, d.reason) for d in b.diffs]
+    fd = diff(b, "flag", "Alpine Seismology Facility")
+    assert fd.action == "add" and "organization" in fd.reason
+    assert not [d for d in b.diffs if d.kind == "alias" and d.action == "add"]
+
+
+def test_url_shaped_host_heads_are_demoted_as_hosts():
+    """A term whose domain-shaped head is a bare domain is a host even with a URL
+    wrapper (scheme, port, path); plain domains keep their host demotion."""
+    from dataset_agent.adapters.fulltext_refiner import _context_only_kind
+
+    ds = "Nevada Geodetic Laboratory"
+    for term in ["www.example.org/data", "https://www.example.org", "ftp.example.org:8080",
+                 "https://ftp.example.org:8080/data?x=1"]:
+        assert _context_only_kind(term, None, ds) == "host", term
+    for term in ["sub-domain.example.org", "data.gov.scot"]:
+        assert _context_only_kind(term, None, ds) == "host", term
+    for term in ["St. Louis Bandits", "MIDAS (the network)"]:
+        assert _context_only_kind(term, None, ds) is None, term
+
+
 def test_organization_overlapping_a_genuine_alias_removes_nothing_and_duplicates_nothing():
     """An organization-typed term equal to a genuine alias (the overlap validate-skip
     governs) leaves the alias, its gating and the flag list untouched: no removal, no

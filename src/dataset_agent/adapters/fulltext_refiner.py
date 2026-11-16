@@ -19,8 +19,8 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable
 
-from dataset_agent.adapters.name_grounding import content_tokens
-from dataset_agent.adapters.term_sanitizer import sanitize_terms
+from dataset_agent.adapters.name_grounding import _PAREN_TAIL, content_tokens
+from dataset_agent.adapters.term_sanitizer import sanitize_term, sanitize_terms
 from dataset_agent.adapters.dimensions_phrase import same_search
 from dataset_agent.adapters.fulltext_evidence import (
     Evidence,
@@ -59,14 +59,28 @@ _MAX_PROMPT_SNIPPETS = 2
 CONTEXT_ONLY_KINDS = frozenset({"organization", "archive", "repository", "host"})
 #: A bare domain ("www.example.org") is a host, never a dataset name.
 _HOST_NAME = re.compile(r"(?:[A-Za-z0-9][\w'-]*\.)+[A-Za-z]{2,}")
+#: A URL scheme in front of a host name ("https://www.example.org").
+_HOST_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://")
+#: A port after a host name ("ftp.example.org:8080").
+_HOST_PORT = re.compile(r":\d+$")
 
 
 def _surface_form_anchored(term: str, dataset_name: str) -> bool:
     """The name is the dataset's own surface form, or a wording of it: it denotes the
-    dataset itself even when a classification says organization or repository."""
+    dataset itself even when a classification says organization or repository. A
+    trailing parenthetical qualifier ('Nevada Geodetic Laboratory (NGL)') is stripped
+    before the check: naming the acronym the classification already saw is still the
+    dataset's own name."""
     anchor = content_tokens(dataset_name)
-    tokens = content_tokens(term)
-    return same_search(term, dataset_name) or (bool(tokens) and tokens <= anchor)
+
+    def anchored(t: str) -> bool:
+        tokens = content_tokens(t)
+        return same_search(t, dataset_name) or (bool(tokens) and tokens <= anchor)
+
+    if anchored(term):
+        return True
+    stripped = _PAREN_TAIL.sub("", term).strip()
+    return bool(stripped) and stripped != term and anchored(stripped)
 
 
 def _context_only_kind(term: str, classified: str | None, dataset_name: str) -> str | None:
@@ -78,8 +92,9 @@ def _context_only_kind(term: str, classified: str | None, dataset_name: str) -> 
     kind = (classified or "").strip().casefold()
     if kind in CONTEXT_ONLY_KINDS:
         return kind
-    stripped = term.strip().rstrip("/")
-    if _HOST_NAME.fullmatch(stripped):
+    stripped = _HOST_SCHEME.sub("", term.strip().rstrip("/")).split("/", 1)[0]
+    head = _HOST_PORT.sub("", stripped.split("?", 1)[0].split("#", 1)[0]).strip()
+    if _HOST_NAME.fullmatch(head):
         return "host"
     return None
 
@@ -99,7 +114,12 @@ def _new_alias_entries(v: object) -> tuple[list[str], dict[str, str]]:
             names.append(name)
             kind = x.get("kind")
             if isinstance(kind, str) and kind.strip():
-                kinds.setdefault(" ".join(name.split()).casefold(), kind.strip())
+                # The refine loop looks the kind up by the sanitized term, so the key
+                # itself must be sanitized: a sanitizer-changed variation of the name
+                # (a trailing period) would otherwise silently lose the classification.
+                cleaned = sanitize_term(name)
+                if cleaned is not None:
+                    kinds.setdefault(" ".join(cleaned.split()).casefold(), kind.strip())
     terms = sanitize_terms(names, "refiner term")
     out = dedupe_strings_ci_preserve_order(
         [t for t in terms if len(t) > 2 and '"' not in t])[:5]
