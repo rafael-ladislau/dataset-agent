@@ -305,8 +305,18 @@ class Settings(BaseSettings):
     #: The random sample aims at max(this, fulltext_target_delivered) papers.
     fulltext_split_min_sample: int = Field(default=21, ge=1, le=500)
     #: Analyze batches per year of the random release sample (each sends about twice the
-    #: papers the year still needs, within fulltext_batch_size).
+    #: papers the year still needs, within fulltext_batch_size); per month slice when the
+    #: year is sliced.
     fulltext_release_max_batches_per_year: int = Field(default=3, ge=1, le=20)
+    #: Month-count Dimensions calls the random release sample may spend on slicing its
+    #: large years by month (twelve per large year: one count per month, so the year's
+    #: quota is allocated across the months and each month is probed with an inclusive
+    #: ``date_range`` window under its own count + 50 cap). Never the optimizer's
+    #: ``optimize_max_dimensions_calls``: this budget is the release sample's own. A
+    #: budget spent before a year's twelve counts are complete leaves that year on its
+    #: whole-year probe and the record marks the degraded coverage. 0: large years are
+    #: never sliced. (All of Us' large years need about 48 calls.)
+    fulltext_release_month_count_calls: int = Field(default=60, ge=0)
     #: A promotion adding more than ratio x the selected query's count is a large expansion.
     fulltext_recall_expansion_ratio: float = Field(default=1.0, ge=0.0)
     #: For a large expansion the Wilson 95% lower bound of complement precision must reach

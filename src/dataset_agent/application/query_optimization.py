@@ -396,6 +396,7 @@ class QueryOptimizationUseCase:
         self._dims_calls = 0
         self._cap_extra = 0
         self._release_reserve = 0
+        self._month_count_calls = 0
         self._resource_map = None
         self._resource_map_error: str | None = None
         self._map_decision = None
@@ -1712,6 +1713,7 @@ class QueryOptimizationUseCase:
         family = request.model_family or name
         self._dims_calls = 0
         self._cap_extra = int(s.ai_model_extra_dimensions_calls)
+        self._month_count_calls = 0
         phase1 = "phase1_alias_counting"
 
         hub = await asyncio.to_thread(fetch_hub_evidence, request.hugging_face_id)
@@ -2636,6 +2638,77 @@ class QueryOptimizationUseCase:
         counts = year_counts_from_result(result)
         return {int(y): int(c) for y, c in counts.items() if ys <= y <= ye and int(c) > 0}
 
+    # -- large years sliced by month -------------------------------------------------
+
+    def _month_budget_left(self) -> bool:
+        """Room for one more month-count call of the release sample: its own budget
+        (``fulltext_release_month_count_calls``), never the optimizer's
+        ``optimize_max_dimensions_calls``; a budget of 0 never slices a large year."""
+        cap = int(self._settings.fulltext_release_month_count_calls)
+        return cap > 0 and self._month_count_calls < cap
+
+    async def _month_count(self, for_clause: str, year: int, month: int) -> int:
+        """The hits of *for_clause* inside one month of *year*, over the same population
+        the probes pull (see ``_year_counts``: no publication-type filter, the US filter
+        when set, the date bounds inclusive on both ends like extraction's
+        ``date <=``). Its own budget, not the optimizer's -- the optimizer budget stays
+        whole for the gates and the refinement loop."""
+        from dataset_agent.adapters.release_sample import month_window
+
+        first, last = month_window(year, month, within=self._dataset_years())
+        where = f"year in [{year}:{year}] and date >= {first.isoformat()} and date <= {last.isoformat()}"
+        if self._settings.default_filter_us_affiliation:
+            where += ' and research_org_countries = "US"'
+        dsl = (f'search publications in full_data for "{for_clause}" '
+               f'where {where} return publications[id] limit 1')
+        if not self._month_budget_left():
+            raise DimensionsDslError("release month-count budget exhausted")
+        self._month_count_calls += 1
+        result = await self._dsl.execute_dsl(dsl)
+        raise_for_dsl_errors(result)
+        return parse_total_count(result)
+
+    async def _slice_large_years(self, counts: dict[int, int], alloc: dict[int, int],
+                                 for_clause: str,
+                                 info: dict) -> tuple[dict[int, dict[int, int]],
+                                                      dict[int, dict[int, int]]]:
+        """Month-slice the large sampled years. A year is large above the whole-year
+        pull bound (``release_sample.is_large_year``): only there can one capped pull no
+        longer cover the year, so the year's quota is re-allocated across its months
+        (largest remainder) and probed month by month with a ``date_range`` window.
+        Twelve month-count calls per large year, on the sample's own budget: a budget
+        spent before a year's counts are complete degrades the year to its whole-year
+        probe, marked ``degraded_whole_year`` on the run record's year entry -- never a
+        silently uniform sample."""
+        from dataset_agent.adapters.release_sample import allocate, is_large_year
+
+        start_calls = self._month_count_calls
+        info["slicing"] = {"month_count_budget":
+                           int(self._settings.fulltext_release_month_count_calls),
+                           "month_count_calls": 0, "years_sliced": {}, "degraded_years": {}}
+        month_counts: dict[int, dict[int, int]] = {}
+        month_allocation: dict[int, dict[int, int]] = {}
+        for year, count in sorted(counts.items()):
+            if not alloc.get(year) or not is_large_year(count):
+                continue
+            got: dict[int, int] = {}
+            for month in range(1, 13):
+                if not self._month_budget_left():
+                    break  # the month budget ran out mid-year: degraded, see below
+                got[month] = await self._month_count(for_clause, year, month)
+            if len(got) < 12:
+                exhausted = self._settings.fulltext_release_month_count_calls <= 0
+                reason = ("the month-count budget is 0" if exhausted else
+                          f"the month-count budget ran out after {len(got)} of 12 months")
+                info["slicing"]["degraded_years"][year] = reason
+                continue
+            month_counts[year] = dict(got)
+            month_allocation[year] = allocate(got, alloc[year])
+            info["slicing"]["years_sliced"][year] = {"counts": dict(got),
+                                                     "allocation": month_allocation[year]}
+        info["slicing"]["month_count_calls"] = self._month_count_calls - start_calls
+        return month_counts, month_allocation
+
     def _sample_summary(self, m: IterationMetrics) -> dict:
         """Point estimates with Wilson 95% intervals for a release sample's metrics."""
         n = m.n_evaluated
@@ -2676,6 +2749,8 @@ class QueryOptimizationUseCase:
             info.update(year_counts=counts, allocation=alloc)
             if not alloc:
                 raise ValueError("the Dimensions year facet returned no papers")
+            month_counts, month_allocation = await self._slice_large_years(
+                counts, alloc, for_clause, info)
             seed = candidate_to_seed(
                 candidate, group_name=s.default_group_name, years=seed_years,
                 publication_types=list(s.default_publication_types),
@@ -2685,6 +2760,7 @@ class QueryOptimizationUseCase:
             out = await asyncio.to_thread(functools.partial(
                 client.run_year_sample, seed, allocation=alloc, year_counts=counts,
                 rng_seed=rng_seed, batch_size=s.fulltext_batch_size,
+                month_counts=month_counts, month_allocation=month_allocation,
                 max_batches_per_year=s.fulltext_release_max_batches_per_year))
         except (ExtractionError, ValueError, DimensionsDslError) as exc:
             logger.warning("release sample failed: %s", exc)
@@ -2703,6 +2779,12 @@ class QueryOptimizationUseCase:
         info.update(years=years, **self._sample_summary(m))
         info["pool_capped_years"] = [y for y, v in sorted(years.items())
                                      if not v.get("pool_covers_year", True)]
+        for y, reason in (info.get("slicing") or {}).get("degraded_years", {}).items():
+            # the month budget ran out mid-year: the whole-year pool of this large year
+            # is its most-cited 1,000 at best, so the record marks the degraded coverage
+            info["years"][int(y)] = {**info["years"].get(int(y), {}),
+                                     "coverage": "degraded_whole_year",
+                                     "degraded_reason": reason}
         info["papers"] = [{"id": v.publication_id, "year": year_of.get(v.publication_id),
                            "verdict": v.verdict, "four_way": v.four_way if ev.scope_checked
                            else None} for v in ev.verdicts]
@@ -2737,9 +2819,26 @@ class QueryOptimizationUseCase:
                     f"{info['target']} aimed, minimum {info['min_sample']}"
                     + (f"; years drawn from their 1,000 most-cited papers {capped}"
                        if capped else "") + ")")
+            head += QueryOptimizationUseCase._sample_slicing_note(info)
         return (head + est("unrelated share", info.get("unrelated_share"))
                 + est("confirmed data share", info.get("data_share"))
                 + est("precision", info.get("precision")))
+
+    @staticmethod
+    def _sample_slicing_note(info: dict) -> str:
+        """The month slice of the release sample's large years, with its totals and
+        every degraded year (whole-year fallback) the run record carries."""
+        slicing = info.get("slicing") or {}
+        sliced = sorted(slicing.get("years_sliced") or {})
+        degraded = sorted(slicing.get("degraded_years") or {})
+        if not sliced and not degraded:
+            return ""
+        parts = [f"year {y} sliced by month" for y in sliced]
+        for y in degraded:
+            reason = slicing["degraded_years"][y]
+            parts.append(f"year {y} kept its whole-year probe ({reason}); its coverage is "
+                         "degraded (a large year's year probe draws from the most-cited)")
+        return ("; month slicing: " + "; ".join(parts) if parts else "")
 
     @staticmethod
     def _own_program_names(rmap) -> list[str]:
@@ -3113,6 +3212,7 @@ class QueryOptimizationUseCase:
         self._dims_calls = 0
         self._cap_extra = 0
         self._release_reserve = 0
+        self._month_count_calls = 0
         self._resource_map = None
         self._resource_map_error = None
         self._map_decision = None

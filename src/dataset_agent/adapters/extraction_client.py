@@ -146,7 +146,11 @@ class YearSampleResult:
     #: that did not deliver, each with ``sample_year``.
     results: dict[str, Any]
     #: Per year: count, allocation, pull_cap, pool, pool_covers_year, sent, delivered,
-    #: kept, batches, stop_reason.
+    #: kept, batches, stop_reason; a large year sliced by month additionally carries
+    #: sliced, months (per month: count, count_missing, allocation, pull_cap, pool,
+    #: pool_covers_month, sent, delivered, kept, batches, stop_reason), complete and
+    #: incomplete (months_capped, months_missing_count, months_outside_window,
+    #: months_short).
     years: dict[int, dict[str, Any]]
     rng_seed: int
 
@@ -277,7 +281,11 @@ class ExtractionClient:
         """Start a probe task and wait for its Dimensions search. Cleans up on failure.
 
         ``entity="ai_model"`` posts the seed to ``/ai-models/start`` (the body is the
-        seed plus the probe fields, nothing else is added)."""
+        seed plus the probe fields, nothing else is added). A seed may carry
+        ``date_range`` (inclusive ISO date window, :meth:`run_year_sample`'s month
+        slices): sent only when the route's schema declares the field, else the start
+        fails closed -- an older target would silently ignore the dates and pull a
+        uniform whole-month pool."""
         route, _ = _entity_route(entity)
         self.require_probe_support(route)
         body = dict(seed)
@@ -286,6 +294,12 @@ class ExtractionClient:
             if key in body and key not in declared:
                 logger.info("probe start: %s not declared by %s; left out of the body", key, route)
                 body.pop(key)
+        if "date_range" in body and "date_range" not in declared:
+            raise ExtractionError(
+                f"extraction target does not declare a `date_range` field on {route}: "
+                "a silent whole-year reuse of a dated month slice would give a uniform "
+                "(never a month-stratified) sample, so refusing"
+            )
         body["probe"] = True
         body["probe_pull_cap"] = int(pull_cap)
         task_id = self._request("POST", route, json=body).get("task_id")
@@ -452,6 +466,146 @@ class ExtractionClient:
         finally:
             self.cleanup(task_id)
 
+    def _draw_fulltext_in_order(
+        self, task_id: str, order: list[str], want: int, *, label: str,
+        steps: dict[str, bool], batch_size: int, max_batches: int,
+    ) -> dict[str, Any]:
+        """Send *order*'s papers for open full text in batches until *want* papers of
+        them have delivered (or the pool or the batch cap runs out); the first delivered
+        papers in draw order are kept downstream. Shared by the whole-year and the month
+        paths of :meth:`run_year_sample`. Returns the papers sent in draw order, the
+        delivered ids seen, the batches used, the stop reason and the final
+        ``llm-results`` body (with ``term_contexts`` when batches were sent)."""
+        from dataset_agent.adapters.release_sample import batch_size_for
+
+        sent: list[str] = []
+        delivered: set[str] = set()
+        results: dict[str, Any] = {}
+        batches, pos = 0, 0
+        while True:
+            have = len([i for i in sent if i in delivered])
+            if have >= want:
+                stop = STOP_TARGET_MET
+                break
+            if pos >= len(order):
+                stop = STOP_POOL_EXHAUSTED
+                break
+            if batches >= max_batches:
+                stop = STOP_MAX_BATCHES
+                break
+            batch = order[pos:pos + batch_size_for(want - have, batch_size)]
+            pos += len(batch)
+            batches += 1
+            sent += batch
+            logger.info("release sample %s %s batch %d: %d id(s), %d/%d delivered",
+                        task_id, label, batches, len(batch), have, want)
+            self.analyze_ids(task_id, batch, steps=steps)
+            results = self.wait_batch_done(task_id, batch)
+            delivered = {str(p["publication_id"]) for p in _pubs(results) if is_delivered(p)}
+        if batches:
+            # One heavier read at the end: snippets of the seed's terms in each
+            # delivered paper show why the query matched it.
+            results = self.get_llm_results(task_id, contexts=True)
+            delivered = {str(p["publication_id"]) for p in _pubs(results) if is_delivered(p)}
+        return {"sent": sent, "delivered": delivered, "batches": batches, "stop": stop,
+                "results": results}
+
+    def _run_sliced_year(
+        self, seed: dict[str, Any], *, year: int, want: int, count: int,
+        month_counts: dict[int, dict[int, int]], month_allocation: dict[int, int],
+        rng_seed: int, label: str, steps: dict[str, bool], batch_size: int,
+        max_batches: int, entity: str,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """One large year sliced by month: one capped probe per month with an
+        allocation, each pulling the month through an inclusive ``date_range`` window
+        (``[YYYY-MM-01 .. YYYY-MM-END]``, clamped into the seed's year window -- every
+        month of a sampled year lies inside it, so the clamp is exact) and keeping its
+        own ``count + 50`` headroom. The papers kept are the first delivered in draw
+        order per month; the pooled months dedupe. Every incompleteness is on the
+        record: a month pool that reaches its cap (``pool_covers_month`` false), a
+        missing month count, a month outside the window, or a month that ended short.
+        Returns the year record and its kept papers with ``sample_year``."""
+        from dataset_agent.adapters.release_sample import draw_order, month_window, pull_cap
+
+        within: tuple[int, int] | None = None
+        years_range = seed.get("years_range") if isinstance(seed, dict) else None
+        if isinstance(years_range, dict):
+            try:
+                within = (int(years_range["start_year"]), int(years_range["end_year"]))
+            except (KeyError, TypeError, ValueError):
+                within = None
+        months: dict[int, dict[str, Any]] = {}
+        pubs_out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for month, m_want in sorted(month_allocation.items()):
+            if m_want <= 0:
+                continue
+            got = dict(month_counts or {})
+            count_missing = month not in got
+            m_count = int(got.get(month, 0))
+            window = month_window(year, month, within=within)
+            if window is None:
+                months[month] = {"outside_window": True, "count": m_count,
+                                 "count_missing": count_missing, "allocation": int(m_want),
+                                 "pull_cap": pull_cap(m_count), "pool": 0,
+                                 "pool_covers_month": False, "sent": 0, "delivered": 0,
+                                 "kept": 0, "batches": 0, "stop_reason": STOP_POOL_EXHAUSTED}
+                continue
+            body = dict(seed)
+            body["years_range"] = {"start_year": int(year), "end_year": int(year)}
+            body["date_range"] = {"date_from": window[0].isoformat(),
+                                  "date_to": window[1].isoformat()}
+            cap = pull_cap(m_count)
+            task_id = self.start_search(body, cap, entity=entity)
+            try:
+                results = self.get_llm_results(task_id)
+                pool = [str(p["publication_id"]) for p in _pubs(results)]
+                draw = self._draw_fulltext_in_order(
+                    task_id, draw_order(pool, rng_seed, year, month=month), int(m_want),
+                    label=label, steps=steps, batch_size=batch_size, max_batches=max_batches)
+                kept: list[str] = []
+                for pid in draw["sent"]:  # in draw order; the pooled months dedupe
+                    if pid in draw["delivered"] and pid not in seen and len(kept) < m_want:
+                        kept.append(pid)
+                        seen.add(pid)
+                keep = set(kept) | {i for i in draw["sent"] if i not in draw["delivered"]}
+                served = {str(p["publication_id"]): p for p in _pubs(draw["results"])}
+                for pid in draw["sent"]:  # in draw order
+                    if pid in keep and pid in served:
+                        pubs_out.append({**served[pid], "sample_year": int(year)})
+                months[month] = {
+                    "count": m_count, "count_missing": count_missing,
+                    "allocation": int(m_want), "pull_cap": cap, "pool": len(pool),
+                    "pool_covers_month": len(pool) < cap,
+                    "sent": len(draw["sent"]),
+                    "delivered": len([i for i in draw["sent"] if i in draw["delivered"]]),
+                    "kept": len(kept), "batches": draw["batches"],
+                    "stop_reason": draw["stop"],
+                }
+            finally:
+                self.cleanup(task_id)
+        capped = [m for m, r in sorted(months.items()) if not r.get("pool_covers_month")]
+        missing = [m for m, r in sorted(months.items()) if r.get("count_missing")]
+        outside = [m for m, r in sorted(months.items()) if r.get("outside_window")]
+        short = [m for m, r in sorted(months.items()) if r["stop_reason"] != STOP_TARGET_MET]
+        record: dict[str, Any] = {
+            "count": int(count), "allocation": int(sum(month_allocation.values())),
+            "sliced": True,
+            "pool_covers_year": not capped and not missing and not outside,
+            "sent": sum(r["sent"] for r in months.values()),
+            "delivered": sum(r["delivered"] for r in months.values()),
+            "kept": sum(r["kept"] for r in months.values()),
+            "batches": sum(r["batches"] for r in months.values()),
+            "stop_reason": months[short[0]]["stop_reason"] if short else STOP_TARGET_MET,
+            "months": months,
+            "complete": not (capped or missing or outside),
+            "incomplete": {
+                "months_capped": capped, "months_missing_count": missing,
+                "months_outside_window": outside, "months_short": short,
+            },
+        }
+        return record, pubs_out
+
     def run_year_sample(
         self,
         seed: dict[str, Any],
@@ -463,20 +617,41 @@ class ExtractionClient:
         max_batches_per_year: int,
         entity: str = "dataset",
         steps: dict[str, bool] | None = None,
+        month_counts: dict[int, dict[int, int]] | None = None,
+        month_allocation: dict[int, dict[int, int]] | None = None,
     ) -> YearSampleResult:
         """The release sample (``adapters.release_sample``): one probe per year with an
         allocation, papers drawn in the seeded random order of that year and sent for open
         full text until the allocation has delivered (or the pool or the batch cap runs
         out). The first delivered papers in draw order are kept; papers sent that did not
-        deliver stay in the result as attempted. Every probe task is cleaned up."""
-        from dataset_agent.adapters.release_sample import batch_size_for, draw_order, pull_cap
+        deliver stay in the result as attempted. Every probe task is cleaned up.
+
+        A year present in *month_allocation* (with the year's own *month_counts*) is a
+        large year sliced by month: one capped probe per month with its slice of the
+        year's allocation, each with an inclusive ``date_range`` window the extraction
+        must declare (``start_search`` refuses a target that does not). Years absent from
+        it keep the whole-year probe exactly as before (no ``date_range`` key)."""
+        from dataset_agent.adapters.release_sample import draw_order, pull_cap
 
         _, default_steps = _entity_route(entity)
         steps = dict(steps) if steps else default_steps
+        month_counts = month_counts or {}
+        month_allocation = month_allocation or {}
         pubs_out: list[dict[str, Any]] = []
         years: dict[int, dict[str, Any]] = {}
         for year, want in sorted(allocation.items()):
             if want <= 0:
+                continue
+            slices = {int(m): int(k) for m, k in dict(month_allocation.get(year) or {}).items()
+                      if int(k) > 0}
+            if slices:
+                record, keep_pubs = self._run_sliced_year(
+                    seed, year=int(year), want=int(want), count=int(year_counts.get(year, 0)),
+                    month_counts=dict(month_counts.get(year) or {}), month_allocation=slices,
+                    rng_seed=rng_seed, label=f"year {year} month", steps=steps,
+                    batch_size=batch_size, max_batches=max_batches_per_year, entity=entity)
+                years[int(year)] = record
+                pubs_out.extend(keep_pubs)
                 continue
             body = dict(seed)
             body["years_range"] = {"start_year": int(year), "end_year": int(year)}
@@ -486,47 +661,23 @@ class ExtractionClient:
             try:
                 results = self.get_llm_results(task_id)
                 pool = [str(p["publication_id"]) for p in _pubs(results)]
-                order = draw_order(pool, rng_seed, year)
-                sent: list[str] = []
-                delivered: set[str] = set()
-                batches, pos = 0, 0
-                while True:
-                    got = [i for i in sent if i in delivered]
-                    if len(got) >= want:
-                        stop = STOP_TARGET_MET
-                        break
-                    if pos >= len(order):
-                        stop = STOP_POOL_EXHAUSTED
-                        break
-                    if batches >= max_batches_per_year:
-                        stop = STOP_MAX_BATCHES
-                        break
-                    k = batch_size_for(want - len(got), batch_size)
-                    batch = order[pos:pos + k]
-                    pos += len(batch)
-                    batches += 1
-                    sent += batch
-                    logger.info("release sample %s year %d batch %d: %d id(s), %d/%d delivered",
-                                task_id, year, batches, len(batch), len(got), want)
-                    self.analyze_ids(task_id, batch, steps=steps)
-                    results = self.wait_batch_done(task_id, batch)
-                    delivered = {str(p["publication_id"]) for p in _pubs(results)
-                                 if is_delivered(p)}
-                if batches:
-                    results = self.get_llm_results(task_id, contexts=True)
-                    delivered = {str(p["publication_id"]) for p in _pubs(results)
-                                 if is_delivered(p)}
-                kept = [i for i in sent if i in delivered][:want]
-                keep = set(kept) | {i for i in sent if i not in delivered}
+                draw = self._draw_fulltext_in_order(
+                    task_id, draw_order(pool, rng_seed, year), want, label=f"year {year}",
+                    steps=steps, batch_size=batch_size, max_batches=max_batches_per_year)
+                results, delivered = draw["results"], draw["delivered"]
+                kept = [i for i in draw["sent"] if i in delivered][:want]
+                keep = set(kept) | {i for i in draw["sent"] if i not in delivered}
                 served = {str(p["publication_id"]): p for p in _pubs(results)}
-                for pid in sent:  # in draw order
+                for pid in draw["sent"]:  # in draw order
                     if pid in keep and pid in served:
                         pubs_out.append({**served[pid], "sample_year": int(year)})
                 years[int(year)] = {
                     "count": count, "allocation": int(want), "pull_cap": cap,
                     "pool": len(pool), "pool_covers_year": len(pool) < cap,
-                    "sent": len(sent), "delivered": len([i for i in sent if i in delivered]),
-                    "kept": len(kept), "batches": batches, "stop_reason": stop,
+                    "sent": len(draw["sent"]),
+                    "delivered": len([i for i in draw["sent"] if i in delivered]),
+                    "kept": len(kept), "batches": draw["batches"],
+                    "stop_reason": draw["stop"],
                 }
             finally:
                 self.cleanup(task_id)

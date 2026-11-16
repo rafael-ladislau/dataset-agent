@@ -39,10 +39,12 @@ class _Server:
         self.statuses = list(statuses)
         self.fail_analyze = fail_analyze
         self.cleanup_body = [] if cleanup_body is None else cleanup_body
+        #: Override for the served /openapi.json (default: PROBE_OPENAPI, no date_range).
+        self.openapi_body: dict | None = None
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         if req.url.path == "/openapi.json":  # the probe capability read, not a pipeline call
-            return httpx.Response(200, json=PROBE_OPENAPI)
+            return httpx.Response(200, json=self.openapi_body or PROBE_OPENAPI)
         body = json.loads(req.content) if req.content else None
         self.calls.append((req.method, req.url.path, body))
         p = req.url.path
@@ -390,3 +392,30 @@ def test_cleanup_http_error_is_false_and_logged():
     client = _client(server)
     assert client.cleanup("T1") is False
     assert client.cleanup_log[-1]["ok"] is False and "HTTP 500" in client.cleanup_log[-1]["error"]
+
+def test_start_search_refuses_a_date_range_the_target_does_not_declare():
+    """A month-slice probe whose dates an older target silently ignored would draw a
+    uniform whole-month pool -- the month bounds never reach its query -- so start fails
+    closed before any task is created."""
+    srv = _Server([])
+    body = {"main_dataset_name": "X",
+            "date_range": {"date_from": "2021-01-01", "date_to": "2021-01-31"}}
+    with pytest.raises(ExtractionError, match="date_range"):
+        _client(srv).start_search(dict(body), 100)
+    assert not [path for _, path, _ in srv.calls if path == "/pipelines/start"]
+
+
+def test_start_search_sends_a_declared_date_range_in_the_body():
+    spec = json.loads(json.dumps(PROBE_OPENAPI))
+    spec["components"]["schemas"]["S"]["properties"]["date_range"] = {"type": "object"}
+    srv = _Server([{"status": "PROCESSING"}])
+    srv.openapi_body = spec
+    with pytest.raises(ExtractionError, match="timed out"):
+        _client(srv).start_search({"main_dataset_name": "X",
+                                   "date_range": {"date_from": "2021-01-01",
+                                                  "date_to": "2021-01-31"}}, 100)
+    (start_body,) = [b for m, p, b in srv.calls if p == "/pipelines/start"]
+    assert start_body["date_range"] == {"date_from": "2021-01-01", "date_to": "2021-01-31"}
+    (cleanup,) = [b for m, p, b in srv.calls if p == "/pipelines/cleanup"]
+    assert cleanup == ["T1"]
+

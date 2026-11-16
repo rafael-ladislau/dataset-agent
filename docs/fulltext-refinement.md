@@ -259,9 +259,20 @@ Dimensions year facet of the query gives the per-year counts; the target (max of
 `fulltext_split_min_sample` and `fulltext_target_delivered`) is allocated to years in
 proportion (largest remainder); one probe per year pulls that year with a cap of count + 50 (at
 most 1,000, the extraction's limit; the probe API sorts by citations and a raw clause may not
-contain `skip`, so a year above 950 papers is drawn from its 1,000 most cited and the record
-says so); inside a year, papers are sent in a seeded random order until the year's allocation
-has delivered full text, and the first delivered ones in draw order are kept. The seed
+contain `skip`). Inside a year, papers are sent in a seeded random order until the year's
+allocation has delivered full text, and the first delivered ones in draw order are kept. A year
+above 950 papers is large: its pull can no longer pool the whole year (the cap has lost the
+count + 50 headroom, so a whole-year draw leans on the year's 1,000 most cited), so it is
+*sliced by month*: twelve month-count calls (the sample's own `fulltext_release_month_count_calls`
+budget, never the optimizer's) allocate the year's quota across its months (largest remainder),
+and one capped probe per month pulls that month through an inclusive `date_range` window the
+extraction target must declare (a target without the field is refused, since its dates would be
+silently ignored). A month's draw is seeded per month (`month_seed`), independent of the
+other months and of the year draw. Every incompleteness is on the record: a month pool that reaches its cap (`pool_covers_month` false,
+`incomplete.months_capped`), a missing month count, a month that ends short, `complete: false` on
+the year; when the month budget runs out before a year's twelve counts are complete, that year
+keeps its whole-year probe and the run record marks its coverage `degraded_whole_year` with the
+reason -- never a silently uniform sample. The seed
 (`fulltext_release_seed`, else a fresh one per run) is recorded. The minimum of 21 evaluated
 papers is the smallest n from which a true unrelated share of 0.10 passes the 0.20 limit with
 probability at least 0.8 and a true 0.30 fails it with probability at least 0.8 (binomial; 14 is
@@ -285,7 +296,9 @@ and the point estimates with Wilson 95% intervals (precision; for a split datase
 and confirmed data shares), and the note `full-text release sample: ...` repeats them. Cost per
 split run: one facet call, one probe per year with an allocation, each pulling up to the year's
 count + 50 records (at most 1,000; this replaces `probe_pull_cap` for these probes, so 11 years of
-about 400 papers pull about 4,950 records), and about twice the target in papers sent for full
+about 400 papers pull about 4,950 records), twelve month-count calls plus one probe per month for
+each large year (a large year's months pull their own count + 50 within the same 1,000 cap), and
+about twice the target in papers sent for full
 text (about half deliver). With the defaults the target is 30 (`fulltext_target_delivered`, above
 the minimum of 21): about 60 papers sent, 30 kept, each delivered paper judged once by the
 extraction validator, plus one scope question per `mentioned` paper (at most 30).

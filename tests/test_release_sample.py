@@ -4,10 +4,13 @@ with full text (split datasets by default), not the top-cited papers the refiner
 from __future__ import annotations
 
 import asyncio
+import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+
+from datetime import date
 
 from dataset_agent.adapters import release_sample as rs
 from dataset_agent.adapters.extraction_client import (
@@ -15,6 +18,7 @@ from dataset_agent.adapters.extraction_client import (
     ExtractionError,
     YearSampleResult,
 )
+from dataset_agent.adapters.seed_mapping import QueryCandidate
 from dataset_agent.application.query_optimization import QueryOptimizationUseCase
 from dataset_agent.domain.models import ConfidenceLevel, OptimizeRequest
 from dataset_agent.settings import Settings
@@ -54,6 +58,59 @@ def test_defaults():
     assert f["fulltext_split_min_sample"].default == 21
     assert f["fulltext_release_seed"].default is None
     assert f["fulltext_release_shadow"].default is False
+    assert f["fulltext_release_month_count_calls"].default == 60
+
+
+# -- large years sliced by month -------------------------------------------------------
+
+
+def test_a_large_year_starts_above_the_whole_year_pull_bound():
+    """``pull_cap`` gives count + 50 capped at 1,000: above 950 facet papers the cap
+    itself has no headroom left, so one pull cannot pool the year's whole population any
+    more and the draw leans on the year's most-cited 1,000. Only such a year is large."""
+    assert rs.LARGE_YEAR_COUNT == rs.MAX_PULL - rs.PULL_HEADROOM == 950
+    assert rs.is_large_year(950) is False and rs.is_large_year(951) is True
+    assert rs.is_large_year(10_000) is True
+
+
+def test_month_counts_allocate_the_year_quota_proportionally():
+    """The year's quota splits over the months with the same largest-remainder rule."""
+    got = {m: (300 if m == 1 else 20) for m in range(1, 13)}  # month 1 has most papers
+    alloc = rs.allocate(got, 40)
+    assert sum(alloc.values()) == 40
+    assert alloc[1] > alloc[2]
+    assert rs.allocate({m: 0 for m in range(1, 13)}, 40) == {}
+
+
+def test_month_seed_is_deterministic_and_separates_the_months():
+    """A month's draw does not depend on the other months or on the year draw."""
+    assert rs.month_seed(11, 2021, 3) == rs.month_seed(11, 2021, 3)
+    assert len({rs.month_seed(11, 2021, m) for m in range(1, 13)}) == 12
+    assert rs.month_seed(11, 2021, 3) != rs.month_seed(11, 2022, 3)
+    assert rs.month_seed(11, 2021, 3) != rs.year_seed(11, 2021)
+
+
+def test_month_draw_order_is_seeded_per_month_and_ignores_input_order():
+    pool = [f"m{i}" for i in range(30)]
+    drawn = rs.draw_order(pool, 7, 2020, month=3)
+    assert drawn == rs.draw_order(list(reversed(pool)), 7, 2020, month=3)
+    assert drawn != rs.draw_order(pool, 7, 2020, month=4)
+    assert drawn != rs.draw_order(pool, 7, 2020)  # whole-year draw, no month
+    assert sorted(drawn) == sorted(pool)
+
+
+def test_month_window_bounds_are_the_month_first_and_last_days():
+    assert rs.month_window(2020, 2) == (date(2020, 2, 1), date(2020, 2, 29))
+    assert rs.month_window(2021, 2) == (date(2021, 2, 1), date(2021, 2, 28))
+    assert rs.month_window(2020, 12) == (date(2020, 12, 1), date(2020, 12, 31))
+    assert rs.month_window(2021, 1) == (date(2021, 1, 1), date(2021, 1, 31))
+
+
+def test_month_window_clamps_to_the_query_year_window():
+    assert rs.month_window(2021, 12, within=(2020, 2021)) == (date(2021, 12, 1),
+                                                              date(2021, 12, 31))
+    assert rs.month_window(2021, 1, within=(2021, 2025)) == (date(2021, 1, 1), date(2021, 1, 31))
+    assert rs.month_window(2019, 5, within=(2020, 2025)) is None  # does not touch it
 
 
 # -- the client ------------------------------------------------------------------------
@@ -106,6 +163,119 @@ def test_client_draws_each_year_at_random_and_keeps_the_allocation(monkeypatch):
     for y, want in ((2020, 2), (2021, 4)):
         order = [i for i in rs.draw_order(pools[y], 11, y) if int(i[1:]) % 2 == 0]
         assert [p["publication_id"] for p in kept if p["sample_year"] == y] == order[:want]
+
+
+def _month_client(monkeypatch, pools: dict):
+    """A fake whose pools are keyed by year (whole-year probe) or (year, month) tuple
+    (month probe); delivered full text is the pool's even-numbered entries, as before."""
+    c = ExtractionClient("http://extraction.invalid")
+    state: dict = {"tasks": {}, "task_of": {}, "bodies": {}, "caps": {}, "analyzed": {},
+                   "cleaned": []}
+
+    def start(body, cap, *, entity="dataset"):
+        yr = body["years_range"]["start_year"]
+        key = ((yr, int(str(body["date_range"]["date_from"])[5:7]))
+               if "date_range" in body else yr)
+        tid = f"t{key}"
+        state["tasks"][tid] = key
+        state["task_of"][key] = tid
+        state["bodies"][key] = dict(body)
+        state["caps"][key] = cap
+        state["analyzed"][tid] = set()
+        return tid
+
+    def results(tid, contexts=False):
+        key = state["tasks"][tid]
+        out = []
+        for pid in pools[key]:
+            done = pid in state["analyzed"][tid]
+            ok = done and ("_e" in pid.split("/")[-1] or "even" in pid)
+            out.append({"publication_id": pid,
+                        "fulltext": ({"status": "delivered"} if ok else
+                                     {"status": "missing", "reason": "no_open_copy"} if done else
+                                     {"status": "missing", "reason": "not_attempted"})})
+        return {"publications": out}
+
+    for k, v in (("require_probe_support", lambda r: None), ("start_search", start),
+                 ("get_llm_results", results),
+                 ("analyze_ids", lambda t, ids, steps=None: state["analyzed"][t].update(ids)),
+                 ("wait_batch_done", lambda t, ids: results(t)),
+                 ("cleanup", lambda t: state["cleaned"].append(t) or True)):
+        monkeypatch.setattr(c, k, v)
+    return c, state
+
+
+def test_a_large_year_runs_one_probe_per_month_and_small_years_stay_whole(monkeypatch):
+    """Every month with an allocation gets its own capped probe whose start body carries
+    the month's inclusive ``date_range`` of January first to the month's last day; a
+    month's cap is its own facet count + 50. The small year's body keeps exactly the
+    legacy shape: no ``date_range`` key at all."""
+    months = {1: 300, 2: 200}
+    pools = {2020: [f"a{i}" for i in range(10)],
+             **{(2021, m): [f"m{m}_e{i}" if i % 2 == 0 else f"m{m}_n{i}" for i in range(12)]
+                for m in (1, 2)}}
+    c, state = _month_client(monkeypatch, pools)
+    out = c.run_year_sample(
+        {"years_range": {"start_year": 2015, "end_year": 2021}, "main_dataset_name": "X"},
+        allocation={2020: 2, 2021: 5}, year_counts={2020: 10, 2021: 1200},
+        rng_seed=11, batch_size=30, max_batches_per_year=3,
+        month_counts={2021: months}, month_allocation={2021: {1: 3, 2: 2}},
+    )
+    # 2020 is not large: whole-year probe, legacy body, no date_range.
+    assert "date_range" not in state["bodies"][2020]
+    assert state["caps"][2020] == rs.pull_cap(10) == 60
+    # 2021 is sliced: one probe per allocated month, inclusive date_range of that
+    # month, and no whole-year probe for it.
+    assert set(state["caps"]) == {2020, (2021, 1), (2021, 2)}
+    assert 2021 not in state["bodies"]
+    assert state["caps"][(2021, 1)] == rs.pull_cap(300)  # 350
+    assert state["caps"][(2021, 2)] == rs.pull_cap(200)  # 250
+    assert state["bodies"][(2021, 1)]["date_range"] == {"date_from": "2021-01-01",
+                                                           "date_to": "2021-01-31"}
+    assert state["bodies"][(2021, 2)]["date_range"] == {"date_from": "2021-02-01",
+                                                           "date_to": "2021-02-28"}
+    kept = [p for p in out.results["publications"]
+            if p.get("sample_year") == 2021 and p["fulltext"]["status"] == "delivered"]
+    assert len(kept) == 5  # 3 from month 1, 2 from month 2, in each month's draw order
+    for m, want in ((1, 3), (2, 2)):
+        order = [i for i in rs.draw_order(pools[(2021, m)], 11, 2021, month=m)
+                 if "_e" in i]
+        got = [p["publication_id"] for p in kept if p["publication_id"].startswith(f"m{m}_")]
+        assert got == order[:want]
+    rec = out.years[2021]
+    assert rec["sliced"] is True and rec["complete"] is True
+    assert rec["pool_covers_year"] is True
+    assert rec["kept"] == 5 and rec["allocation"] == 5
+    assert rec["stop_reason"] == "target_met"
+    assert set(rec["months"]) == {1, 2}
+    assert rec["months"][1]["pool_covers_month"] is True
+    assert sorted(state["cleaned"]) == sorted(state["tasks"])  # every probe cleaned up
+
+
+def test_a_month_reaching_its_cap_and_a_missing_count_mark_the_year_incomplete(monkeypatch):
+    """A month pool that fills the pull cap and a month without a facet count are both
+    incompleteness: the year record never reports a uniform sample silently."""
+    pools = {(2021, 1): [f"cap_n_{i}" for i in range(350)],  # exactly the cap: capped pull
+             (2021, 2): [f"mis_even_{i}" if i % 2 else f"mis_n_{i}" for i in range(6)]}
+    c, state = _month_client(monkeypatch, pools)
+    out = c.run_year_sample(
+        {"years_range": {"start_year": 2021, "end_year": 2021}, "main_dataset_name": "X"},
+        allocation={2021: 4}, year_counts={2021: 1200},
+        rng_seed=11, batch_size=30, max_batches_per_year=9,
+        # the caller sent no count for month 2 (never happens through the optimizer:
+        # it falls back then) -- the marker is what the test pins
+        month_counts={2021: {1: 300}}, month_allocation={2021: {1: 2, 2: 2}},
+    )
+    rec = out.years[2021]
+    assert rec["complete"] is False
+    assert rec["incomplete"]["months_capped"] == [1]
+    assert rec["incomplete"]["months_missing_count"] == [2]
+    assert rec["incomplete"]["months_short"] == [1]
+    assert rec["pool_covers_year"] is False
+    assert rec["months"][1]["pool_covers_month"] is False  # the cap was reached
+    assert rec["months"][2]["count_missing"] is True
+    assert rec["months"][2]["pool_covers_month"] is True  # 6 ids below the cap of 50
+    assert rec["stop_reason"] == "max_batches"  # month 1's shortfall first
 
 
 # -- the release decision ----------------------------------------------------------------
@@ -326,3 +496,110 @@ def test_a_year_outside_the_query_window_never_enters_the_facet(tmp_path):
     (q,) = dsl.queries[-1:]
     assert "year in [2019:2019]" in q  # the window itself reaches the facet DSL
     assert counts == {}  # nothing of the facet lives in the query's own window
+
+
+# -- large years sliced by month (the release sample's own budget) ---------------------
+
+SLICE_CLAUSE = '\\"Example Cohort Program\\"'
+
+
+class SliceDSL(CountDSL):
+    """The year facet reports 2021 large (2,000 papers); every month-count call returns
+    that month's count (distinct, and derived from the date window the query carries)."""
+
+    async def execute_dsl(self, dsl):
+        self.queries.append(dsl)
+        if " return year " in dsl:
+            return SimpleNamespace(count_total=100, year=[{"id": 2020, "count": 60},
+                                                          {"id": 2021, "count": 2000}])
+        window = re.search(r"date >= (\d{4})-(\d{2})-\d{2} and date <= \d{4}-\d{2}-\d{2}", dsl)
+        assert window, dsl
+        month = int(window.group(2))
+        return SimpleNamespace(count_total=1000 + month * 10, publications=[])
+
+
+def _slice_uc(tmp_path, *, month_budget, **settings):
+    llm = MagicMock()
+    llm.get_structured.return_value = {"exclude_terms": [], "flag_terms": [], "new_aliases": [],
+                                       "reasoning": ""}
+    client = YearClient([{"publications": []}], _pubs(21, 0, 0, 0))
+    dsl = SliceDSL()
+    uc = QueryOptimizationUseCase(
+        dsl_port=dsl, research=MagicMock(), agent=llm,
+        settings=make_settings(tmp_path, fulltext_refinement_enabled=True,
+                               optimize_max_iterations=1, fulltext_recall_enabled=False,
+                               fulltext_target_delivered=21, fulltext_release_seed=99,
+                               fulltext_release_month_count_calls=month_budget, **settings),
+        extraction_client=client)
+
+    async def label(ev, _request):
+        ev.scope_ran = True
+        for v in ev.verdicts:
+            v.scope = "data" if v.publication_id.startswith("d") else "program_only"
+
+    uc._apply_scope_check = label
+    req = OptimizeRequest(dataset_name="Example Cohort Program",
+                          dataset_names=["Example Cohort Program", "Example Cohort Study"],
+                          flag_terms=["NIH"], resource_map=MAP)
+    return uc, dsl, client, req
+
+
+def _rnd_sample(uc, req):
+    cand = QueryCandidate(main_dataset_name="Example Cohort Program",
+                          safe=["Example Cohort Program", "Example Cohort Study"])
+    return asyncio.run(uc._random_release_sample(cand, req, SLICE_CLAUSE, 1, decides=True))
+
+
+def test_large_years_are_sliced_with_month_counts_outside_the_optimizer_budget(tmp_path):
+    """A year above the whole-year count bound is sliced: twelve month-count calls run on
+    their own budget (never the optimizer's), its quota is allocated across the months,
+    and the sample carries month counts and allocations to the client."""
+    uc, dsl, client, req = _slice_uc(tmp_path, month_budget=48)
+    dims_before = uc._dims_calls
+    m, info = _rnd_sample(uc, req)
+    assert m is not None and len(client.sample_calls) == 1
+    kw = client.sample_calls[0]
+    assert set(kw["month_counts"]) == {2021} and len(kw["month_counts"][2021]) == 12
+    assert set(kw["month_allocation"]) == {2021}
+    ma = kw["month_allocation"][2021]
+    allocation = info["allocation"]
+    assert allocation[2021] > 0 and sum(ma.values()) == allocation[2021]
+    # largest remainder over the months: the biggest month's share is never below a
+    # proportional share minus one, and the small months stay in proportion
+    counts = kw["month_counts"][2021]
+    assert ma[max(counts, key=lambda m: counts[m])] == max(ma.values())
+    # the twelve month-count calls do not eat the optimize budget (only the facet does)
+    assert uc._month_count_calls == 12 and uc._dims_calls - dims_before == 1
+    month_qs = [q for q in dsl.queries if "date >=" in q]
+    assert len(month_qs) == 12 and all("2021-" in q for q in month_qs)
+    # the month counts count the probe population: no publication-type filter, and the
+    # US filter the probe applies (keep the facet invariant of cf325e0)
+    assert all("type in" not in q for q in month_qs)
+    uc_usecase = QueryOptimizationUseCase
+    slicing = info["slicing"]
+    assert slicing["month_count_calls"] == 12 and slicing["month_count_budget"] == 48
+    assert list(slicing["years_sliced"]) == [2021]
+    assert slicing["degraded_years"] == {}
+    note = uc_usecase._release_sample_note(info)
+    assert "2021 sliced by month" in note
+
+
+def test_a_month_budget_spent_mid_year_degrades_the_year_to_a_whole_year_probe(tmp_path):
+    """When the month budget runs out before a year's twelve counts, the year falls back
+    to its whole-year probe and the run record marks the degraded coverage -- never a
+    silent uniform sample."""
+    uc, dsl, client, req = _slice_uc(tmp_path, month_budget=5)
+    m, info = _rnd_sample(uc, req)
+    assert m is not None and len(client.sample_calls) == 1
+    kw = client.sample_calls[0]
+    assert kw["month_allocation"] == {} and kw["month_counts"] == {}
+    assert uc._month_count_calls == 5
+    slicing = info["slicing"]
+    assert slicing["years_sliced"] == {}
+    assert "5 of 12" in slicing["degraded_years"][2021]
+    # the degraded marker is inspectable in the run record's own year structure
+    yr = info["years"][2021]
+    assert yr["coverage"] == "degraded_whole_year"
+    assert "degraded_reason" in yr
+    note = QueryOptimizationUseCase._release_sample_note(info)
+    assert "2021" in note and "whole-year" in note
