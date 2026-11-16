@@ -195,7 +195,10 @@ def candidate_to_ai_model_seed(
     * otherwise only safe names are sent, and ``model_name`` becomes a safe name when
       the requested one is not (bare "Aurora" must never be searched on its own).
 
-    Raises ``ValueError`` when no name can be searched safely."""
+    Raises ``ValueError`` when no name can be searched safely, or when the description
+    or the developer is missing (extraction refuses such a seed)."""
+    if not (c.description or "").strip() or not (developer or "").strip():
+        raise ValueError("an AI-model seed needs a description and a developer")
     gated = bool(c.risky and c.flag_terms)
     names = dedupe_strings_ci_preserve_order(list(c.safe) + (list(c.risky) if gated else []))
     if not names:
@@ -210,7 +213,7 @@ def candidate_to_ai_model_seed(
         "model_name": primary,
         "model_family": model_family or model_name,
         "description": c.description or None,
-        "developer": (developer or "").strip() or None,
+        "developer": (developer or "").strip(),
         "hugging_face_id": hugging_face_id,
         "model_aliases": [n for n in names if n.casefold() != primary.casefold()],
         "flag_terms": (

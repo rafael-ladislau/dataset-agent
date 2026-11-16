@@ -11,7 +11,8 @@ cleaned up and the cleanup items are reported.
 ``optimize-model`` result verbatim (names, flags, excludes, years) and records the seed
 clause; a withheld seed or a file that is not JSON is refused.
 
-Seed JSON: at least ``{"model_name": ..., "description": ...}``. Missing start fields
+Seed JSON: at least ``{"model_name": ..., "description": ..., "developer": ...}``
+(extraction refuses an AI-model seed without description and developer). Missing start fields
 are defaulted (``model_family`` = model_name, ``hugging_face_id`` null, empty
 alias/flag/exclude lists, ``years_range`` from ``DATASET_AGENT_DEFAULT_YEARS_START`` /
 ``_END``, ``dimensions_limit`` null, ``filter_us_affiliation`` false). Unknown keys and
@@ -59,7 +60,7 @@ from dataset_agent.settings import Settings
 
 #: Keys ``POST /ai-models/start`` accepts besides the probe fields the client adds.
 SEED_KEYS = (
-    "model_name", "model_family", "description", "hugging_face_id", "model_aliases",
+    "model_name", "model_family", "description", "developer", "hugging_face_id", "model_aliases",
     "flag_terms", "exclude_terms", "years_range", "dimensions_limit", "filter_us_affiliation",
 )
 
@@ -75,6 +76,9 @@ def build_seed(raw: dict[str, Any], settings: Settings) -> dict[str, Any]:
     description = str(raw.get("description") or "").strip()
     if not description:
         raise ValueError("seed needs a description (the judge reads it)")
+    developer = str(raw.get("developer") or "").strip()
+    if not developer:
+        raise ValueError("seed needs a developer (extraction refuses a seed without one)")
     years = raw.get("years_range") or {
         "start_year": int(settings.default_years_start),
         "end_year": int(settings.default_years_end),
@@ -83,6 +87,7 @@ def build_seed(raw: dict[str, Any], settings: Settings) -> dict[str, Any]:
         "model_name": name,
         "model_family": raw.get("model_family") or name,
         "description": description,
+        "developer": developer,
         "hugging_face_id": raw.get("hugging_face_id") or None,
         "model_aliases": list(raw.get("model_aliases") or []),
         "flag_terms": list(raw.get("flag_terms") or []),

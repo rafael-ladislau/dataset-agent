@@ -366,18 +366,22 @@ def test_description_and_developer_leave_the_seed_clause_byte_identical() -> Non
     c = QueryCandidate(main_dataset_name="Aurora", safe=["Microsoft Aurora"],
                        risky=["Aurora"], flag_terms=["GraphCast"],
                        exclude_terms=["aurora borealis"])
-    bare = candidate_to_ai_model_seed(c, model_name="Aurora", model_family="Aurora",
-                                      hugging_face_id=None, years=(2024, 2026))
+    def clause(seed):
+        return ai_model_seed_clause([seed["model_name"], *seed["model_aliases"]],
+                                    seed["flag_terms"], seed["exclude_terms"])
+
+    bare = candidate_to_ai_model_seed(
+        dataclasses.replace(c, description="x"), model_name="Aurora", model_family="Aurora",
+        hugging_face_id=None, years=(2024, 2026), developer="y")
     full = candidate_to_ai_model_seed(
         dataclasses.replace(c, description="Aurora is a model of the atmosphere."),
         model_name="Aurora", model_family="Aurora", hugging_face_id="microsoft/aurora",
         years=(2024, 2026), developer="Microsoft")
-    assert full["developer"] == "Microsoft" and bare["developer"] is None
+    assert full["developer"] == "Microsoft" and bare["developer"] == "y"
     assert full["description"] and full["hugging_face_id"] == "microsoft/aurora"
-
-    def clause(seed):
-        return ai_model_seed_clause([seed["model_name"], *seed["model_aliases"]],
-                                    seed["flag_terms"], seed["exclude_terms"])
+    # The extraction pipeline builds its query from these keys only.
+    stripped = {k: v for k, v in full.items() if k not in ("description", "developer")}
+    assert clause(stripped) == clause(full)
 
     assert clause(full) == clause(bare)
     query_keys = ("model_name", "model_aliases", "flag_terms", "exclude_terms", "years_range")
@@ -1763,23 +1767,33 @@ def test_ai_model_seed_mapping() -> None:
         flag_terms=["GraphCast"], exclude_terms=["aurora borealis"], description="d",
     )
     seed = candidate_to_ai_model_seed(
-        gated, model_name="Aurora", model_family="Aurora", hugging_face_id=None, years=(2024, 2026)
+        gated, model_name="Aurora", model_family="Aurora", hugging_face_id=None, years=(2024, 2026),
+        developer="Microsoft",
     )
     assert seed["model_name"] == "Aurora" and seed["model_aliases"] == ["Microsoft Aurora"]
     assert seed["flag_terms"] == ["GraphCast", "Microsoft Aurora"]  # never the risky name
 
     # Risky names without flags are never sent, and never become model_name.
-    ungated = QueryCandidate(main_dataset_name="Aurora", safe=["Microsoft Aurora"], risky=["Aurora"])
+    ungated = QueryCandidate(main_dataset_name="Aurora", safe=["Microsoft Aurora"], risky=["Aurora"],
+                             description="d")
     seed = candidate_to_ai_model_seed(
-        ungated, model_name="Aurora", model_family="Aurora", hugging_face_id=None, years=(2024, 2026)
+        ungated, model_name="Aurora", model_family="Aurora", hugging_face_id=None, years=(2024, 2026),
+        developer="Microsoft",
     )
     assert seed["model_name"] == "Microsoft Aurora" and seed["model_aliases"] == []
 
     with pytest.raises(ValueError, match="no searchable model name"):
         candidate_to_ai_model_seed(
-            QueryCandidate(main_dataset_name="Aurora", risky=["Aurora"]),
+            QueryCandidate(main_dataset_name="Aurora", risky=["Aurora"], description="d"),
             model_name="Aurora", model_family="Aurora", hugging_face_id=None, years=(2024, 2026),
+            developer="Microsoft",
         )
+    for desc, dev in (("", "Microsoft"), ("d", ""), ("d", None), ("  ", "Microsoft")):
+        with pytest.raises(ValueError, match="description and a developer"):
+            candidate_to_ai_model_seed(
+                dataclasses.replace(gated, description=desc), model_name="Aurora",
+                model_family="Aurora", hugging_face_id=None, years=(2024, 2026), developer=dev,
+            )
     assert ai_model_seed_clause(["A B"], [], []) == '(\\"A B\\")'
     assert ai_model_seed_clause(["A"], ["F"], ["X"]) == '((\\"A\\") AND (\\"F\\")) NOT (\\"X\\")'
 

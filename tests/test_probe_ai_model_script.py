@@ -30,18 +30,19 @@ def _body():
 
 
 def test_build_seed_defaults_every_start_field(tmp_path):
-    seed = probe.build_seed({"model_name": "PhaseNet", "description": "Seismic phase picker."},
-                            _settings(tmp_path))
+    seed = probe.build_seed({"model_name": "PhaseNet", "description": "Seismic phase picker.",
+                             "developer": "AI4EPS"}, _settings(tmp_path))
     assert seed == {
         "model_name": "PhaseNet", "model_family": "PhaseNet", "description": "Seismic phase picker.",
-        "hugging_face_id": None, "model_aliases": [], "flag_terms": [], "exclude_terms": [],
+        "developer": "AI4EPS", "hugging_face_id": None, "model_aliases": [], "flag_terms": [], "exclude_terms": [],
         "years_range": {"start_year": 2018, "end_year": 2026}, "dimensions_limit": None,
         "filter_us_affiliation": False,
     }
 
 
 def test_build_seed_keeps_given_fields(tmp_path):
-    raw = {"model_name": "GraphCast", "description": "Weather model.", "model_family": "DeepMind",
+    raw = {"model_name": "GraphCast", "description": "Weather model.", "developer": "DeepMind",
+           "model_family": "DeepMind",
            "years_range": {"start_year": 2022, "end_year": 2025}, "exclude_terms": ["graph cast"]}
     seed = probe.build_seed(raw, _settings(tmp_path))
     assert seed["model_family"] == "DeepMind" and seed["exclude_terms"] == ["graph cast"]
@@ -49,11 +50,14 @@ def test_build_seed_keeps_given_fields(tmp_path):
 
 
 @pytest.mark.parametrize("raw, match", [
-    ({"description": "x"}, "model_name"),
-    ({"model_name": "PhaseNet"}, "description"),
-    ({"model_name": "PhaseNet", "description": "x", "seed_type": "ai_model"}, "seed_type"),
-    ({"model_name": "PhaseNet", "description": "x", "probe": True}, "probe"),
-    ({"model_name": "PhaseNet", "description": "x", "aliases": []}, "aliases"),
+    ({"description": "x", "developer": "d"}, "model_name"),
+    ({"model_name": "PhaseNet", "developer": "d"}, "description"),
+    ({"model_name": "PhaseNet", "description": "x"}, "developer"),
+    ({"model_name": "PhaseNet", "description": "x", "developer": " "}, "developer"),
+    ({"model_name": "PhaseNet", "description": "x", "developer": "d", "seed_type": "ai_model"},
+     "seed_type"),
+    ({"model_name": "PhaseNet", "description": "x", "developer": "d", "probe": True}, "probe"),
+    ({"model_name": "PhaseNet", "description": "x", "developer": "d", "aliases": []}, "aliases"),
 ])
 def test_build_seed_rejects_what_the_server_would_refuse(tmp_path, raw, match):
     with pytest.raises(ValueError, match=match):
@@ -145,6 +149,7 @@ def test_parse_args_defaults(tmp_path):
 SHIPPED = {
     "model_name": "Aurora", "model_family": "Aurora",
     "description": "Aurora is a foundation model for the Earth system developed by Microsoft.",
+    "developer": "Microsoft",
     "hugging_face_id": "microsoft/aurora",
     "model_aliases": ["Microsoft Aurora", "Aurora foundation model"],
     "flag_terms": ["GraphCast", "A Foundation Model for the Earth System"],
