@@ -649,7 +649,25 @@ EMIT_REFINEMENT_CANDIDATES: dict = {
             },
             "new_aliases": {
                 "type": ["array", "null"],
-                "items": {"type": "string"},
+                "items": {
+                    "type": ["string", "object"],
+                    "description": (
+                        "The name as written in a matching quote, with what it names. kind: "
+                        "dataset (the name of the dataset or product itself), organization "
+                        "(an agency, institute, consortium, facility or funder), archive or "
+                        "repository (a collection the data sits in), host (a platform, portal "
+                        "or server that hosts it), other."
+                    ),
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {
+                            "type": "string",
+                            "enum": ["dataset", "organization", "archive", "repository",
+                                     "host", "other"],
+                        },
+                    },
+                    "required": ["name"],
+                },
                 "description": "Mention forms of the dataset seen in matching quotes (max 5).",
             },
             "reasoning": {"type": "string", "description": "Brief rationale (max 40 words)."},

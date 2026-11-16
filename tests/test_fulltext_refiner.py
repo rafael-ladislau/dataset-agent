@@ -784,6 +784,88 @@ def test_term_proposed_as_alias_and_flag_is_judged_as_a_flag_only():
     assert counted.count("GAGE Facility") == 1
 
 
+def test_organization_typed_alias_becomes_a_flag_candidate_not_an_alias():
+    """(GAGE Facility shape) a name the extraction classifies as organization is a
+    context term, not the dataset's name: it is judged on the flag path, never
+    promoted to a standalone alias."""
+    pubs = [pub(f"g{i}", 40 - i, True, "records from the Alpine Seismology Facility")
+            for i in range(3)] + [pub("f0", 5, False, "NHIS nursing"), pub("f1", 4, False, "NHIS nursing")]
+    r = _refine_with(pubs, new_aliases=[{"name": "Alpine Seismology Facility",
+                                         "kind": "organization"}])
+    added = [d.term for d in r.diffs if d.kind == "alias" and d.action == "add"]
+    assert added == []
+    assert "Alpine Seismology Facility" not in r.candidate.safe
+    assert "Alpine Seismology Facility" not in r.candidate.risky
+    assert "Alpine Seismology Facility" in r.candidate.flag_terms
+    fd = diff(r, "flag", "Alpine Seismology Facility")
+    assert fd.action == "add" and "organization" in fd.reason
+
+
+def test_host_named_in_prose_without_a_dataset_anchor_is_never_an_alias():
+    """A hosted platform name from the matching papers (typed, or a bare domain) is
+    context around the dataset: it goes to the flag path, never to the aliases."""
+    pubs = [pub(f"g{i}", 40 - i, True,
+                "we downloaded plots from www.quakeridgefoundation.org and the Aurora Data Portal")
+            for i in range(3)]
+    r = _refine_with(pubs, new_aliases=["www.quakeridgefoundation.org",
+                                        {"name": "Aurora Data Portal", "kind": "host"}])
+    added = [d.term for d in r.diffs if d.kind == "alias" and d.action == "add"]
+    assert added == []
+    flags = [d.term for d in r.diffs if d.kind == "flag" and d.action == "add"]
+    assert flags == ["Aurora Data Portal"]
+    assert "Aurora Data Portal" in r.candidate.flag_terms
+    fd = diff(r, "flag", "Aurora Data Portal")
+    assert "host" in fd.reason
+    notes = " ".join(r.notes)
+    assert "www.quakeridgefoundation.org (not a proper name" in notes
+    assert "www.quakeridgefoundation.org" not in " ".join(
+        d.term for d in r.diffs if d.kind == "flag")
+
+
+def test_surface_form_anchored_resource_name_stays_an_alias():
+    """No over-demotion: a classified name that IS the dataset's own surface form
+    (or a wording of it) remains an alias."""
+    pubs = [pub(f"g{i}", 40 - i, True,
+                "the Invertebrate Paleontology Repository data in the Invertebrate Paleontology Facility")
+            for i in range(3)]
+    cand = QueryCandidate("X", safe=["NHIS"])
+    r = refine_candidate(
+        cand, ev(pubs), settings=S,
+        agent=FakeLLM({"new_aliases": [
+            {"name": "Invertebrate Paleontology Repository", "kind": "repository"},
+            {"name": "Invertebrate Paleontology Facility", "kind": "organization"},
+        ]}),
+        dataset_name="Invertebrate Paleontology Repository", count_fn=lambda t: 5,
+        reference_count=100,
+    )
+    added = [d.term for d in r.diffs if d.kind == "alias" and d.action == "add"]
+    assert added == ["Invertebrate Paleontology Repository", "Invertebrate Paleontology Facility"]
+    assert not [d for d in r.diffs if d.kind == "flag" and d.action == "add"]
+    assert r.candidate.flag_terms == []
+
+
+def test_organization_overlapping_a_genuine_alias_removes_nothing_and_duplicates_nothing():
+    """An organization-typed term equal to a genuine alias (the overlap validate-skip
+    governs) leaves the alias, its gating and the flag list untouched: no removal, no
+    duplicate alias entry, no orphaned flags."""
+    pubs = ([pub(f"g{i}", 40 - i, True, "the Nevada Geodetic Laboratory computed the orbits")
+             for i in range(3)]
+            + [pub("f0", 5, False, "NHIS nursing"), pub("f1", 4, False, "NHIS nursing")])
+    cand = QueryCandidate("X", safe=["NHIS"], risky=["Nevada Geodetic Laboratory"],
+                          flag_terms=["EarthScope Consortium"])
+    r = refine_candidate(cand, ev(pubs), settings=S,
+                         agent=FakeLLM({"new_aliases": [{"name": "Nevada Geodetic Laboratory",
+                                                         "kind": "organization"}]}),
+                         dataset_name="X", count_fn=lambda t: 5, reference_count=100)
+    added = [d.term for d in r.diffs if d.kind == "alias" and d.action == "add"]
+    assert added == []
+    assert r.candidate.risky == ["Nevada Geodetic Laboratory"]
+    assert r.candidate.flag_terms == ["EarthScope Consortium"]
+    nomi_notes = [n for n in r.notes if "Nevada Geodetic Laboratory" in n]
+    assert nomi_notes, "the overlap must be accounted for in the notes"
+    assert not any("(risky and there are no flag terms)" in n for n in r.notes)
+
+
 def test_accepted_changes_are_logged(caplog):
     import logging
 

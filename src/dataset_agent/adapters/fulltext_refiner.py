@@ -14,10 +14,12 @@ can at most mark a term ``suspect``.
 from __future__ import annotations
 
 import logging
+import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable
 
+from dataset_agent.adapters.name_grounding import content_tokens
 from dataset_agent.adapters.term_sanitizer import sanitize_terms
 from dataset_agent.adapters.dimensions_phrase import same_search
 from dataset_agent.adapters.fulltext_evidence import (
@@ -49,6 +51,59 @@ _MAX_EVIDENCE = 3
 #: Papers per side and snippets per paper shown to the LLM pattern pass.
 _MAX_PROMPT_PAPERS = 40
 _MAX_PROMPT_SNIPPETS = 2
+
+#: Classifications that make a name context around the dataset instead of a name of
+#: it: an organization, archive, repository or host name is judged as a flag term,
+#: never promoted to a standalone alias ("GAGE Facility" next to a GNSS collection).
+#: The wording matches the resource map's kinds vocabulary (resource_map.KINDS).
+CONTEXT_ONLY_KINDS = frozenset({"organization", "archive", "repository", "host"})
+#: A bare domain ("www.example.org") is a host, never a dataset name.
+_HOST_NAME = re.compile(r"(?:[A-Za-z0-9][\w'-]*\.)+[A-Za-z]{2,}")
+
+
+def _surface_form_anchored(term: str, dataset_name: str) -> bool:
+    """The name is the dataset's own surface form, or a wording of it: it denotes the
+    dataset itself even when a classification says organization or repository."""
+    anchor = content_tokens(dataset_name)
+    tokens = content_tokens(term)
+    return same_search(term, dataset_name) or (bool(tokens) and tokens <= anchor)
+
+
+def _context_only_kind(term: str, classified: str | None, dataset_name: str) -> str | None:
+    """How the classification says the name is context around the dataset: organization,
+    archive, repository or host (from the proposal's kind, or a bare-domain host in the
+    prose). None for a surface-form-anchored name: the dataset's own form stays an alias."""
+    if _surface_form_anchored(term, dataset_name):
+        return None
+    kind = (classified or "").strip().casefold()
+    if kind in CONTEXT_ONLY_KINDS:
+        return kind
+    stripped = term.strip().rstrip("/")
+    if _HOST_NAME.fullmatch(stripped):
+        return "host"
+    return None
+
+
+def _new_alias_entries(v: object) -> tuple[list[str], dict[str, str]]:
+    """Names and the optional classification of each ``new_aliases`` entry: a string or
+    a ``{"name", "kind"}`` row (the row shape the resource map uses). Names keep the
+    cleaning of the plain-string path; the classification survives a cleaned name."""
+    entries = v if isinstance(v, list) else []
+    names: list[str] = []
+    kinds: dict[str, str] = {}
+    for x in entries:
+        if isinstance(x, str):
+            names.append(_unquote(x))
+        elif isinstance(x, dict) and isinstance(x.get("name"), str):
+            name = _unquote(x["name"])
+            names.append(name)
+            kind = x.get("kind")
+            if isinstance(kind, str) and kind.strip():
+                kinds.setdefault(" ".join(name.split()).casefold(), kind.strip())
+    terms = sanitize_terms(names, "refiner term")
+    out = dedupe_strings_ci_preserve_order(
+        [t for t in terms if len(t) > 2 and '"' not in t])[:5]
+    return out, kinds
 
 
 @dataclass
@@ -129,11 +184,16 @@ Then look at the matching papers TOGETHER: give flag terms (context words they s
 dataset name). A flag term must be a proper name (an agency, program or product such as
 "Census Bureau"), never a lower-case context word such as "state" or "survey data". Also give new
 alias forms of the dataset name that appear in their quotes or snippets but are missing from the
-current aliases.
+current aliases; with each new alias give what it names (kind): dataset (the name of the dataset
+or product itself), organization (an agency, institute, consortium, facility or funder), archive
+or repository (a collection the data sits in), or host (a platform, portal or server that hosts
+it). A name whose kind is organization, archive, repository or host is context around the
+dataset, not a name of it, and is judged as a flag term.
 Only use words that literally occur in the text above.
 
 Use emit_refinement_candidates exactly once."""
-    empty = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "groups": [], "failed": True}
+    empty = {"exclude_terms": [], "flag_terms": [], "new_aliases": [], "new_alias_kinds": {},
+             "groups": [], "failed": True}
     try:
         raw = agent.get_structured(prompt, EMIT_REFINEMENT_CANDIDATES)
     except Exception as exc:
@@ -167,11 +227,13 @@ Use emit_refinement_candidates exactly once."""
             "exclude_terms": clean_list(g.get("exclude_terms"), 5),
         })
     group_excludes = [t for g in groups[:6] for t in g["exclude_terms"]]
+    new_aliases, kinds = _new_alias_entries(raw.get("new_aliases"))
     return {
         "exclude_terms": dedupe_strings_ci_preserve_order(
             clean_list(raw.get("exclude_terms"), 10) + group_excludes)[:15],
         "flag_terms": clean_list(raw.get("flag_terms"), 10),
-        "new_aliases": clean_list(raw.get("new_aliases"), 5),
+        "new_aliases": new_aliases,
+        "new_alias_kinds": kinds,
         "groups": groups[:6],
     }
 
@@ -265,6 +327,11 @@ def refine_candidate(
     *program_names* (resource map): a new alias that equals, contains or abbreviates a
     program name keeps the phase-1 guards: an acronym form or an ordinary phrase is gated;
     otherwise it routes by its count like any alias (the query is broad on the program).
+
+    A new-alias proposal may carry a classification ("kind"); an organization, archive,
+    repository or host name is context around the dataset, not a name of it, and is
+    judged as a flag candidate instead (never promoted to an alias), unless it is the
+    dataset's own surface form (``_surface_form_anchored``), which stays an alias.
     """
     abstract_fp = {a.lower() for a in (abstract_fp_aliases or set())}
     aliases = candidate.all_aliases()
@@ -287,6 +354,10 @@ def refine_candidate(
     new_excludes: list[tuple[str, list[PubVerdict]]] = []
     new_flags: list[tuple[str, list[PubVerdict]]] = []
     new_aliases: list[tuple[str, list[PubVerdict]]] = []
+    # Alias proposals whose classification says they are context around the dataset
+    # (organization, archive, repository, host): never aliases; judged on the flag path.
+    routed_flags: list[str] = []
+    routed_kind: dict[str, str] = {}
     notes: list[str] = []
     already: list[str] = []
     impacts: dict[str, int] = {}
@@ -396,6 +467,20 @@ def refine_candidate(
             if _covered(t, prop["flag_terms"]):
                 reject("alias", t, "also proposed as a flag term")
                 continue
+            # A name classified organization, archive, repository or host (by the
+            # proposal's kind, or a bare host domain) is context around the dataset, not
+            # a name of it: never promoted to an alias, it is judged on the flag path,
+            # like the flag gauntlet's own evidence and count rules.
+            ctx_kind = _context_only_kind(
+                t, prop.get("new_alias_kinds", {}).get(" ".join(t.split()).casefold()),
+                dataset_name)
+            if ctx_kind:
+                logger.info(
+                    "refine: alias candidate %r classified %s, not a dataset name: judged "
+                    "as a flag term", t, ctx_kind)
+                routed_flags.append(t)
+                routed_kind[t.casefold()] = ctx_kind
+                continue
             # A new alias must occur literally (no plural folding) in a genuine quote.
             hit_gen = [v for v in evidence.genuine if term_in_quote(t, v, exact=True)]
             if hit_gen:
@@ -404,10 +489,15 @@ def refine_candidate(
                 reject("alias", t, "not literally in a matching quote")
         # Flags need at least two matching papers and a minimum share of them, from
         # quotes or full-text snippets (titles never count), and must be specific.
+        # Alias proposals routed here for their classification join the same gauntlet.
+        flag_props = list(prop["flag_terms"])
+        for t in routed_flags:
+            if not _covered(t, prop["flag_terms"]):
+                flag_props.append(t)
         n_match = len(evidence.genuine)
         flag_checks = 0
         flag_hits: dict[str, int] = {}
-        for t in prop["flag_terms"]:
+        for t in flag_props:
             if _covered(t, candidate.flag_terms):
                 already.append(t)
                 continue
@@ -615,9 +705,12 @@ def refine_candidate(
             status="verified" if enough and st.n >= settings.refine_min_alias_papers else "unverified",
             reason="unchanged", stats=st.as_dict()))
     for t, hits in new_flags:
+        routed = routed_kind.get(t.casefold())
         diffs.append(TermDiff(
             kind="flag", term=t, action="add", status="verified",
             reason=f"occurs in the quote or snippets of {len(hits)} matching paper(s)"
+            + (f"; classified {routed}: context around the dataset, not a name of it"
+               if routed else "")
             + (f"; {flag_hits[t]} Dimensions hits" if t in flag_hits else ""), evidence=_quotes(hits, t),
             stats={"matching_papers": len(hits), **({"dimensions_count": flag_hits[t]} if t in flag_hits else {})}))
     for e in candidate.exclude_terms:
