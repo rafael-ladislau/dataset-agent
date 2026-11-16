@@ -38,7 +38,7 @@ matches "bert_base"); it does not follow these rules.
 | Parentheses inside a phrase are separators | "Medical Information Mart for Intensive Care (MIMIC)" = without the parentheses 2,164 (escaped or raw) | Escaped, one search | Separator |
 | An inner double quote breaks the phrase and widens the query | `The "All of Us" Research Program` 412,891 vs 3,876 without the inner quotes | Never sent: replaced with a space before escaping | Separator |
 | "_" is part of the token | "bert_base_uncased" 45 vs split 7,366 vs joined 11; "ERA5_Land" 184 vs 7,324 vs 1,122 | Kept | Part of the token |
-| Plurals fold both ways for every token of three or more characters | "All of Us Research Program" = "…Programs" 4,857; "food security supplement(s)" 794; "electronic health record(s)" 235,144; NHANES = NHANE 91,424; LLM = LLMs; CNN = CNNs; MRI = MRIs; ERA5 = ERA5s 46,330; map = maps; "1990s" = "1990" 4,611,963; "2010s" = "2010" 12,627,656; "the 1990s" = "the 1990" 754,282 | Singular and plural are one search | A final "s" folds; a token under three characters does not ("GPT-4s" 78 vs 52,109: the token is "4s") |
+| Plurals fold both ways for every plural token of four or more characters | "All of Us Research Program" = "…Programs" 4,857; "food security supplement(s)" 794; "electronic health record(s)" 235,144; NHANES = NHANE 91,424; LLM = LLMs; CNN = CNNs; MRI = MRIs; ERA5 = ERA5s 46,330; map = maps; "1990s" = "1990" 4,611,963; "2010s" = "2010" 12,627,656; "the 1990s" = "the 1990" 754,282 | Singular and plural are one search | A final "s" folds from four characters ("maps", "LLMs"); a token under three characters does not ("GPT-4s" 78 vs 52,109: the token is "4s"); three-character tokens are not measured and do not fold |
 | "-ies" folds to "-y"; "-es" does not fold to the bare stem | "cancer registries" = "cancer registry" 83,433 ("cancer registrie" 0); "cohort studies" = "cohort study" 1,664,062; "bounding boxes" 116,770 vs "bounding box" 157,583; "meta analyses" 3,185,482 vs "meta analysis" 3,184,312 | One search for "-ies"/"-y"; "-es" forms are searched apart | "-ies" becomes "-y"; "-es" loses only the "s" |
 | Matching ignores case | "AoU" = "aou" = "AOU" 22,667 | Case variants are one search | Case-folded |
 | No wildcard inside quotes | quoted "genom\*" = "genom?" 186,151; unquoted genom\* 2,721,048, genom? 1,890,730, genome 1,881,409 | "\*" and "?" are escaped inside phrases | Literal |
@@ -86,6 +86,9 @@ token and do not fold:
 - a dot between a digit and a letter ("ERA5.Land");
 - "," or ";" between two digits;
 - a dot after a digit at the end of a word ("version 2.0."), or before a word (".NET");
+- plural folding of three-character tokens ("CPS" and "CP", "GPS" and "GP" are searched apart;
+  every measured fold has four or more characters, and the only shorter case measured, "4s", does
+  not fold);
 - plural folding of the endings "ss" and "us" ("GNSS", "Census"), of "-ies" after "a" or "e", and of
   "-ies", "-aes", "-oes" and "-ees" kept as written (the stemmer's branches; each keeps tokens apart);
 - any character not listed above;

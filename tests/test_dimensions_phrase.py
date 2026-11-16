@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from dataset_agent.adapters.ai_model_research import HubEvidence, assemble_candidates
-from dataset_agent.adapters.dimensions_phrase import same_search, search_key
+from dataset_agent.adapters.dimensions_phrase import plural_base, same_search, search_key
 from dataset_agent.adapters.fulltext_recall import recall_candidates
 from dataset_agent.adapters.fulltext_refiner import _covered
 from dataset_agent.adapters.query_builder import drop_flags_equal_to_aliases, flag_gate_notes
@@ -26,9 +26,9 @@ from dataset_agent.adapters.seed_mapping import QueryCandidate
         ("All of Us Research Program", "All of Us Research Programs"),
         ("all of us research program", "ALL OF US RESEARCH PROGRAM"),
         ("Prithvi-EO-2.0", "Prithvi EO 2.0"),
-        # Plural folding of every token: all-caps, short, letter-and-digit, CamelCase
-        # (matching is case-insensitive, so case cannot gate the stemmer).
-        ("CPS", "CP"),
+        # Plural folding of every token of four or more characters: all-caps, short,
+        # letter-and-digit, CamelCase (matching is case-insensitive, so case cannot gate
+        # the stemmer).
         ("NHANES", "NHANE"),
         ("LLMs", "LLM"),
         ("ERA5s", "ERA5"),
@@ -67,6 +67,11 @@ def test_one_search(a: str, b: str) -> None:
         # A token under three characters does not fold ("GPT-4s" 78 vs "GPT-4" 52,109).
         ("GPT-4s", "GPT-4"),
         ("GPT-4's", "GPT-4"),
+        # Not measured, conservative: a three-character token does not fold (every
+        # measured fold has four or more characters: maps, LLMs, MRIs, ERA5s, 1990s).
+        ("CPS", "CP"),
+        ("GPS", "GP"),
+        ("IPUMS CPS", "IPUMS CP"),
         # Not measured, conservative: "ss" and "us" endings are not plurals.
         ("Census", "Censu"),
         ("GNSS", "GNS"),
@@ -79,6 +84,15 @@ def test_one_search(a: str, b: str) -> None:
 )
 def test_two_searches(a: str, b: str) -> None:
     assert not same_search(a, b)
+
+
+def test_plural_folding_needs_a_token_of_four_or_more_characters() -> None:
+    """Measured folds all have four or more characters; three-character tokens are not
+    measured, so they keep their final "s" (an extra search, never a lost one)."""
+    assert plural_base("cps") == "cps" and plural_base("gps") == "gps"
+    assert plural_base("maps") == "map" and plural_base("llms") == "llm"
+    # So a flag "CP" is not taken as already inside a risky "IPUMS CPS".
+    assert drop_flags_equal_to_aliases(["CP", "NIH"], ["IPUMS CPS"]) == ["CP", "NIH"]
 
 
 def test_flag_equal_to_a_risky_alias_under_dimensions_folding_is_dropped() -> None:
@@ -360,7 +374,7 @@ MEASURED_PHRASE_RULES: list[tuple[str, str, str, bool]] = [
     # MRIs = MRI above).
     ("not-plural-us-ending", "Census", "Censu", False),
     ("not-plural-ss-ending", "GNSS", "GNS", False),
-    # A numeric token of three or more characters folds like any other ("1990s" =
+    # A numeric token of four or more characters folds like any other ("1990s" =
     # "1990" 4,611,963; "2010s" = "2010" 12,627,656; "the 1990s" = "the 1990" 754,282).
     # "GPT-4s" above does not fold because its token "4s" is under three characters.
     ("plural-numeric-decade", "1990", "1990s", True),

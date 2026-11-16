@@ -26,9 +26,9 @@ and extraction (term contexts): ``MEASURED_PHRASE_RULES``.
   "AT&T" = "AT T" (659,644) != "ATT" (182,335); "Pfizer+BioNTech" = "Pfizer BioNTech";
   "Medical Imaging & Data Resource Center" = "Medical Imaging Data Resource Center"
   (122), which is NOT the "and" spelling (170);
-* every token of three or more characters folds singular and plural both ways, inside
-  a phrase too: ordinary words ("Program" = "Programs", "Parkinsons ..." =
-  "Parkinson ..."), all-caps tokens (NHANES = NHANE, LLM = LLMs, CPS = CP), short words
+* a plural token of four or more characters folds singular and plural both ways,
+  inside a phrase too: ordinary words ("Program" = "Programs", "Parkinsons ..." =
+  "Parkinson ..."), all-caps tokens (NHANES = NHANE, LLM = LLMs), short words
   (map = maps), letter-and-digit tokens (ERA5 = ERA5s) and numbers ("1990s" = "1990");
   "-ies" folds to "-y" ("registries" = "registry", "studies" = "study"). A token under
   three characters does not fold ("GPT-4s" 78 vs "GPT-4" 52,109: the token is "4s"),
@@ -46,7 +46,9 @@ the edge of the phrase stays inside the token; a dot between a digit and a lette
 after a digit at the end of a word, or before a word stays inside the token; "," or ";"
 between two digits stays
 inside the token ("1,000" may be one token, as in Unicode word segmentation); the
-endings "ss" and "us" and plural tokens shorter than three characters do not fold. An
+endings "ss" and "us" and plural tokens shorter than four characters do not fold
+("CPS" stays apart from "CP": three-character tokens were not measured, while every
+measured fold has four or more characters). An
 "is" ending does fold: "MRIs" = "MRI" was measured, and case cannot tell it from
 "analysis" because matching is case-insensitive.
 """
@@ -89,13 +91,15 @@ def plural_base(token: str) -> str:
     """*token* without its plural: "nhanes" -> "nhane", "era5s" -> "era5", "1990s" ->
     "1990", "registries" -> "registry".
 
-    Lucene's English minimal ("s") stemmer. Measured: tokens under three characters
-    do not fold ("4s" of "GPT-4s"); "-ies" becomes "-y"; "-es" loses only the "s"
-    ("boxes" -> "boxe", so it stays apart from "box"); "is" folds ("MRIs" = "MRI").
-    Not measured, and they only keep tokens apart: the endings "ss" and "us" ("gnss",
-    "census"), an "-ies" after "a" or "e", and "-ies", "-aes", "-oes", "-ees" kept."""
+    Lucene's English minimal ("s") stemmer, from four characters. Measured: tokens
+    under three characters do not fold ("4s" of "GPT-4s"); four-character tokens fold
+    ("maps", "LLMs", "MRIs"); "-ies" becomes "-y"; "-es" loses only the "s" ("boxes" ->
+    "boxe", so it stays apart from "box"); "is" folds ("MRIs" = "MRI"). Not measured,
+    and they only keep tokens apart: three-character tokens ("cps" stays "cps", where
+    the stemmer would give "cp"), the endings "ss" and "us" ("gnss", "census"), an
+    "-ies" after "a" or "e", and "-ies", "-aes", "-oes", "-ees" kept."""
     n = len(token)
-    if n < 3 or token[-1] != "s" or token[-2] in "us":
+    if n < 4 or token[-1] != "s" or token[-2] in "us":
         return token
     if token[-2] == "e":
         if n > 3 and token[-3] == "i" and token[-4] not in "ae":
