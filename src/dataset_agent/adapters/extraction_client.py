@@ -147,10 +147,10 @@ class YearSampleResult:
     results: dict[str, Any]
     #: Per year: count, allocation, pull_cap, pool, pool_covers_year, sent, delivered,
     #: kept, batches, stop_reason; a large year sliced by month additionally carries
-    #: sliced, months (per month: count, count_missing, allocation, pull_cap, pool,
-    #: pool_covers_month, sent, delivered, kept, batches, stop_reason), complete and
-    #: incomplete (months_capped, months_missing_count, months_outside_window,
-    #: months_short).
+    #: sliced, allocation_sliced, months (per month: count, count_missing, allocation,
+    #: pull_cap, pool, pool_covers_month, sent, delivered, kept, batches, stop_reason),
+    #: complete and incomplete (months_capped, months_missing_count, months_outside_window,
+    #: months_short, months_quota_short, months_quota_revoked).
     years: dict[int, dict[str, Any]]
     rng_seed: int
 
@@ -521,10 +521,16 @@ class ExtractionClient:
         (``[YYYY-MM-01 .. YYYY-MM-END]``, clamped into the seed's year window -- every
         month of a sampled year lies inside it, so the clamp is exact) and keeping its
         own ``count + 50`` headroom. The papers kept are the first delivered in draw
-        order per month; the pooled months dedupe. Every incompleteness is on the
-        record: a month pool that reaches its cap (``pool_covers_month`` false), a
-        missing month count, a month outside the window, or a month that ended short.
-        Returns the year record and its kept papers with ``sample_year``."""
+        order per month; the pooled months dedupe. The record's ``allocation`` is the
+        year quota aimed for; ``allocation_sliced`` is what the month slices summed to.
+        Every incompleteness is on the record: a month pool that reaches its cap
+        (``pool_covers_month`` false), a missing month count, a month outside the
+        window, a month that ended short, a month-slice total below the aimed quota
+        (``months_quota_short``), and, since the bound of *want* kept papers is
+        enforced by revocation (not an assert: the sampling keeps going and the record
+        keeps the evidence), a merged kept total above the quota cut back to it
+        (``months_quota_revoked``). Returns the year record and its kept papers with
+        ``sample_year``."""
         from dataset_agent.adapters.release_sample import draw_order, month_window, pull_cap
 
         within: tuple[int, int] | None = None
@@ -537,6 +543,7 @@ class ExtractionClient:
         months: dict[int, dict[str, Any]] = {}
         pubs_out: list[dict[str, Any]] = []
         seen: set[str] = set()
+        kept_ids: dict[int, list[str]] = {}
         for month, m_want in sorted(month_allocation.items()):
             if m_want <= 0:
                 continue
@@ -568,6 +575,7 @@ class ExtractionClient:
                     if pid in draw["delivered"] and pid not in seen and len(kept) < m_want:
                         kept.append(pid)
                         seen.add(pid)
+                kept_ids[month] = kept
                 keep = set(kept) | {i for i in draw["sent"] if i not in draw["delivered"]}
                 served = {str(p["publication_id"]): p for p in _pubs(draw["results"])}
                 for pid in draw["sent"]:  # in draw order
@@ -588,21 +596,54 @@ class ExtractionClient:
         missing = [m for m, r in sorted(months.items()) if r.get("count_missing")]
         outside = [m for m, r in sorted(months.items()) if r.get("outside_window")]
         short = [m for m, r in sorted(months.items()) if r["stop_reason"] != STOP_TARGET_MET]
+        incomplete: dict[str, Any] = {
+            "months_capped": capped, "months_missing_count": missing,
+            "months_outside_window": outside, "months_short": short,
+        }
+        allocation_sliced = int(sum(month_allocation.values()))
+        quota_short = int(want) - allocation_sliced
+        if quota_short > 0:  # the month slices aim less than the year quota asked for
+            incomplete["months_quota_short"] = quota_short
+        # The bound of *want* kept papers is enforced by revocation (the documented
+        # choice, not an assert): a merged kept total above the quota is cut back to it,
+        # the tail months first, and the cut lands on the record as
+        # ``months_quota_revoked`` -- the sampling keeps going, the evidence stays.
+        total_kept = sum(r["kept"] for r in months.values())
+        if total_kept > int(want):
+            revoked = total_kept - int(want)
+            incomplete["months_quota_revoked"] = revoked
+            drop_ids: set[str] = set()
+            for month in sorted(months, reverse=True):
+                if revoked <= 0:
+                    break
+                ids = kept_ids.get(month) or []
+                take = min(revoked, len(ids))
+                if take:
+                    drop_ids.update(ids[-take:])
+                    del ids[-take:]
+                    months[month]["kept"] -= take
+                    revoked -= take
+            if drop_ids:
+                pubs_out[:] = [p for p in pubs_out
+                               if str(p.get("publication_id")) not in drop_ids]
+        # A short month (or a slice total below the aimed quota) also breaks the
+        # coverage claims: neither ``pool_covers_year`` nor ``complete`` may then report
+        # a uniform sample.
+        covered = not (capped or missing or outside or short or quota_short > 0)
+        complete = covered and "months_quota_revoked" not in incomplete
         record: dict[str, Any] = {
-            "count": int(count), "allocation": int(sum(month_allocation.values())),
+            "count": int(count), "allocation": int(want),
+            "allocation_sliced": allocation_sliced,
             "sliced": True,
-            "pool_covers_year": not capped and not missing and not outside,
+            "pool_covers_year": covered,
             "sent": sum(r["sent"] for r in months.values()),
             "delivered": sum(r["delivered"] for r in months.values()),
             "kept": sum(r["kept"] for r in months.values()),
             "batches": sum(r["batches"] for r in months.values()),
             "stop_reason": months[short[0]]["stop_reason"] if short else STOP_TARGET_MET,
             "months": months,
-            "complete": not (capped or missing or outside),
-            "incomplete": {
-                "months_capped": capped, "months_missing_count": missing,
-                "months_outside_window": outside, "months_short": short,
-            },
+            "complete": complete,
+            "incomplete": incomplete,
         }
         return record, pubs_out
 

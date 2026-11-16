@@ -278,6 +278,152 @@ def test_a_month_reaching_its_cap_and_a_missing_count_mark_the_year_incomplete(m
     assert rec["stop_reason"] == "max_batches"  # month 1's shortfall first
 
 
+def test_a_sliced_year_keeps_the_quota_it_aimed_for_on_the_record(monkeypatch):
+    """A month-slice total below the year's aimed allocation never masquerades as the
+    quota: the record keeps ``allocation`` = the year quota aimed for and adds
+    ``allocation_sliced`` (what the month slices summed to); when short the deficit is
+    on the record as ``months_quota_short`` and the year is not complete. ``kept``
+    stays what was actually kept."""
+    pools = {(2021, m): [f"m{m}_e{i}" if i % 2 == 0 else f"m{m}_n{i}" for i in range(30)]
+             for m in (1, 2)}  # 15 delivered per month, above the 14 each month aims for
+    c, state = _month_client(monkeypatch, pools)
+    out = c.run_year_sample(
+        {"years_range": {"start_year": 2021, "end_year": 2021}, "main_dataset_name": "X"},
+        allocation={2021: 30}, year_counts={2021: 1200},
+        rng_seed=11, batch_size=30, max_batches_per_year=9,
+        # a defensive shape: the optimizer's allocate sums to the quota exactly, so a
+        # slice total below it is a caller bug -- but the record must say so either way
+        month_counts={2021: {1: 300, 2: 300}}, month_allocation={2021: {1: 14, 2: 14}},
+    )
+    rec = out.years[2021]
+    assert rec["allocation"] == 30  # the quota aimed for, not the month-slice total
+    assert rec["allocation_sliced"] == 28
+    assert rec["incomplete"]["months_quota_short"] == 2
+    assert rec["complete"] is False and rec["pool_covers_year"] is False
+    assert rec["kept"] == 28  # what was actually kept
+
+
+def test_a_sliced_year_never_keeps_more_than_the_year_quota(monkeypatch):
+    """The year-quota bound is enforced by revocation (documented in
+    ``_run_sliced_year``, not an assert): months whose merged kept papers sum above the
+    quota are cut back to it -- the tail months first -- and the cut is on the record as
+    ``months_quota_revoked``; the cut never misreports a uniform sample."""
+    pools = {(2021, m): [f"m{m}_e{i}" if i < 12 else f"m{m}_n{i}" for i in range(14)]
+             for m in (1, 2)}  # 12 delivered per month
+    c, state = _month_client(monkeypatch, pools)
+    out = c.run_year_sample(
+        {"years_range": {"start_year": 2021, "end_year": 2021}, "main_dataset_name": "X"},
+        allocation={2021: 4}, year_counts={2021: 1200},
+        rng_seed=11, batch_size=30, max_batches_per_year=9,
+        month_counts={2021: {1: 300, 2: 300}}, month_allocation={2021: {1: 3, 2: 3}},
+    )
+    rec = out.years[2021]
+    assert rec["allocation"] == 4 and rec["allocation_sliced"] == 6
+    assert rec["kept"] == 4
+    assert rec["incomplete"]["months_quota_revoked"] == 2
+    assert rec["complete"] is False
+    assert rec["months"][1]["kept"] == 3 and rec["months"][2]["kept"] == 1  # tail first
+    kept = [p for p in out.results["publications"]
+            if p.get("sample_year") == 2021 and p["fulltext"]["status"] == "delivered"]
+    assert len(kept) == 4  # the revoked papers left the sample, counted once
+
+
+def test_a_month_that_ended_short_keeps_the_year_incomplete(monkeypatch):
+    """A month that ended short of its allocation (its pool was pulled whole and still
+    delivered less) is not hidden by ``pool_covers_month``: the year's ``complete`` and
+    ``pool_covers_year`` are both false."""
+    pools = {(2021, 1): [f"low_e{i}" if i < 4 else f"low_n{i}" for i in range(10)],
+             (2021, 2): [f"ok_e{i}" if i < 6 else f"ok_n{i}" for i in range(10)]}
+    c, state = _month_client(monkeypatch, pools)
+    out = c.run_year_sample(
+        {"years_range": {"start_year": 2021, "end_year": 2021}, "main_dataset_name": "X"},
+        allocation={2021: 8}, year_counts={2021: 1200},
+        rng_seed=11, batch_size=30, max_batches_per_year=9,
+        month_counts={2021: {1: 300, 2: 200}}, month_allocation={2021: {1: 6, 2: 2}},
+    )
+    rec = out.years[2021]
+    assert rec["complete"] is False and rec["pool_covers_year"] is False
+    assert rec["incomplete"]["months_short"] == [1]
+    assert rec["months"][1]["stop_reason"] == "pool_exhausted"
+    assert rec["months"][1]["pool_covers_month"] is True  # the pool was whole, the draw short
+    assert rec["months"][1]["kept"] == 4 and rec["months"][2]["kept"] == 2
+
+
+# -- pinned client flows (budget edges, dedupe, outside months) -------------------------
+
+
+def test_a_zero_month_budget_degrades_the_year_before_any_count_call(tmp_path):
+    """A month-count budget of 0 never slices a large year and never runs a count call:
+    the run record carries the zero-budget reason verbatim."""
+    uc, dsl, client, req = _slice_uc(tmp_path, month_budget=0)
+    m, info = _rnd_sample(uc, req)
+    assert m is not None
+    kw = client.sample_calls[0]
+    assert kw["month_counts"] == {} and kw["month_allocation"] == {}
+    slicing = info["slicing"]
+    assert slicing["years_sliced"] == {}
+    assert slicing["month_count_calls"] == 0
+    assert slicing["degraded_years"][2021] == "the month-count budget is 0"
+    assert not [q for q in dsl.queries if "date >=" in q]
+    assert "the month-count budget is 0" in QueryOptimizationUseCase._release_sample_note(info)
+
+
+def test_a_month_count_budget_of_exactly_twelve_still_slices(tmp_path):
+    """Twelve is the boundary: a budget granting exactly one year's twelve month counts
+    slices that year completely, with no degradation marker."""
+    uc, dsl, client, req = _slice_uc(tmp_path, month_budget=12)
+    m, info = _rnd_sample(uc, req)
+    assert m is not None
+    kw = client.sample_calls[0]
+    assert len(kw["month_counts"][2021]) == 12 and set(kw["month_allocation"]) == {2021}
+    slicing = info["slicing"]
+    assert slicing["month_count_calls"] == 12
+    assert list(slicing["years_sliced"]) == [2021] and slicing["degraded_years"] == {}
+
+
+def test_pooled_months_keep_a_shared_paper_once(monkeypatch):
+    """A paper delivered in one month's probe may surface in the next month's pool too:
+    the seen set dedupes, so the duplicate is kept at most once and every month still
+    fills its own allocation."""
+    pools = {(2021, 1): ["dup_e_x", "a_e_1", "a_e_2"],
+             (2021, 2): ["dup_e_x", "b_e_1", "b_e_2"]}
+    c, state = _month_client(monkeypatch, pools)
+    out = c.run_year_sample(
+        {"years_range": {"start_year": 2021, "end_year": 2021}, "main_dataset_name": "X"},
+        allocation={2021: 4}, year_counts={2021: 1200},
+        rng_seed=11, batch_size=30, max_batches_per_year=9,
+        month_counts={2021: {1: 300, 2: 300}}, month_allocation={2021: {1: 2, 2: 2}},
+    )
+    rec = out.years[2021]
+    assert rec["kept"] == 4 and rec["months"][1]["kept"] == 2
+    assert rec["months"][2]["kept"] == 2  # the seen set never cost a month its quota
+    kept = [str(p["publication_id"]) for p in out.results["publications"]
+            if p.get("sample_year") == 2021 and p["fulltext"]["status"] == "delivered"]
+    assert sorted(kept) == sorted(set(kept)) and len(kept) == 4  # kept once, never twice
+
+
+def test_a_month_outside_the_window_skips_its_probe(monkeypatch):
+    """A month slice whose window cannot touch the seed's year window starts no probe at
+    all (no task, nothing cleaned up) and marks the month outside: the year record never
+    claims a uniform sample."""
+    c, state = _month_client(monkeypatch, pools={})
+    out = c.run_year_sample(
+        {"years_range": {"start_year": 2021, "end_year": 2021}, "main_dataset_name": "X"},
+        allocation={2020: 2}, year_counts={2020: 1200},
+        rng_seed=11, batch_size=30, max_batches_per_year=9,
+        # the sampled year is not the seed's year: every month of 2020 is out of reach
+        month_counts={2020: {1: 300, 2: 300}}, month_allocation={2020: {1: 1, 2: 1}},
+    )
+    rec = out.years[2020]
+    assert rec["sliced"] is True and rec["complete"] is False
+    assert rec["incomplete"]["months_outside_window"] == [1, 2]
+    assert rec["pool_covers_year"] is False
+    assert rec["months"][1]["outside_window"] is True
+    assert rec["months"][1]["pool_covers_month"] is False
+    assert rec["kept"] == 0 and rec["sent"] == 0 and rec["batches"] == 0
+    assert state["tasks"] == {} and state["cleaned"] == []
+
+
 # -- the release decision ----------------------------------------------------------------
 
 
@@ -596,7 +742,7 @@ def test_a_month_budget_spent_mid_year_degrades_the_year_to_a_whole_year_probe(t
     assert uc._month_count_calls == 5
     slicing = info["slicing"]
     assert slicing["years_sliced"] == {}
-    assert "5 of 12" in slicing["degraded_years"][2021]
+    assert slicing["degraded_years"][2021] == "the month-count budget ran out after 5 of 12 months"
     # the degraded marker is inspectable in the run record's own year structure
     yr = info["years"][2021]
     assert yr["coverage"] == "degraded_whole_year"
