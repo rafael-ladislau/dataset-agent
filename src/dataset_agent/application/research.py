@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from dataset_agent.application import prompts
 from dataset_agent.adapters.llm_output_cleanup import is_llm_list_entry_junk
 from dataset_agent.adapters.agent_common import is_sentinel_text
-from dataset_agent.adapters.term_sanitizer import sanitize_terms
+from dataset_agent.adapters.term_sanitizer import sanitize_term, sanitize_terms
 from dataset_agent.adapters.tools import (
     EMIT_SUFFIX_FORM,
     TOOL_DEFINITIONS,
@@ -216,15 +216,25 @@ class DatasetResearchUseCase:
     # literature-discovery names and the random release sample are drawn on every run
     # (docs/fulltext-refinement.md, "Stored program/data decision").
 
+    @staticmethod
+    def _store_name(name: str) -> str:
+        """*name* with only its typography folded, as the term sanitizer folds it (NFKC,
+        curly quotes and apostrophes, Unicode dashes, spaces), case-folded. Punctuation
+        that the store filename also drops stays: it is what tells "C++" from "C#"."""
+        return (sanitize_term(name) or name.strip()).casefold()
+
     def _load_own(self, main_dataset_name: str) -> DatasetRecord | None:
         """The stored record of *main_dataset_name*. The store key is a lossy filename
         ("C++ Corpus" and "C# Corpus" share one), so a record stored under another name
-        counts as none."""
+        counts as none. Names that differ only in typography (a curly or a straight
+        apostrophe) are one name. Known limit: names that differ in punctuation the
+        filename drops ("All of Us (NIH)" and "All of Us NIH") share the file but count as
+        two names, so the map is drawn again (an extra draw, never a wrong map)."""
         load = getattr(self._repository, "load", None)
         stored = load(main_dataset_name) if callable(load) else None
         if not isinstance(stored, DatasetRecord):
             return None
-        if stored.main_dataset_name.strip().casefold() != main_dataset_name.strip().casefold():
+        if self._store_name(stored.main_dataset_name) != self._store_name(main_dataset_name):
             return None
         return stored
 

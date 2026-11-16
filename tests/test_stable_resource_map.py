@@ -346,3 +346,24 @@ def test_a_stored_decision_of_another_name_sharing_the_file_is_not_reused(tmp_pa
     uc = _research(tmp_path, lambda r: _map())
     assert uc.stored_map_decision("C# Corpus") is None
     assert uc.stored_map_decision("c++ corpus") is not None
+
+
+@pytest.mark.parametrize(
+    ("stored_name", "asked_name"),
+    [
+        ("Alzheimer\u2019s Disease Neuroimaging Initiative",
+         "Alzheimer's Disease Neuroimaging Initiative"),
+        ("Alzheimer's Disease Neuroimaging Initiative",
+         "Alzheimer\u2019s Disease Neuroimaging Initiative"),
+        ("All of Us\u00a0 Research  Program", "All of Us Research Program"),
+    ],
+)
+def test_a_stored_decision_is_reused_across_typographic_spellings(tmp_path, stored_name, asked_name):
+    """A curly or straight apostrophe, or extra and non-breaking spaces, share one file
+    and are one name: the stored map is reused, not drawn again."""
+    repo = JsonDatasetRepository(tmp_path)
+    assert repo.path_for(stored_name) == repo.path_for(asked_name)
+    repo.save(_rec(resource_map=_map(), resource_map_checked=True).model_copy(
+        update={"main_dataset_name": stored_name}))
+    uc = _research(tmp_path, lambda r: _map())
+    assert uc.stored_map_decision(asked_name) is not None
