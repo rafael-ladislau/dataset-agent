@@ -76,6 +76,23 @@ class ProbeUnsupportedError(ExtractionError):
     """
 
 
+#: Seed fields the agent adds that an older extraction target does not accept (its start
+#: schemas forbid unknown fields): sent only when the route's schema declares them.
+_OPTIONAL_SEED_FIELDS = ("developer",)
+
+
+def _request_properties(spec: Any, route: str) -> dict[str, Any]:
+    try:
+        schema = spec["paths"][route]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    except (KeyError, TypeError):
+        return {}
+    ref = str(schema.get("$ref") or "") if isinstance(schema, dict) else ""
+    if ref.startswith("#/components/schemas/"):
+        schema = (spec.get("components") or {}).get("schemas", {}).get(ref.rsplit("/", 1)[-1])
+    props = schema.get("properties") if isinstance(schema, dict) else None
+    return props if isinstance(props, dict) else {}
+
+
 def openapi_declares_probe(spec: Any, route: str) -> bool:
     """The server's own OpenAPI document declares probe support for *route*: the route's
     request schema has a ``probe`` property, and the cleanup and llm-results routes exist.
@@ -264,6 +281,11 @@ class ExtractionClient:
         route, _ = _entity_route(entity)
         self.require_probe_support(route)
         body = dict(seed)
+        declared = _request_properties(self._openapi, route)
+        for key in _OPTIONAL_SEED_FIELDS:
+            if key in body and key not in declared:
+                logger.info("probe start: %s not declared by %s; left out of the body", key, route)
+                body.pop(key)
         body["probe"] = True
         body["probe_pull_cap"] = int(pull_cap)
         task_id = self._request("POST", route, json=body).get("task_id")

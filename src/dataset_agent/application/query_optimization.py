@@ -19,6 +19,7 @@ from dataset_agent.adapters.ai_model_research import (
     classify_model_name,
     contains_word,
     fetch_hub_evidence,
+    grounded_developer,
     is_distinctive,
     is_plain_word,
     mine_context_terms,
@@ -1762,7 +1763,12 @@ class QueryOptimizationUseCase:
             max_titles=s.ai_model_max_paper_titles,
         )
         model.description = cands.description
-        model.developer = cands.developer
+        model.developer = grounded_developer(cands.developer, hub, web)
+        if cands.developer and not model.developer:
+            notes_parts.append(
+                f"model research: developer {cands.developer!r} is not named on any page the "
+                "research step read; not stated"
+            )
         # The caller's excludes are their own list: decided once the gate is known.
         caller_excl = {
             (sanitize_term(t) or t).casefold() for t in request.exclude_terms if isinstance(t, str)
@@ -2202,6 +2208,15 @@ class QueryOptimizationUseCase:
     ) -> bool:
         """Build the extraction seed for the record's terms and count it next to the
         selected query. False (with a note) when no seed can be built."""
+        missing = [
+            why for why, ok in (
+                ("no description from the pages the research step read", model.description.strip()),
+                ("no developer found in the pages the research step read", model.developer),
+            ) if not ok
+        ]
+        if missing:
+            notes.append("seed not emitted: " + "; ".join(missing))
+            return False
         safe, risky = list(out.aliases.safe), list(out.aliases.risky)
         flags, excludes = list(out.flag_terms), list(out.exclusion_terms)
         years_start, years_end = model.years
@@ -2213,6 +2228,7 @@ class QueryOptimizationUseCase:
             seed = candidate_to_ai_model_seed(
                 candidate, model_name=model.name, model_family=model.family,
                 hugging_face_id=request.hugging_face_id, years=(years_start, years_end),
+                developer=model.developer,
             )
         except ValueError as exc:
             notes.append(f"seed not built: {exc}")

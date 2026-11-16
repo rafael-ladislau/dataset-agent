@@ -179,8 +179,12 @@ def candidate_to_ai_model_seed(
     model_family: str,
     hugging_face_id: str | None,
     years: tuple[int, int],
+    developer: str | None = None,
 ) -> dict[str, Any]:
     """Build the ``POST /ai-models/start`` body for *c*.
+
+    ``description`` (from *c*), ``developer`` and ``hugging_face_id`` describe the model;
+    none of them is part of the query (:func:`ai_model_seed_clause`).
 
     The pipeline searches ``model_name`` plus ``model_aliases`` and, when flags are
     given, requires one of them for every name. So:
@@ -206,6 +210,7 @@ def candidate_to_ai_model_seed(
         "model_name": primary,
         "model_family": model_family or model_name,
         "description": c.description or None,
+        "developer": (developer or "").strip() or None,
         "hugging_face_id": hugging_face_id,
         "model_aliases": [n for n in names if n.casefold() != primary.casefold()],
         "flag_terms": (

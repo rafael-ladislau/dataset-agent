@@ -268,8 +268,11 @@ with a version, and almost never by a checkpoint file name.
 
 === YOUR TASK ===
 Call emit_model_search_terms exactly once:
-- description: what the model is, who built it and for which domain.
-- developer: the organization that develops it.
+- description: what the model is, who built it and for which domain, stated only from
+  the sources above (Hugging Face, model card, web results); leave out what they do not
+  say.
+- developer: the organization that develops it, as one of the sources above names it;
+  empty if none of them names it.
 - names: how authors write this model in papers. kind "family" for the family name,
   "version" for a family name with a version ("Prithvi-EO-2.0"), "checkpoint" for a
   specific release, "qualified" for the name with its developer or type
@@ -422,6 +425,21 @@ def is_context_name(term: str) -> bool:
     Forecasting" and "Earth System" search as the ordinary words they are."""
     tokens = [t for t in (term or "").split() if t.strip("()[],.;:") not in _COMMON_ACRONYMS]
     return any(_coined_token(t) or _acronym_token(t) for t in tokens)
+
+
+def grounded_developer(developer: str, hub: HubEvidence, web_results: str) -> str:
+    """*developer* when a page the research step read names it, else "".
+
+    The Hub organization page (``hub.developer``) is such a page. Any other developer
+    (the LLM's) must occur as whole words in the Hub owner, the model card excerpt, the
+    linked paper titles or the web results: a developer is never stated from memory."""
+    if hub.developer:
+        return hub.developer
+    dev = (developer or "").strip()
+    if not dev:
+        return ""
+    pages = "\n".join([hub.author, hub.card_excerpt, *hub.paper_titles, web_results or ""])
+    return dev if contains_word(pages, dev) else ""
 
 
 def contains_word(phrase: str, word: str) -> bool:

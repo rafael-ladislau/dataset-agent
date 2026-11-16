@@ -128,3 +128,30 @@ def test_the_capability_is_read_again_before_every_probe():
     with pytest.raises(ProbeUnsupportedError):
         client.start_search({"main_dataset_name": "X"}, 10)
     assert server.started() == [("POST", "/pipelines/start")]
+
+
+def test_a_seed_field_the_target_does_not_declare_is_left_out_of_the_probe_start():
+    """Extraction's start schemas forbid unknown fields: "developer" travels only when
+    the target's /openapi.json declares it."""
+    import json as _json
+
+    bodies = []
+
+    class _Recorder(_MainServer):
+        def __call__(self, req):
+            if req.url.path.endswith("/start"):
+                bodies.append(_json.loads(req.content))
+            return super().__call__(req)
+
+    seed = {"main_dataset_name": "X", "developer": "Microsoft"}
+    for spec in (_openapi(True), _with_developer(_openapi(True))):
+        client = _client(_Recorder(openapi=spec))
+        with pytest.raises(Exception):  # the fake never finishes the search
+            client.start_search(dict(seed), 10, entity="ai_model")
+    assert "developer" not in bodies[0]
+    assert bodies[1]["developer"] == "Microsoft"
+
+
+def _with_developer(spec):
+    spec["components"]["schemas"]["S"]["properties"]["developer"] = {"type": "string"}
+    return spec

@@ -41,7 +41,8 @@ For each iteration the current candidate is mapped to an extraction seed and **p
 
 **AI-model probes (model task v2.1).** `run_probe_topup(..., entity="ai_model")` posts the
 model seed plus `probe` and `probe_pull_cap` to `POST /ai-models/start` (unknown keys are
-rejected with 422, so `seed_type` is never sent) and analyzes with
+rejected with 422, so `seed_type` is never sent, and the seed's `developer` is sent only when
+the route's schema in `/openapi.json` declares it) and analyzes with
 `steps={"validate_ai_models": true}`. Status, `llm-results` and cleanup use the same
 `/pipelines/...` routes. The `llm-results` body carries `seed_type: "ai_model"` and per
 publication `validated_ai_models` rows (`name`, `is_mentioned`, `is_used`, `text_quote`,
@@ -434,3 +435,16 @@ the precision is an extrapolation from a small sample; the reason string states 
 human `is_used` labels (precision, recall). It scores usage, which is stricter than the
 loop's match precision; see its docstring for the input formats and how
 to export human-validated data.
+
+## AI-model seed description and developer
+
+Every emitted AI-model seed carries `description` (the model profile: description, developer,
+model paper and its year), `developer`, and `hugging_face_id` when the request gives one. The
+research step states them only from pages it read: the developer is the Hugging Face
+organization page's name, or a name the LLM gives that occurs as whole words in the Hub owner,
+the model card excerpt, the linked paper titles or the web results; the LLM is told to describe
+the model only from those sources. A seed without a description or a developer is not emitted,
+and the notes say which is missing ("seed not emitted: ..."); the query is still reported. None
+of the three fields is part of the query: the seed's clause (`ai_model_seed_clause`) depends on
+the names, flags and excludes only. Known limit: the description's sentences are not checked
+against the pages by code, only the developer is.

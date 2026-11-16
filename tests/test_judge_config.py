@@ -90,7 +90,8 @@ def test_ai_model_release_records_the_judge_and_flags_the_fallback(tmp_path, mon
 
     state = _fake_eval()
     monkeypatch.setattr(qopt_mod, "fetch_hub_evidence", lambda _id: HubEvidence(
-        hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE]))
+        hugging_face_id="x/phasenet", found=True, developer="AI4EPS",
+        paper_titles=[PHASENET_TITLE]))
     monkeypatch.setattr(qopt_mod, "web_search", lambda _q: "")
     monkeypatch.setattr(qopt_mod, "evaluate_for_clause_sync", lambda *a, **k: state(*a, **k))
     out = _run(tmp_path, ModelClient(_body(20, 17)), ai_model_fulltext_enabled=True,

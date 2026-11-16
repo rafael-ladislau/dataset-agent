@@ -7,6 +7,7 @@ corpus, so the tests assert on behavior (what a term matches) and not on call or
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import itertools
 import re
 from types import SimpleNamespace
@@ -179,15 +180,23 @@ def patched(monkeypatch: pytest.MonkeyPatch):
     """No network: Hub evidence, web search and the gate evaluator are faked."""
     state = SimpleNamespace(hub=AURORA_HUB, eval=_fake_eval())
     monkeypatch.setattr(qopt_mod, "fetch_hub_evidence", lambda _id: state.hub)
-    monkeypatch.setattr(qopt_mod, "web_search", lambda _q: "- Aurora (Microsoft) weather model")
+    monkeypatch.setattr(qopt_mod, "web_search",
+                        lambda _q: f"- Aurora (Microsoft) weather model\n- {TEST_DEVELOPER} release notes")
     monkeypatch.setattr(
         qopt_mod, "evaluate_for_clause_sync", lambda *a, **k: state.eval(*a, **k)
     )
     return state
 
 
+#: The developer a fixture LLM answer gets when it names none; the fake web results name
+#: it, so it counts as found on a page the research step read.
+TEST_DEVELOPER = "Example Lab"
+
+
 def _run(tmp_path, docs, llm, request: OptimizeRequest, *, judge=None, **settings_over):
     """*judge(prompt) -> bool* answers the model-aware mention check (title anchors)."""
+    if isinstance(llm, dict) and llm and "developer" not in llm:
+        llm = {**llm, "developer": TEST_DEVELOPER}
     dsl = CorpusDSL(docs)
     agent = MagicMock()
     agent.get_structured.return_value = llm
@@ -300,6 +309,7 @@ def test_aurora_seed_for_extraction(tmp_path, patched) -> None:
             "Aurora is Microsoft's foundation model of the atmosphere. Developer: Microsoft. "
             "Model paper: 'A Foundation Model for the Earth System' (2024)."
         ),
+        "developer": "Microsoft",
         "hugging_face_id": "microsoft/aurora",
         "model_aliases": ["Microsoft Aurora", "Aurora foundation model"],
         # The safe names travel as flags too: (S or R) and (F or S) == S or (R and F).
@@ -314,6 +324,64 @@ def test_aurora_seed_for_extraction(tmp_path, patched) -> None:
     )
     assert out.ai_model_seed_count == 50
     assert out.ai_model_query_count == 50
+
+
+def test_a_seed_without_a_developer_found_in_the_sources_is_not_emitted(tmp_path, patched) -> None:
+    """The developer is stated only when a page the research step read names it: the
+    Hub organization, the model card, its linked papers or the web results. A developer
+    only the LLM gives is dropped, and a seed without a developer is not emitted."""
+    patched.hub = HubEvidence(hugging_face_id="microsoft/aurora", found=True, author="",
+                              developer="", created_year=2024,
+                              paper_titles=["A Foundation Model for the Earth System"])
+    llm = {**AURORA_LLM, "developer": "Contoso Labs"}
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), llm, _aurora_request(),
+                             ai_model_title_flag_enabled=False)
+    assert out.for_clause  # the query is still built and reported
+    assert out.ai_model_seed is None
+    assert "seed not emitted: no developer found in the pages the research step read" in out.notes
+
+
+def test_a_developer_named_by_the_web_results_is_kept(tmp_path, patched) -> None:
+    patched.hub = HubEvidence(hugging_face_id="microsoft/aurora", found=True, author="",
+                              developer="", created_year=2024,
+                              paper_titles=["A Foundation Model for the Earth System"])
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), AURORA_LLM, _aurora_request(),
+                             ai_model_title_flag_enabled=False)
+    # The fake web results read "- Aurora (Microsoft) weather model".
+    assert out.ai_model_seed is not None and out.ai_model_seed["developer"] == "Microsoft"
+
+
+def test_a_seed_without_a_description_is_not_emitted(tmp_path, patched) -> None:
+    llm = {**AURORA_LLM, "description": ""}
+    out, _dsl, _agent = _run(tmp_path, _aurora_corpus(), llm, _aurora_request(),
+                             ai_model_title_flag_enabled=False)
+    assert out.ai_model_seed is None
+    assert "seed not emitted: no description from the pages the research step read" in out.notes
+
+
+def test_description_and_developer_leave_the_seed_clause_byte_identical() -> None:
+    from dataset_agent.adapters.seed_mapping import (
+        QueryCandidate, ai_model_seed_clause, candidate_to_ai_model_seed)
+
+    c = QueryCandidate(main_dataset_name="Aurora", safe=["Microsoft Aurora"],
+                       risky=["Aurora"], flag_terms=["GraphCast"],
+                       exclude_terms=["aurora borealis"])
+    bare = candidate_to_ai_model_seed(c, model_name="Aurora", model_family="Aurora",
+                                      hugging_face_id=None, years=(2024, 2026))
+    full = candidate_to_ai_model_seed(
+        dataclasses.replace(c, description="Aurora is a model of the atmosphere."),
+        model_name="Aurora", model_family="Aurora", hugging_face_id="microsoft/aurora",
+        years=(2024, 2026), developer="Microsoft")
+    assert full["developer"] == "Microsoft" and bare["developer"] is None
+    assert full["description"] and full["hugging_face_id"] == "microsoft/aurora"
+
+    def clause(seed):
+        return ai_model_seed_clause([seed["model_name"], *seed["model_aliases"]],
+                                    seed["flag_terms"], seed["exclude_terms"])
+
+    assert clause(full) == clause(bare)
+    query_keys = ("model_name", "model_aliases", "flag_terms", "exclude_terms", "years_range")
+    assert {k: full[k] for k in query_keys} == {k: bare[k] for k in query_keys}
 
 
 def test_seed_finds_what_the_selected_query_finds(tmp_path, patched) -> None:
@@ -1900,7 +1968,8 @@ def test_one_profile_for_the_abstract_judge_and_the_seed(tmp_path, patched) -> N
     judge, the record's judge context and the seed description."""
     patched.hub = HubEvidence(hugging_face_id="x/phasenet", found=True, paper_titles=[PHASENET_TITLE])
     out, _dsl, _agent = _phasenet_run(tmp_path, _phasenet_regate_docs(), ["STEAD"])
-    profile = f"{PHASENET_LLM['description']} Model paper: {PHASENET_TITLE!r} (2019)."
+    profile = (f"{PHASENET_LLM['description']} Developer: {TEST_DEVELOPER}. "
+               f"Model paper: {PHASENET_TITLE!r} (2019).")
     assert out.ai_model_judge_context == profile
     assert out.ai_model_seed["description"] == profile
     assert patched.eval.calls[0]["entity_context"] == profile
@@ -1913,8 +1982,9 @@ def test_profile_without_an_anchor_is_the_description(tmp_path, patched) -> None
            "paper_titles": [], "context_terms": [], "other_meanings": []}
     out, _dsl, _agent = _run(tmp_path, docs, llm,
                              OptimizeRequest(dataset_name="FourCastNet", entity_type="ai_model"))
-    assert out.ai_model_judge_context == "FourCastNet is NVIDIA's weather model."
-    assert out.ai_model_seed["description"] == "FourCastNet is NVIDIA's weather model."
+    profile = f"FourCastNet is NVIDIA's weather model. Developer: {TEST_DEVELOPER}."
+    assert out.ai_model_judge_context == profile
+    assert out.ai_model_seed["description"] == profile
 
 
 def test_a_paper_title_proposed_as_a_name_stays_a_title() -> None:
