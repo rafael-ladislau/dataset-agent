@@ -453,3 +453,35 @@ def test_ai_model_names_are_searched_in_both_ampersand_spellings() -> None:
     )
     names = [n for n, _k in c.names]
     assert "Earth Imaging and Vision Foundation Model" not in names
+
+
+def _phrase_matchers():
+    from dataset_agent.adapters.dimensions_phrase import ampersand_spellings, phrase_contains
+    from dataset_agent.adapters.fulltext_evidence import quote_allows_references_only
+    from dataset_agent.adapters.query_builder import build_for_clause
+    from dataset_agent.adapters.term_sanitizer import sanitize_term
+
+    return {
+        "search_key": search_key,
+        "phrase_contains": lambda t: phrase_contains(t, "All of Us"),
+        "ampersand_spellings": ampersand_spellings,
+        "sanitize_term": sanitize_term,
+        "build_for_clause": lambda t: build_for_clause(
+            safe=[t], risky=[t], flag_terms=[t], exclusion_terms=[t], variant="V4"),
+        "quote_allows_references_only": lambda t: quote_allows_references_only(
+            t, [{"term": "All of Us", "part": "references", "text": t}]),
+    }
+
+
+@pytest.mark.parametrize("unit", [",", ":", "'", "’", ".", "A.", "A'", "A-", "A and "])
+def test_phrase_matchers_stay_linear_on_long_punctuation_runs(unit: str) -> None:
+    """A 300,000-character run of punctuation (or of capitalised words joined by it)
+    must not make a matcher backtrack: each one finishes in well under 2 seconds."""
+    import time
+
+    text = (unit * (300_000 // len(unit) + 1))[:300_000]
+    for name, fn in _phrase_matchers().items():
+        start = time.perf_counter()
+        fn(text)
+        elapsed = time.perf_counter() - start
+        assert elapsed < 2.0, f"{name} took {elapsed:.1f}s on {unit!r} x 300,000"

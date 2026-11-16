@@ -137,7 +137,35 @@ def phrase_contains(outer: str, inner: str) -> bool:
 
 
 _AMP = re.compile(r"(?<=\S) +& +(?=\S)")
-_AND = re.compile(r"(\b[A-Z][\w.'-]*) +and +(?=[A-Z])")
+#: " and " before a capital. The capitalised word before it is found by
+#: :func:`_and_to_ampersand`, not by the pattern: a pattern such as
+#: ``(\b[A-Z][\w.'-]*) +and +`` restarts at every capital of a long "A.A.A..." run and
+#: rescans the run each time (quadratic: 40,000 characters took 10 s).
+_AND_GAP = re.compile(r" +and +(?=[A-Z])")
+_NAME_CHAR = re.compile(r"[\w.'-]")
+_WORD_CHAR = re.compile(r"\w")
+
+
+def _and_to_ampersand(name: str) -> str:
+    """*name* with each " and " between two capitalised words written " & ", in linear
+    time. The word before is the run of word characters, dots, apostrophes and hyphens
+    that ends at the gap; it qualifies from its first capital at a word boundary
+    (as ``\b[A-Z]``), and the run and the gap are kept as written."""
+    out: list[str] = []
+    done = 0
+    for gap in _AND_GAP.finditer(name):
+        start = gap.start()
+        if start < done:
+            continue
+        run = start
+        while run > done and _NAME_CHAR.match(name, run - 1):
+            run -= 1
+        if not any("A" <= name[k] <= "Z" and (k == 0 or not _WORD_CHAR.match(name, k - 1))
+                   for k in range(run, start)):
+            continue
+        out.append(name[done:start] + " & ")
+        done = gap.end()
+    return "".join(out) + name[done:] if out else name
 
 
 def ampersand_spellings(name: str) -> list[str]:
@@ -150,8 +178,9 @@ def ampersand_spellings(name: str) -> list[str]:
     out: list[str] = []
     if _AMP.search(name):
         out.append(_AMP.sub(" and ", name))
-    if _AND.search(name):
-        out.append(_AND.sub(r"\1 & ", name))
+    amp = _and_to_ampersand(name)
+    if amp != name:
+        out.append(amp)
     return [o for o in dict.fromkeys(out) if o != name]
 
 
