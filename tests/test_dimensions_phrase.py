@@ -8,7 +8,7 @@ from dataset_agent.adapters.ai_model_research import HubEvidence, assemble_candi
 from dataset_agent.adapters.dimensions_phrase import same_search, search_key
 from dataset_agent.adapters.fulltext_recall import recall_candidates
 from dataset_agent.adapters.fulltext_refiner import _covered
-from dataset_agent.adapters.query_builder import drop_flags_equal_to_aliases
+from dataset_agent.adapters.query_builder import drop_flags_equal_to_aliases, flag_gate_notes
 from dataset_agent.adapters.seed_mapping import QueryCandidate
 
 
@@ -113,6 +113,40 @@ def test_flag_contained_in_a_risky_alias_is_dropped() -> None:
     # A flag containing the alias is a narrower gate, not a self-satisfying one.
     assert drop_flags_equal_to_aliases(["UK Biobank data", "NIH"], ["UK Biobank"]) == [
         "UK Biobank data", "NIH"]
+
+
+def test_a_gate_every_flag_of_which_is_inside_the_alias_is_reported_as_ungated() -> None:
+    """Every flag inside the alias: the flags are kept (they may still gate the other
+    aliases), and the output says the alias is in effect searched without a gate."""
+    assert drop_flags_equal_to_aliases(["UNAVCO"], ["UNAVCO geodetic data"]) == ["UNAVCO"]
+    notes = flag_gate_notes(["UNAVCO"], ["UNAVCO geodetic data"])
+    assert notes == [
+        "flag gate: risky alias 'UNAVCO geodetic data' is in effect ungated: every flag "
+        "('UNAVCO') occurs inside it, so its gate matches every 'UNAVCO geodetic data' paper"
+    ]
+    # The kept flag still gates "AoU"; only the alias that contains it is ungated.
+    notes = flag_gate_notes(["Research Program"], ["All of Us Research Program", "AoU"])
+    assert len(notes) == 1 and "'All of Us Research Program' is in effect ungated" in notes[0]
+    assert "AoU" not in notes[0]
+
+
+def test_a_flag_dropped_for_one_alias_is_reported_with_the_aliases_that_lose_it() -> None:
+    """One flag group is shared by every risky alias (the extraction seed has a single
+    gate), so a flag inside one alias leaves the gate of all of them: the output names
+    the alias that contains it and the aliases that no longer match through it."""
+    assert drop_flags_equal_to_aliases(
+        ["Research Program", "NIH"], ["All of Us Research Program", "AoU"]) == ["NIH"]
+    assert flag_gate_notes(["Research Program", "NIH"], ["All of Us Research Program", "AoU"]) == [
+        "flag gate: 'Research Program' dropped from the shared gate because it occurs inside "
+        "'All of Us Research Program'; 'AoU' no longer matches through it"
+    ]
+    # Inside every alias: nothing is lost for the others.
+    assert flag_gate_notes(["UNAVCO", "GNSS"], ["UNAVCO geodetic data", "UNAVCO network"]) == [
+        "flag gate: 'UNAVCO' dropped from the shared gate because it occurs inside "
+        "'UNAVCO geodetic data', 'UNAVCO network'"
+    ]
+    assert flag_gate_notes(["NIH"], ["All of Us Research Program"]) == []
+    assert flag_gate_notes([], ["AoU"]) == [] and flag_gate_notes(["NIH"], []) == []
 
 
 def test_ai_model_name_expansion_keeps_dot_versions_apart() -> None:

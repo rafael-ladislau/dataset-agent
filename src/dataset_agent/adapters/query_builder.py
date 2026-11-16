@@ -65,9 +65,14 @@ def drop_flags_equal_to_aliases(
     special case.
 
     Such a flag makes the gate ``(A OR B) AND (.. OR F)`` satisfy itself, since every
-    ``A`` paper also matches ``F``, so every bare ``A`` paper matches. If every flag
-    would be dropped the flags are returned unchanged: an empty flag group would emit
-    the risky group ungated, which is broader than the AND-gated original.
+    ``A`` paper also matches ``F``, so every bare ``A`` paper matches.
+
+    The flag group is shared by every risky alias (the extraction seed has one gate), so
+    a flag inside one alias leaves the gate of all of them, also of an alias that does
+    not contain it. If every flag would be dropped the flags are returned unchanged:
+    they still gate the aliases that do not contain them, but an alias that contains
+    every flag is in effect searched without a gate. :func:`flag_gate_notes` reports
+    both cases for the output.
     """
     fl = _clean(flag_terms)
     rk = _clean(risky)
@@ -75,6 +80,43 @@ def drop_flags_equal_to_aliases(
         return fl
     kept = [t for t in fl if not any(phrase_contains(r, t) for r in rk)]
     return kept or fl
+
+
+def _names(terms: Sequence[str]) -> str:
+    return ", ".join(repr(t) for t in terms)
+
+
+def flag_gate_notes(
+    flag_terms: Sequence[str] | None, risky: Sequence[str] | None
+) -> list[str]:
+    """Output notes for what :func:`drop_flags_equal_to_aliases` does to the shared gate:
+    each dropped flag with the aliases that contain it and the aliases that no longer
+    match through it, and each risky alias that contains every kept flag (its gate
+    matches every one of its papers, so it is in effect ungated)."""
+    fl = _clean(flag_terms)
+    rk = _clean(risky)
+    if not fl or not rk:
+        return []
+    kept = drop_flags_equal_to_aliases(fl, rk)
+    notes: list[str] = []
+    for flag in fl:
+        if flag in kept:
+            continue
+        holders = [r for r in rk if phrase_contains(r, flag)]
+        others = [r for r in rk if r not in holders]
+        note = (f"flag gate: {flag!r} dropped from the shared gate because it occurs inside "
+                f"{_names(holders)}")
+        if others:
+            verb = "no longer matches" if len(others) == 1 else "no longer match"
+            note += f"; {_names(others)} {verb} through it"
+        notes.append(note)
+    for alias in rk:
+        if all(phrase_contains(alias, f) for f in kept):
+            notes.append(
+                f"flag gate: risky alias {alias!r} is in effect ungated: every flag "
+                f"({_names(kept)}) occurs inside it, so its gate matches every {alias!r} paper"
+            )
+    return notes
 
 
 def build_for_clause(

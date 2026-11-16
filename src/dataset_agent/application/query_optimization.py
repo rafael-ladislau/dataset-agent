@@ -96,6 +96,7 @@ from dataset_agent.adapters.query_builder import (
     _or_group,
     build_for_clause,
     default_variant_build_order,
+    flag_gate_notes,
     run_variant,
 )
 from dataset_agent.adapters.query_heuristics import (
@@ -2147,6 +2148,7 @@ class QueryOptimizationUseCase:
         )
 
         notes = [out.notes] if out.notes else []
+        notes.extend(flag_gate_notes(out.flag_terms, out.aliases.risky))
         stats = model.abstract_stats.get(out.for_clause or "")
         if stats is not None:
             fp_k, judged, unjudged, coverage = stats
@@ -4204,6 +4206,7 @@ class QueryOptimizationUseCase:
         if scope_cfg is not None:
             notes_parts.append(self._judge_config_note(
                 "scope check configuration", scope_cfg, "ask(s) per paper"))
+        notes_parts.extend(flag_gate_notes(flag_terms, risky))
         dsl_query = self._build_where_dsl(best.for_clause)
         elapsed = round(time.perf_counter() - t0, 2)
         notes_parts.append(f"dimensions_api_calls≈{self._dims_calls} elapsed_s={elapsed}")

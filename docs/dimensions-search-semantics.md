@@ -58,7 +58,10 @@ group: an OR group is `("x" OR "y")`, a gate is `((R) AND (F))`, and a clause wi
 positive part is never emitted. The result therefore never depends on precedence. A flag whose
 tokens occur inside a risky alias under these rules ("Research Programs" inside "All of Us Research
 Program", plural folded) is dropped from that gate, since `(R) AND (F)` would then match every `R`
-paper.
+paper. The flag group is shared by every risky alias (the extraction seed has one gate), so the flag
+leaves the gate of the other aliases too, and the output notes which aliases lose it. When every flag
+lies inside an alias the flags are kept (they still gate the other aliases), and the output notes that
+this alias is in effect ungated.
 
 **Identity check (65 queries).** Every emitted shape was checked by counts: the 10 released AI-model
 queries, the All of Us clauses, the data-wording alternative and the recall complement. All 18

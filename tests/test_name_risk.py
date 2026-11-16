@@ -243,6 +243,19 @@ def test_all_flags_overlapping_name_keeps_default_risk(tmp_path, monkeypatch):
     assert not any('\\"UNAVCO GAGE\\" AND (' in c for c in dsl.calls)
 
 
+def test_the_output_reports_a_flag_dropped_from_the_shared_gate(tmp_path, monkeypatch):
+    dsl = _ShareDSL(
+        counts={"GNSS Earthquakes": 3, "UNAVCO Inc GAGE": 24, "UNAVCO Inc": 50,
+                "EarthScope Consortium": 2000},
+        with_flags={"UNAVCO Inc GAGE": 2},
+    )
+    out = _run(tmp_path, monkeypatch, dsl, flags=["UNAVCO Inc", "EarthScope Consortium"],
+               suggested=["UNAVCO Inc GAGE"])
+    assert "UNAVCO Inc GAGE" in out.aliases.risky
+    assert "flag gate: 'UNAVCO Inc' dropped from the shared gate because it occurs inside " \
+        "'UNAVCO Inc GAGE'" in out.notes
+
+
 def test_budget_defaults_leave_room_for_refinement():
     s = Settings(dimensions_api_key="k")
     assert s.optimize_max_dimensions_calls == 96
