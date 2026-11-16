@@ -202,6 +202,17 @@ def test_split_release_is_decided_on_the_random_sample_not_the_top_cited(tmp_pat
     assert "release sample: random year-stratified" in out.notes
 
 
+def test_the_sample_strata_stay_inside_the_query_year_window(tmp_path):
+    """A year the facet reports outside the query's own window can never enter the
+    random release sample: no allocation for it, hence no probe whose seed carries it."""
+    out, client = _run(tmp_path, _pubs(5, 2, 2, 3), _pubs(14, 3, 3, 1),
+                       default_years_start=2016, default_years_end=2020)
+    (call,) = client.sample_calls
+    assert call["year_counts"] == {2020: 60}  # 2021 never a stratum
+    assert call["allocation"] == {2020: 21}  # the whole allocation in the window's year
+    assert out.release_sample["year_counts"] == {2020: 60}
+
+
 def test_split_sample_below_the_minimum_is_not_released(tmp_path):
     out, _ = _run(tmp_path, _pubs(10, 1, 1, 0), _pubs(9, 1, 1, 1))  # 12 of 21
     assert out.release_bar_met is False and out.confidence == ConfidenceLevel.LOW
@@ -280,13 +291,38 @@ def test_no_call_is_reserved_when_no_random_sample_is_drawn(tmp_path):
     assert uc._dims_calls == 10
 
 
-def test_the_year_facet_counts_the_probe_seed_population(tmp_path):
+def test_the_year_facet_matches_the_probe_population(tmp_path):
+    """The probe search (extraction ``/pipelines/start``) never filters on publication
+    types -- the seed's ``publication_types`` do not reach the Dimensions where -- so on a
+    non-article population (e.g. a ``book``) the facet that sizes the sample must report
+    the years the probe would pull: no ``type`` filter, counts from the probe's predicate
+    (the year window and the US filter it does apply)."""
     dsl = YearDSL()
     uc = QueryOptimizationUseCase(
         dsl_port=dsl, research=MagicMock(), agent=MagicMock(),
-        settings=make_settings(tmp_path, default_publication_types=["article", "preprint"],
+        settings=make_settings(tmp_path, default_publication_types=["book"],
                                default_filter_us_affiliation=True),
         extraction_client=FakeClient([{}]))
-    asyncio.run(uc._year_counts('\\"X\\"'))
+    counts = asyncio.run(uc._year_counts('\\"X\\"'))
     (q,) = dsl.queries
-    assert 'type in ["article", "preprint"]' in q and 'research_org_countries = "US"' in q
+    assert "type in" not in q  # every publication type: the probe population
+    assert 'research_org_countries = "US"' in q  # ...but the US filter still applies
+    assert "year in [2015:" in q and "return year limit 50" in q
+    assert counts == {2020: 60, 2021: 40}
+
+
+def test_a_year_outside_the_query_window_never_enters_the_facet(tmp_path):
+    """The facet is clamped to the query's own years: a strayed or drifted facet year
+    outside the configured window can never become a sample stratum (the per-year probes
+    of the release sample run exactly on the years the allocation carries)."""
+    dsl = YearDSL()
+    uc = QueryOptimizationUseCase(
+        dsl_port=dsl, research=MagicMock(), agent=MagicMock(),
+        settings=make_settings(tmp_path, default_years_start=2016, default_years_end=2020),
+        extraction_client=FakeClient([{}]))
+    counts = asyncio.run(uc._year_counts('\\"X\\"'))
+    assert counts == {2020: 60}  # the facet's 2021 is outside 2016-2020: clamped away
+    counts = asyncio.run(uc._year_counts('\\"X\\"', years=(2019, 2019)))
+    (q,) = dsl.queries[-1:]
+    assert "year in [2019:2019]" in q  # the window itself reaches the facet DSL
+    assert counts == {}  # nothing of the facet lives in the query's own window

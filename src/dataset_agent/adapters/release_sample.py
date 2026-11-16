@@ -15,7 +15,8 @@ learns from). The design follows the extraction probe API:
   that the pool is the year's 1,000 most cited. A pull that reaches its cap may have
   left papers out, and the record says so (``pool_covers_year`` false); a pull below
   its cap is the whole year, whatever the facet counted. The facet counts the probe
-  seed's population (its publication types and US-affiliation filter). This cap
+  seed's population (its year window and, when set, the US-affiliation filter; the
+  extraction seed search applies no publication-type filter). This cap
   deliberately replaces ``probe_pull_cap`` for these probes: one probe per year with an
   allocation, each pulling up to ``count + 50`` records (at most 1,000), so a query of
   11 years with about 400 papers each pulls about 4,950 records;
@@ -34,8 +35,8 @@ from typing import Any
 
 #: The extraction caps one probe pull at 1,000 papers.
 MAX_PULL = 1000
-#: Headroom over the facet count: the extraction's own search admits a few more papers
-#: than the article-only facet counts.
+#: Headroom over the facet count: the extraction's own search may admit a few more
+#: papers than the facet counted.
 PULL_HEADROOM = 50
 
 

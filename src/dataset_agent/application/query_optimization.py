@@ -2613,26 +2613,28 @@ class QueryOptimizationUseCase:
 
     # -- the release sample (adapters.release_sample) ------------------------------------
 
-    async def _year_counts(self, for_clause: str) -> dict[int, int]:
-        """Per-year Dimensions counts of *for_clause* in the dataset window (one facet call),
-        over the population the probe seed asks for: its publication types and, when set,
-        the US-affiliation filter (``research_org_countries = "US"``, as extraction applies)."""
-        import json
-
+    async def _year_counts(self, for_clause: str,
+                           years: tuple[int, int] | None = None) -> dict[int, int]:
+        """Per-year Dimensions counts of *for_clause* (one facet call), over the
+        population the probe actually pulls: the extraction pipeline's ``/pipelines/start``
+        search applies no publication-type filter (its seed's ``publication_types`` never
+        reach the Dimensions where), so the facet must not either; when set, the
+        US-affiliation filter (``research_org_countries = "US"``) applies as extraction
+        applies it. *years* is the query's own window (default: the dataset window) -- the
+        result is clamped to it, so a strayed facet year can never become a sample stratum."""
         from dataset_agent.adapters.release_sample import year_counts_from_result
 
-        s = self._settings
-        ys, ye = self._dataset_years()
-        types = list(s.default_publication_types) or ["article"]
-        where = f"year in [{ys}:{ye}] and type in {json.dumps(types)}"
-        if s.default_filter_us_affiliation:
+        ys, ye = years if years is not None else self._dataset_years()
+        where = f"year in [{ys}:{ye}]"
+        if self._settings.default_filter_us_affiliation:
             where += ' and research_org_countries = "US"'
         dsl = (f'search publications in full_data for "{for_clause}" '
                f'where {where} return year limit 50')
         self._release_reserve = 0  # this is the call that was held back
         result = await self._counted_execute(dsl)
         raise_for_dsl_errors(result)
-        return year_counts_from_result(result)
+        counts = year_counts_from_result(result)
+        return {int(y): int(c) for y, c in counts.items() if ys <= y <= ye and int(c) > 0}
 
     def _sample_summary(self, m: IterationMetrics) -> dict:
         """Point estimates with Wilson 95% intervals for a release sample's metrics."""
@@ -2668,13 +2670,14 @@ class QueryOptimizationUseCase:
                       "seed": rng_seed, "target": target, "min_sample": need,
                       "year_counts": {}, "allocation": {}, "years": {}, "error": None}
         try:
-            counts = await self._year_counts(for_clause)
+            seed_years = self._dataset_years()
+            counts = await self._year_counts(for_clause, years=seed_years)
             alloc = allocate(counts, target)
             info.update(year_counts=counts, allocation=alloc)
             if not alloc:
                 raise ValueError("the Dimensions year facet returned no papers")
             seed = candidate_to_seed(
-                candidate, group_name=s.default_group_name, years=self._dataset_years(),
+                candidate, group_name=s.default_group_name, years=seed_years,
                 publication_types=list(s.default_publication_types),
                 filter_us_affiliation=s.default_filter_us_affiliation,
                 extra={"home_url": request.dataset_url})
