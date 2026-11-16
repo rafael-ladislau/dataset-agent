@@ -370,6 +370,11 @@ MEASURED_PHRASE_RULES: list[tuple[str, str, str, bool]] = [
     # A token under three characters does not fold ("GPT-4s" 78 vs 52,109: "4s").
     ("plural-numeric-not-folded", "GPT-4", "GPT-4s", False),
     ("plural-numeric-term-not-folded", "GPT-4s", "GPT-4", False),
+    # Not measured, conservative: every measured fold has a plural token of four
+    # or more characters (maps, LLMs, MRIs, CNNs, ERA5s, 1990s), so a three-character
+    # token stays as written ("CPS" is not "CP").
+    ("plural-three-char-not-folded", "CP", "CPS", False),
+    ("plural-three-char-term-not-folded", "CPS", "CP", False),
     # Not measured, conservative: "ss" and "us" endings are not plurals ("is" folds:
     # MRIs = MRI above).
     ("not-plural-us-ending", "Census", "Censu", False),
