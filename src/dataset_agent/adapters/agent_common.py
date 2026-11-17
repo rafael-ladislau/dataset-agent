@@ -1,0 +1,409 @@
+"""Helpers shared by the LLM agent adapters (Anthropic and OpenAI-compatible)."""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+from typing import Any
+
+from jsonschema import SchemaError
+from jsonschema.exceptions import best_match
+from jsonschema.validators import validator_for
+
+from dataset_agent.adapters import tools as _tools
+
+logger = logging.getLogger(__name__)
+
+SYSTEM_PROMPT = (
+    "You are a dataset research assistant. Your job is to find accurate, factual "
+    "information about academic and government datasets: their descriptions, official "
+    "URLs, publisher organizations, alternative names, and access types. "
+    "Use web_search to look up current information and make_request to validate URLs. "
+    "Always prefer official sources (government agencies, academic repositories, "
+    "publisher websites). Be concise and factual."
+)
+
+#: Legacy placeholder the adapters used to return for an empty answer.  Adapters now
+#: return ``""``; the text is kept only so consumers can drop it defensively.
+NO_OUTPUT_TEXT = "No output from agent."
+
+#: Sent after the iteration cap (no tools offered) to force a prose answer.
+FINAL_SUMMARY_REQUEST = (
+    "You have reached the tool-call limit, and no further tool calls are available. "
+    "Using only the information already gathered in the tool results above, write your "
+    "final answer to the original request now, in the requested format. If the results "
+    "are incomplete, answer with what they support. Do not call any tools."
+)
+
+REPEAT_CALL_NOTE = (
+    "Note: you already ran this exact tool call; the result above is the same one. Do not "
+    "repeat it. Either give your final answer from the results you have, or try a "
+    "materially different query."
+)
+
+_SENTINEL_RE = re.compile(
+    r"^\s*(?:no output from agent|error in agent execution\b.*)\W*$", re.IGNORECASE | re.DOTALL
+)
+
+
+def is_sentinel_text(text: object) -> bool:
+    """True for the agent's placeholder/error strings that must never be stored as content."""
+    return isinstance(text, str) and bool(_SENTINEL_RE.match(text))
+
+
+def call_key(name: str, args: dict[str, Any]) -> str:
+    """Normalized identity of a tool call: tool name plus case/whitespace-folded arguments."""
+
+    def norm(v: Any) -> Any:
+        if isinstance(v, str):
+            return " ".join(v.lower().split())
+        if isinstance(v, dict):
+            return {str(k): norm(x) for k, x in sorted(v.items())}
+        if isinstance(v, list):
+            return [norm(x) for x in v]
+        return v
+
+    return f"{name}:{json.dumps(norm(args), sort_keys=True, ensure_ascii=False, default=str)}"
+
+
+class ToolRunCache:
+    """Per-loop memo of executed tool calls so identical repeats are not re-run."""
+
+    def __init__(self, runner: Any = None) -> None:
+        self._results: dict[str, str] = {}
+        self._runner = runner or run_tool
+
+    def run(self, name: str, args: dict[str, Any]) -> tuple[str, bool]:
+        """Return ``(result, was_repeat)``; a repeat carries a short note, no re-execution."""
+        key = call_key(name, args)
+        if key in self._results:
+            logger.info("Repeated identical tool call %s; returning cached result", name)
+            return f"{self._results[key]}\n\n{REPEAT_CALL_NOTE}", True
+        result = self._runner(name, args)
+        self._results[key] = result
+        return result, False
+
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_THINK_OPEN_RE = re.compile(r"<think>", re.IGNORECASE)
+_THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+
+
+def prompt_head(prompt: str, limit: int) -> str:
+    """One-line prompt preview for logs."""
+    head = prompt.strip().replace("\n", " ")[:limit]
+    if len(prompt) > limit:
+        head += "…"
+    return head
+
+
+def run_tool(name: str, input_args: dict[str, Any]) -> str:
+    """Execute an action tool from ``TOOL_DISPATCH`` and return its string result."""
+    handler = _tools.TOOL_DISPATCH.get(name)
+    if handler is None:
+        msg = f"Unknown tool: {name}"
+        logger.warning(msg)
+        return msg
+    try:
+        return handler(input_args)
+    except Exception as exc:
+        logger.exception("Tool %s raised an error", name)
+        return f"Tool error ({name}): {exc}"
+
+
+def to_openai_tool(tool: dict[str, Any]) -> dict[str, Any]:
+    """Translate the canonical ``{name, description, input_schema}`` tool to OpenAI shape."""
+    return {
+        "type": "function",
+        "function": {
+            "name": tool["name"],
+            "description": tool.get("description", ""),
+            "parameters": tool.get("input_schema") or {"type": "object", "properties": {}},
+        },
+    }
+
+
+def to_openai_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [to_openai_tool(t) for t in tools]
+
+
+def strip_think(text: str | None) -> str:
+    """Remove ``<think>…</think>`` reasoning blocks from model text.
+
+    Also handles a reply whose opening ``<think>`` tag was swallowed by the
+    server (text up to the first ``</think>`` is dropped) and a reply that opens
+    ``<think>`` but never closes it (everything from the tag on is dropped).
+    """
+    if not text:
+        return ""
+    out = _THINK_BLOCK_RE.sub("", text)
+    close = _THINK_CLOSE_RE.search(out)
+    if close and not _THINK_OPEN_RE.search(out[: close.start()]):
+        out = out[close.end() :]
+    open_tag = _THINK_OPEN_RE.search(out)
+    if open_tag:
+        out = out[: open_tag.start()]
+    return out.strip()
+
+
+#: Harmony control tokens (gpt-oss) that must never reach a stored answer.
+_HARMONY_TOKEN_RE = re.compile(r"<\|(?:start|end|channel|message|constrain|call|return)\|>")
+_HARMONY_TOOL_RE = re.compile(r"\bto=functions\.[A-Za-z0-9_\-]+")
+_HARMONY_CALL_RE = re.compile(
+    r"to=(?:functions\.)?([A-Za-z0-9_\-]+)"
+    r"(?:\s*<\|constrain\|>\s*[A-Za-z0-9_\-]+|\s+[A-Za-z0-9_\-]+)?"
+    r"\s*<\|message\|>\s*"
+)
+_HARMONY_SEGMENT_RE = re.compile(
+    r"(?:<\|start\|>[^<]*)?<\|channel\|>\s*([A-Za-z0-9_\-]+)([^<]*)"
+    r"(?:<\|constrain\|>\s*[A-Za-z0-9_\-]+)?\s*<\|message\|>"
+    r"(.*?)(?=<\|(?:end|call|return|start)\|>|\Z)",
+    re.DOTALL,
+)
+
+
+def has_harmony_markup(text: str | None) -> bool:
+    """True when *text* carries gpt-oss Harmony control tokens or a ``to=functions.X`` header."""
+    if not text:
+        return False
+    return bool(_HARMONY_TOKEN_RE.search(text) or _HARMONY_TOOL_RE.search(text))
+
+
+def parse_harmony_tool_calls(text: str | None) -> list[tuple[str, dict[str, Any]]] | None:
+    """Tool calls a model leaked into message content as Harmony text.
+
+    Returns ``(name, arguments)`` in order, or ``None`` when *text* has no leaked call
+    or any leaked call has unparseable JSON arguments (callers must not guess).
+    """
+    if not text or not has_harmony_markup(text):
+        return None
+    decoder = json.JSONDecoder()
+    calls: list[tuple[str, dict[str, Any]]] = []
+    for m in _HARMONY_CALL_RE.finditer(text):
+        try:
+            value, _ = decoder.raw_decode(text, m.end())
+        except ValueError:
+            return None
+        if not isinstance(value, dict):
+            return None
+        calls.append((m.group(1), value))
+    return calls or None
+
+
+def strip_harmony(text: str | None) -> str:
+    """Remove Harmony markup; keep only ``final``-channel message bodies when present."""
+    if not text:
+        return ""
+    if not has_harmony_markup(text):
+        return text.strip()
+    bodies = [
+        m.group(3).strip()
+        for m in _HARMONY_SEGMENT_RE.finditer(text)
+        if m.group(1).lower() == "final" and "to=" not in m.group(2)
+    ]
+    if bodies:
+        out = " ".join(b for b in bodies if b)
+    elif _HARMONY_SEGMENT_RE.search(text) or _HARMONY_TOOL_RE.search(text):
+        # Only analysis/commentary/tool-call segments: no answer text.
+        out = ""
+    else:
+        out = _HARMONY_TOKEN_RE.sub(" ", text)
+    out = _HARMONY_TOKEN_RE.sub(" ", out)
+    if "<|" in out:
+        return ""
+    return re.sub(r"[ \t]{2,}", " ", out).strip()
+
+
+def contains_harmony_markup(value: Any) -> bool:
+    """True when any string inside a JSON-like *value* carries Harmony markup."""
+    if isinstance(value, str):
+        return has_harmony_markup(value) or "<|" in value
+    if isinstance(value, dict):
+        return any(contains_harmony_markup(v) for v in value.values())
+    if isinstance(value, list):
+        return any(contains_harmony_markup(v) for v in value)
+    return False
+
+
+def _balanced_objects(text: str):
+    """Yield each balanced ``{...}`` substring in order, honoring JSON strings."""
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_string = False
+        escaped = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    yield text[start : i + 1]
+                    break
+        start = text.find("{", start + 1)
+
+
+def _first_object_in(text: str) -> dict[str, Any] | None:
+    """First balanced ``{...}`` in *text* that parses as a JSON object."""
+    for candidate in _balanced_objects(text):
+        parsed = _loads_object(candidate)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _loads_object(candidate: str) -> dict[str, Any] | None:
+    try:
+        value = json.loads(candidate)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def extract_json_object(text: str | None) -> dict[str, Any] | None:
+    """Parse a JSON object from model text (think blocks stripped).
+
+    Tries, in order: the whole text, each fenced code block, then each
+    balanced ``{...}`` substring until one parses as a JSON object.
+    """
+    cleaned = strip_think(text)
+    if not cleaned:
+        return None
+    whole = _loads_object(cleaned)
+    if whole is not None:
+        return whole
+    for block in _JSON_FENCE_RE.findall(cleaned):
+        parsed = _loads_object(block.strip())
+        if parsed is not None:
+            return parsed
+        inner = _first_object_in(block)
+        if inner is not None:
+            return inner
+    return _first_object_in(cleaned)
+
+
+def validate_against_schema(value: Any, schema: dict[str, Any] | None) -> str | None:
+    """Validate *value* against a JSON Schema; return an error message or ``None``.
+
+    A missing or invalid schema is not enforced (the value is accepted).
+    """
+    if not schema:
+        return None
+    try:
+        validator_cls = validator_for(schema)
+        validator_cls.check_schema(schema)
+    except SchemaError as exc:
+        logger.debug("Result schema is not a valid JSON Schema; skipping validation: %s", exc)
+        return None
+    error = best_match(validator_cls(schema).iter_errors(value))
+    if error is None:
+        return None
+    path = "/".join(str(p) for p in error.absolute_path)
+    return f"{error.message} (at '{path}')" if path else error.message
+
+
+_INT_RE = re.compile(r"[+-]?\d+")
+_NUMBER_RE = re.compile(r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?")
+
+
+def _schema_types(schema: dict[str, Any]) -> list[str]:
+    declared = schema.get("type")
+    if isinstance(declared, list):
+        return [t for t in declared if isinstance(t, str)]
+    return [declared] if isinstance(declared, str) else []
+
+
+def _coerce_scalar_string(value: str, types: list[str]) -> Any:
+    text = value.strip()
+    if "string" in types:
+        return value
+    if "boolean" in types and text.lower() in ("true", "false"):
+        return text.lower() == "true"
+    if "integer" in types and _INT_RE.fullmatch(text):
+        return int(text)
+    if "number" in types and _NUMBER_RE.fullmatch(text):
+        return int(text) if _INT_RE.fullmatch(text) else float(text)
+    return value
+
+
+def coerce_to_schema(value: Any, schema: dict[str, Any] | None) -> Any:
+    """Lenient, schema-guided repair of a near-miss structured result.
+
+    Applies only safe conversions: ``"true"``/``"false"`` (any case) to booleans,
+    numeric strings to integers/numbers, optional keys sent as null dropped, a lone string to a one-item array of
+    strings, and dropping keys outside ``properties`` when
+    ``additionalProperties`` is false.  Anything else is returned unchanged so
+    that schema validation still rejects it.
+    """
+    if not isinstance(schema, dict):
+        return value
+    types = _schema_types(schema)
+    if isinstance(value, dict) and (not types or "object" in types):
+        properties = schema.get("properties") or {}
+        required = set(schema.get("required") or [])
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            if item is None and key in properties and key not in required \
+                    and "null" not in _schema_types(properties[key]):
+                continue  # an optional key sent as null means "absent"
+            if key in properties:
+                out[key] = coerce_to_schema(item, properties[key])
+            elif schema.get("additionalProperties") is not False:
+                out[key] = item
+        return out
+    if isinstance(value, list) and "array" in types:
+        items = schema.get("items")
+        return [coerce_to_schema(v, items) for v in value] if isinstance(items, dict) else value
+    if isinstance(value, str):
+        if "array" in types and "string" not in types:
+            items = schema.get("items")
+            if isinstance(items, dict) and "string" in _schema_types(items):
+                return [value]
+            return value
+        return _coerce_scalar_string(value, types)
+    return value
+
+
+def repair_near_miss(
+    value: dict[str, Any] | None, schema: dict[str, Any] | None
+) -> tuple[dict[str, Any] | None, str]:
+    """Coerce a near-miss and re-validate; return ``(object, "")`` or ``(None, error)``."""
+    if not value:
+        return None, "nothing parseable was obtained"
+    coerced = coerce_to_schema(value, schema)
+    error = validate_against_schema(coerced, schema)
+    if error or not isinstance(coerced, dict):
+        return None, error or "not a JSON object"
+    return coerced, ""
+
+
+def retry_prompt(prompt: str, tool_name: str, error: str) -> str:
+    """Original prompt plus a note that names the previous structured-output error."""
+    return (
+        f"{prompt}\n\n"
+        f"Your previous answer for '{tool_name}' was rejected: {error}. "
+        "Answer again with a single JSON object that matches the required schema exactly."
+    )
+
+
+def json_only_prompt(prompt: str, result_tool: dict[str, Any]) -> str:
+    """Prompt suffix asking for plain JSON, used when no structured API feature works."""
+    schema = json.dumps(result_tool.get("input_schema") or {}, ensure_ascii=False)
+    description = result_tool.get("description", "")
+    return (
+        f"{prompt}\n\n"
+        f"Return your answer ({result_tool['name']}: {description}) as a single JSON object "
+        f"that matches this JSON Schema, with no other text:\n{schema}"
+    )

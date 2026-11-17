@@ -1,0 +1,509 @@
+"""API tests with mocked use case."""
+
+from __future__ import annotations
+
+import sys
+import types
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+from dataset_agent.domain.models import (
+    DatasetRecord,
+    Group,
+    LiteratureValidation,
+    OptimizeRequest,
+    QueryOptimizationRecord,
+    ResearchRequest,
+    YearsRange,
+)
+from dataset_agent import bootstrap as bootstrap_mod
+from dataset_agent.interfaces import api
+from dataset_agent.settings import Settings
+
+
+def _fake_settings(tmp_path: Path) -> Settings:
+    return Settings(
+        tasks_db=tmp_path / "tasks.db",
+        output_dir=tmp_path / "out",
+    ).model_copy(update={"api_keys": ""})
+
+
+async def _fake_run_full_pipeline(request: ResearchRequest, settings: Settings):
+    """Return a minimal record without LLM calls."""
+    record = DatasetRecord(
+        engine="dimensions",
+        group=Group(name="default"),
+        main_dataset_name=request.dataset_name,
+        home_url=None,
+        description="test",
+        years_range=YearsRange(start_year=2020, end_year=2021),
+        webhook_url=request.webhook_url,
+    )
+    settings.output_dir.mkdir(parents=True, exist_ok=True)
+    path = settings.output_dir / f"{request.dataset_name}.json"
+    path.write_text(record.model_dump_json(), encoding="utf-8")
+    return record, path
+
+
+def _fake_build_use_case(settings: Settings):
+    """Return use case that writes a minimal JSON result without LLM."""
+
+    class _UC:
+        def execute(self, req: ResearchRequest) -> tuple[DatasetRecord, Path]:
+            import asyncio
+            return asyncio.run(_fake_run_full_pipeline(req, settings))
+
+    return _UC()
+
+
+@pytest.fixture
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    monkeypatch.setattr(bootstrap_mod, "run_full_pipeline", _fake_run_full_pipeline)
+
+    def _settings() -> Settings:
+        return _fake_settings(tmp_path)
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    yield TestClient(api.app)
+    api.app.dependency_overrides.clear()
+
+
+def test_health_no_auth(client: TestClient) -> None:
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+
+
+def test_list_tasks_no_auth(client: TestClient) -> None:
+    r = client.get("/tasks")
+    assert r.status_code == 200
+
+
+def test_create_task_and_fetch_result(client: TestClient) -> None:
+    r = client.post("/tasks", json={"dataset_name": "DS1"})
+    assert r.status_code == 200
+    tid = r.json()["id"]
+
+    st = client.get(f"/tasks/{tid}")
+    assert st.status_code == 200
+    assert st.json()["status"] == "completed"
+
+    res = client.get(f"/tasks/{tid}/result")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["main_dataset_name"] == "DS1"
+
+
+def test_webhook_called_on_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bootstrap_mod, "run_full_pipeline", _fake_run_full_pipeline)
+
+    def _settings() -> Settings:
+        return _fake_settings(tmp_path)
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    with patch.object(api.httpx, "post") as post_mock:
+        c = TestClient(api.app)
+        c.post(
+            "/tasks",
+            json={"dataset_name": "WH", "webhook_url": "https://hook.example/x"},
+        )
+        post_mock.assert_called_once()
+        args, kwargs = post_mock.call_args
+        assert str(args[0]) == "https://hook.example/x"
+        assert "json" in kwargs
+    api.app.dependency_overrides.clear()
+
+
+async def _fake_run_full_pipeline_failed(request: ResearchRequest, settings: Settings):
+    """Return a record with failed literature validation."""
+    out = settings.output_dir
+    out.mkdir(exist_ok=True)
+    record = DatasetRecord(
+        engine="dimensions",
+        group=Group(name="g"),
+        main_dataset_name=request.dataset_name,
+        description="desc",
+        years_range=YearsRange(start_year=2020, end_year=2025),
+        literature_validation=LiteratureValidation(
+            passed=False,
+            indicator=0.3,
+            attempts=3,
+            detail={"publications_found": 10, "publications_valid": 3},
+        ),
+    )
+    p = out / "result.json"
+    p.write_text(record.model_dump_json(indent=2))
+    return record, p
+
+
+def test_task_completes_with_failed_literature_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Task completes even when literature validation fails, with validation info in result."""
+    monkeypatch.setattr(bootstrap_mod, "run_full_pipeline", _fake_run_full_pipeline_failed)
+
+    def _settings() -> Settings:
+        return _fake_settings(tmp_path)
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    c = TestClient(api.app)
+    r = c.post("/tasks", json={"dataset_name": "X"})
+    tid = r.json()["id"]
+    st = c.get(f"/tasks/{tid}")
+    assert st.json()["status"] == "completed"
+
+    res = c.get(f"/tasks/{tid}/result")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["literature_validation"]["passed"] is False
+    assert body["literature_validation"]["indicator"] == 0.3
+    assert body["literature_validation"]["attempts"] == 3
+    api.app.dependency_overrides.clear()
+
+
+def test_validate_passes_llm_batch_size_to_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, int] = {}
+
+    class _FakeGate:
+        def assess(
+            self,
+            record: DatasetRecord,
+            sample_size: int = 10,
+            llm_batch_size: int = 25,
+        ):
+            _ = record
+            captured["sample_size"] = sample_size
+            captured["llm_batch_size"] = llm_batch_size
+            return types.SimpleNamespace(
+                passed=True,
+                indicator=0.8,
+                detail={"publications_total": 123, "validation_details": []},
+            )
+
+    fake_literature = types.ModuleType("dataset_agent.adapters.literature")
+    fake_literature.literature_gate_from_settings = lambda settings, agent=None: _FakeGate()
+    fake_literature.evaluate_terms_with_llm = lambda **kwargs: {
+        "is_effective": True,
+        "dataset_names_score": 8,
+        "flag_terms_score": 8,
+        "issues": [],
+        "suggested_dataset_names": [],
+        "suggested_flag_terms": [],
+        "suggested_exclude_terms": [],
+        "reasoning": "ok",
+    }
+    fake_literature.promote_dimensions_metrics_from_detail = lambda record, detail: None
+
+    class _FakeAgent:
+        def __init__(self, **kwargs):
+            _ = kwargs
+
+    fake_bootstrap = types.ModuleType("dataset_agent.bootstrap")
+    fake_bootstrap._build_agent = lambda settings: _FakeAgent()
+    monkeypatch.setitem(sys.modules, "dataset_agent.adapters.literature", fake_literature)
+    monkeypatch.setitem(sys.modules, "dataset_agent.bootstrap", fake_bootstrap)
+
+    def _settings() -> Settings:
+        return _fake_settings(tmp_path)
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    client = TestClient(api.app)
+
+    response = client.post(
+        "/validate",
+        json={
+            "main_dataset_name": "Dataset X",
+            "dataset_names": ["Dataset X"],
+            "flag_terms": ["Org Y"],
+            "sample_size": 1000,
+            "llm_batch_size": 77,
+        },
+    )
+    assert response.status_code == 200
+    assert captured["sample_size"] == 1000
+    assert captured["llm_batch_size"] == 77
+    api.app.dependency_overrides.clear()
+
+
+def test_validate_retry_validation_hateoas_and_exclude_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_record: dict[str, object] = {}
+
+    class _FakeGate:
+        def assess(
+            self,
+            record: DatasetRecord,
+            sample_size: int = 10,
+            llm_batch_size: int = 25,
+        ):
+            captured_record["exclude_terms"] = list(record.exclude_terms)
+            _ = sample_size, llm_batch_size
+            return types.SimpleNamespace(
+                passed=True,
+                indicator=0.8,
+                detail={"publications_total": 5, "validation_details": []},
+            )
+
+    fake_literature = types.ModuleType("dataset_agent.adapters.literature")
+    fake_literature.literature_gate_from_settings = lambda settings, agent=None: _FakeGate()
+    fake_literature.evaluate_terms_with_llm = lambda **kwargs: {
+        "is_effective": True,
+        "dataset_names_score": 8,
+        "flag_terms_score": 7,
+        "issues": [],
+        "suggested_dataset_names": ["Better Name"],
+        "suggested_flag_terms": ["Org Two"],
+        "suggested_exclude_terms": ["stem cell"],
+        "reasoning": "ok",
+    }
+    fake_literature.promote_dimensions_metrics_from_detail = lambda record, detail: None
+
+    class _FakeAgent:
+        def __init__(self, **kwargs):
+            _ = kwargs
+
+    fake_bootstrap = types.ModuleType("dataset_agent.bootstrap")
+    fake_bootstrap._build_agent = lambda settings: _FakeAgent()
+    monkeypatch.setitem(sys.modules, "dataset_agent.adapters.literature", fake_literature)
+    monkeypatch.setitem(sys.modules, "dataset_agent.bootstrap", fake_bootstrap)
+
+    def _settings() -> Settings:
+        return _fake_settings(tmp_path)
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    client = TestClient(api.app)
+
+    response = client.post(
+        "/validate",
+        json={
+            "main_dataset_name": "Ag Dataset",
+            "dataset_names": ["Old Name"],
+            "flag_terms": ["Org One"],
+            "exclude_terms": ["prior", "PRIOR"],
+            "sample_size": 10,
+            "llm_batch_size": 25,
+        },
+    )
+    assert response.status_code == 200
+    assert captured_record["exclude_terms"] == ["prior", "PRIOR"]
+
+    data = response.json()
+    assert data["exclude_terms"] == ["prior", "PRIOR"]
+    assert data["terms_evaluation"]["suggested_exclude_terms"] == ["stem cell"]
+
+    rv = data["retry_validation"]
+    assert rv["dataset_names"] == ["Better Name"]
+    assert rv["flag_terms"] == ["Org Two"]
+    low = [x.lower() for x in rv["exclude_terms"]]
+    assert low == ["prior", "stem cell"]
+
+    assert "/validate" in data["links"]["retry"]["href"]
+    assert data["links"]["retry"]["method"] == "POST"
+    assert data["links"]["retry"]["rel"] == "retry-validation"
+    api.app.dependency_overrides.clear()
+
+
+def test_validate_retry_keeps_body_terms_when_llm_suggests_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _FakeGate:
+        def assess(
+            self,
+            record: DatasetRecord,
+            sample_size: int = 10,
+            llm_batch_size: int = 25,
+        ):
+            _ = record, sample_size, llm_batch_size
+            return types.SimpleNamespace(
+                passed=True,
+                indicator=0.9,
+                detail={"validation_details": []},
+            )
+
+    fake_literature = types.ModuleType("dataset_agent.adapters.literature")
+    fake_literature.literature_gate_from_settings = lambda settings, agent=None: _FakeGate()
+    fake_literature.evaluate_terms_with_llm = lambda **kwargs: {
+        "is_effective": True,
+        "dataset_names_score": 8,
+        "flag_terms_score": 8,
+        "issues": [],
+        "suggested_dataset_names": [],
+        "suggested_flag_terms": [],
+        "suggested_exclude_terms": [],
+        "reasoning": "ok",
+    }
+    fake_literature.promote_dimensions_metrics_from_detail = lambda record, detail: None
+
+    class _FakeAgent:
+        def __init__(self, **kwargs):
+            _ = kwargs
+
+    fake_bootstrap = types.ModuleType("dataset_agent.bootstrap")
+    fake_bootstrap._build_agent = lambda settings: _FakeAgent()
+    monkeypatch.setitem(sys.modules, "dataset_agent.adapters.literature", fake_literature)
+    monkeypatch.setitem(sys.modules, "dataset_agent.bootstrap", fake_bootstrap)
+
+    def _settings() -> Settings:
+        return _fake_settings(tmp_path)
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    client = TestClient(api.app)
+
+    response = client.post(
+        "/validate",
+        json={
+            "main_dataset_name": "D",
+            "dataset_names": ["Alias A"],
+            "flag_terms": ["Org X"],
+        },
+    )
+    assert response.status_code == 200
+    rv = response.json()["retry_validation"]
+    assert rv["dataset_names"] == ["Alias A"]
+    assert rv["flag_terms"] == ["Org X"]
+    api.app.dependency_overrides.clear()
+
+
+def test_optimize_precheck_without_dimensions_key(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /optimize returns structured failure when Dimensions is not configured."""
+    monkeypatch.delenv("DATASET_AGENT_DIMENSIONS_API_KEY", raising=False)
+
+    def _settings() -> Settings:
+        base = _fake_settings(tmp_path)
+        return base.model_copy(update={"dimensions_api_key": ""})
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    try:
+        r = client.post(
+            "/optimize",
+            json={
+                "dataset_name": "Some Long Dataset Name",
+                "dataset_names": ["Some Long Dataset Name", "Other Long Alias Here"],
+                "flag_terms": ["NIH"],
+            },
+        )
+        assert r.status_code == 503
+        body = r.json()
+        assert body["success"] is False
+        assert body.get("failed_phase") == "precheck"
+        assert body.get("errors")
+    finally:
+        api.app.dependency_overrides.pop(api.get_settings, None)
+
+
+def test_optimize_validation_error_422(client: TestClient) -> None:
+    r = client.post("/optimize", json={"dataset_name": ""})
+    assert r.status_code == 422
+
+
+def test_openapi_optimize_mentions_validate_integration(client: TestClient) -> None:
+    r = client.get("/openapi.json")
+    assert r.status_code == 200
+    doc = r.json()
+    desc = doc["paths"]["/optimize"]["post"]["description"]
+    assert "POST /validate" in desc
+    assert "exclusion_terms" in desc
+    assert "/optimize/tasks" in desc
+
+
+def test_optimize_async_task_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_optimize_uc(_settings: Settings):
+        class _UC:
+            async def execute(self, req: OptimizeRequest):
+                _ = req
+                return QueryOptimizationRecord(
+                    success=True,
+                    selected_variant="V1",
+                    for_clause='(\\"x\\")',
+                    dsl_query="search publications ...",
+                    expected_count=7,
+                )
+
+        return _UC()
+
+    monkeypatch.setattr(bootstrap_mod, "build_optimize_use_case", _fake_optimize_uc)
+
+    def _settings() -> Settings:
+        return _fake_settings(tmp_path)
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    try:
+        c = TestClient(api.app)
+        r = c.post(
+            "/optimize/tasks",
+            json={
+                "dataset_name": "Long Name Here",
+                "dataset_names": ["Long Name Here", "Other Long"],
+                "flag_terms": ["NIH"],
+            },
+        )
+        assert r.status_code == 200
+        tid = r.json()["id"]
+        res = c.get(f"/optimize/tasks/{tid}/result")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["success"] is True
+        assert body["selected_variant"] == "V1"
+        assert body["expected_count"] == 7
+    finally:
+        api.app.dependency_overrides.clear()
+
+
+def test_optimize_task_result_rejects_research_task(client: TestClient) -> None:
+    r = client.post("/tasks", json={"dataset_name": "DSOpt"})
+    assert r.status_code == 200
+    tid = r.json()["id"]
+    bad = client.get(f"/optimize/tasks/{tid}/result")
+    assert bad.status_code == 400
+
+
+def test_api_key_required_when_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(bootstrap_mod, "run_full_pipeline", _fake_run_full_pipeline)
+
+    def _settings() -> Settings:
+        return _fake_settings(tmp_path).model_copy(update={"api_keys": "secret-key"})
+
+    api.app.dependency_overrides[api.get_settings] = _settings
+    try:
+        c = TestClient(api.app)
+
+        # Missing key -> 401
+        missing = c.post("/tasks", json={"dataset_name": "WH"})
+        assert missing.status_code == 401
+
+        # Wrong key -> 401
+        wrong = c.post(
+            "/tasks",
+            json={"dataset_name": "WH"},
+            headers={"x-api-key": "nope"},
+        )
+        assert wrong.status_code == 401
+
+        # Correct key -> 200
+        ok = c.post(
+            "/tasks",
+            json={"dataset_name": "WH"},
+            headers={"x-api-key": "secret-key"},
+        )
+        assert ok.status_code == 200
+
+        # GET endpoints stay open
+        assert c.get("/tasks").status_code == 200
+    finally:
+        api.app.dependency_overrides.clear()
+
+
+def test_api_key_disabled_allows_all(client: TestClient) -> None:
+    # Default fixture has api_keys="" -> auth disabled, no header needed.
+    r = client.post("/tasks", json={"dataset_name": "WH"})
+    assert r.status_code == 200

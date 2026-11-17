@@ -162,6 +162,9 @@ faiss_store/
 .agent-os/
 .claude/
 
+# Agent run outputs (new runs during development)
+output/
+
 # Data directory database files
 data/*.db
 data/*.sqlite

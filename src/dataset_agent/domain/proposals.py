@@ -1,0 +1,176 @@
+"""Models for full-text-backed query proposals (propose -> approve -> submit)."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, Literal, Optional
+
+from pydantic import BaseModel, Field
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class EvidenceQuote(BaseModel):
+    publication_id: str = ""
+    doi: Optional[str] = None
+    title: Optional[str] = None
+    quote: str = ""
+    #: ``used`` or ``mentioned`` (both correct matches) or ``not_mentioned`` (false positive).
+    verdict: Literal["used", "mentioned", "not_mentioned"] = "used"
+
+
+class IterationMetrics(BaseModel):
+    """Metrics for one probed candidate. ``None`` means not measurable."""
+
+    iteration: int
+    for_clause: str = ""
+    n_publications: int = 0
+    n_fulltext_delivered: int = 0
+    n_evaluated: int = 0
+    fulltext_precision: Optional[float] = Field(
+        default=None, description="match precision: papers mentioning the dataset / evaluated (0-1); for a split dataset program-only papers count as genuine (the release bar)"
+    )
+    usage_rate: Optional[float] = Field(default=None, description="used / mentioned-or-used (0-1)")
+    mention_rate: Optional[float] = Field(default=None, description="(used|mentioned) / evaluated (0-1)")
+    used_rate: Optional[float] = Field(default=None, description="used / evaluated (0-1)")
+    oa_coverage: Optional[float] = Field(default=None, description="delivered / attempted (0-1)")
+    fulltext_target: Optional[int] = Field(default=None, description="delivered full texts aimed for")
+    fulltext_batches: int = Field(default=0, description="analyze batches sent")
+    fulltext_stop_reason: Optional[str] = Field(
+        default=None, description="target_met | pool_exhausted | max_batches"
+    )
+    fulltext_budget_exhausted: bool = Field(
+        default=False, description="OpenAlex refused at least one file for budget"
+    )
+    abstract_fp_rate_pct: Optional[float] = Field(default=None, description="secondary signal")
+    papers: list[tuple[str, str]] = Field(
+        default_factory=list,
+        description="(publication id, used | mentioned | not_mentioned) for every evaluated paper",
+    )
+    cited_only_count: Optional[int] = Field(
+        default=None,
+        description="AI models: genuine papers naming the model only in the reference list "
+        "(counted as matches); None for datasets",
+    )
+    cited_rate: Optional[float] = Field(
+        default=None, description="AI models: cited only / genuine (0-1); None for datasets"
+    )
+    not_run_count: Optional[int] = Field(
+        default=None,
+        description="AI models: genuine papers the judge labelled 'cited' (discussed, not "
+        "run); None for datasets",
+    )
+    not_run_rate: Optional[float] = Field(
+        default=None, description="AI models: not run / genuine (0-1); None for datasets"
+    )
+    raw_fulltext_precision: Optional[float] = Field(
+        default=None,
+        description="Judge precision before the referent check (AI models) or the references-only rule (datasets with a program map); an upper bound",
+    )
+    referent_rejected_count: Optional[int] = Field(
+        default=None, description="AI models: genuine papers the referent check turned down"
+    )
+    referent_unclear_count: Optional[int] = Field(
+        default=None, description="AI models: papers the referent check could not decide"
+    )
+    program_only_count: Optional[int] = Field(
+        default=None,
+        description="Datasets with a program separate from its data: papers labelled as "
+        "discussing only the program (still genuine for the release bar); None when the scope "
+        "check did not run",
+    )
+    data_share: Optional[float] = Field(
+        default=None,
+        description="Split datasets: genuine papers not labelled program-only / papers "
+        "evaluated (0-1); None when the scope check did not run",
+    )
+    fulltext_precision_wilson95: Optional[tuple[float, float]] = Field(
+        default=None, description="Split datasets: Wilson 95% interval of fulltext_precision"
+    )
+    data_share_wilson95: Optional[tuple[float, float]] = Field(
+        default=None, description="Split datasets: Wilson 95% interval of data_share"
+    )
+    program_only_wilson95: Optional[tuple[float, float]] = Field(
+        default=None, description="Split datasets: Wilson 95% interval of program_only_rate"
+    )
+    used_share_wilson95: Optional[tuple[float, float]] = Field(
+        default=None, description="Split datasets: Wilson 95% interval of used_rate"
+    )
+    program_only_rate: Optional[float] = Field(
+        default=None, description="program-only papers / papers evaluated (0-1); None when not run"
+    )
+    scope_unclear_count: Optional[int] = Field(
+        default=None, description="papers the scope check could not decide (kept); None when not run"
+    )
+    scope_references_only_count: Optional[int] = Field(
+        default=None,
+        description="papers the scope check turned under its references-only rule; None when not run",
+    )
+    four_way: Optional[dict[str, dict[str, Any]]] = Field(
+        default=None,
+        description="Split datasets: data | program_only | references_only | unrelated, "
+        "each with count, share (0-1) and wilson95; None when the scope check did not run",
+    )
+    unrelated_share: Optional[float] = Field(
+        default=None,
+        description="Split datasets: unrelated papers / papers evaluated (0-1), the release "
+        "bar for a split dataset; None when the scope check did not run",
+    )
+    cited_only_unknown_count: Optional[int] = Field(
+        default=None,
+        description="AI models: genuine papers whose name location is unknown; None for datasets",
+    )
+    paper_details: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        description="AI models: one entry per evaluated paper (id, title, verdict, location, "
+        "cited_only, matched_name). Datasets with a scope check: id, verdict, overridden_from, "
+        "scope, references_only, validator_scope and the matched terms; else None",
+    )
+    error: Optional[str] = None
+
+
+class TermDiff(BaseModel):
+    kind: Literal["alias", "flag", "exclude"]
+    term: str
+    #: keep | add | drop | demote (safe->risky)
+    action: Literal["keep", "add", "drop", "demote"]
+    #: verified (full-text evidence), unverified (no evidence, never changed),
+    #: suspect (abstract-only signal, never changed).
+    status: Literal["verified", "unverified", "suspect"]
+    reason: str = ""
+    stats: dict[str, Any] = Field(default_factory=dict)
+    evidence: list[EvidenceQuote] = Field(default_factory=list)
+
+
+class SeedBuckets(BaseModel):
+    main_dataset_name: str
+    safe: list[str] = Field(default_factory=list)
+    risky: list[str] = Field(default_factory=list)
+    flag_terms: list[str] = Field(default_factory=list)
+    exclude_terms: list[str] = Field(default_factory=list)
+    raw_clause: Optional[str] = None
+    for_clause: str = ""
+    seed: dict[str, Any] = Field(default_factory=dict, description="/pipelines/start body")
+
+
+class QueryProposal(BaseModel):
+    id: str
+    status: Literal["pending", "approved", "submitted"] = "pending"
+    dataset_name: str
+    created_at: str = Field(default_factory=utc_now_iso)
+    initial: SeedBuckets
+    proposed: SeedBuckets
+    diffs: list[TermDiff] = Field(default_factory=list)
+    iterations: list[IterationMetrics] = Field(default_factory=list)
+    #: Ready ``/pipelines/start`` payload (probe=false).
+    start_payload: dict[str, Any] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
+    #: Program split from its data: the program and its datasets (None when not split).
+    program_datasets: Optional[Any] = None
+    approved_at: Optional[str] = None
+    approved_by: Optional[str] = None
+    submitted_at: Optional[str] = None
+    submit_target: Optional[str] = None
+    submit_result: Optional[dict[str, Any]] = None

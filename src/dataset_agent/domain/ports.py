@@ -1,0 +1,128 @@
+"""Abstract ports."""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from dataset_agent.domain.models import DatasetRecord
+
+
+class AgentPort(ABC):
+    @abstractmethod
+    def get_information(self, prompt: str, *, tools: list | None = None) -> str:
+        """Run the agentic loop with optional tool override.
+
+        Pass ``tools=[]`` to disable all tools (pure reasoning).
+        Pass a list of tool dicts to use only those tools.
+        Omit (``None``) to use the adapter's default tool set.
+        """
+        pass
+
+    @abstractmethod
+    def get_structured(self, prompt: str, result_tool: dict) -> dict:
+        """Return one structured response shaped by *result_tool*.
+
+        *result_tool* is a ``{name, description, input_schema}`` tool dict.
+        Adapters obtain a JSON object for ``input_schema`` (a forced tool call,
+        a JSON-schema response format, or JSON parsed from the reply text) and
+        validate it, retrying once on errors. If no valid object is obtained,
+        the last parsed object is leniently coerced to the schema and returned
+        when it then validates; otherwise the result is ``{}``.
+        """
+        pass
+
+
+class TextExtractorPort(ABC):
+    @abstractmethod
+    def extract_list(self, text: str) -> list[str]:
+        pass
+
+    @abstractmethod
+    def extract_url(self, text: str) -> str | None:
+        pass
+
+    @abstractmethod
+    def extract_section(self, text: str, section_name: str) -> str:
+        """Extract content from a ===SECTION=== block."""
+        pass
+
+    @abstractmethod
+    def extract_sections(self, text: str) -> dict[str, str]:
+        """Extract all ===SECTION=== blocks into a dict."""
+        pass
+
+
+class DatasetRepositoryPort(ABC):
+    @abstractmethod
+    def save(self, record: DatasetRecord) -> Path:
+        pass
+
+    def load(self, main_dataset_name: str) -> DatasetRecord | None:
+        """The stored record of *main_dataset_name*, or None (default: nothing stored)."""
+        return None
+
+
+class LiteratureGateResult:
+    __slots__ = ("passed", "indicator", "detail")
+
+    def __init__(self, passed: bool, indicator: float = 0.0, detail: dict | None = None):
+        self.passed = passed
+        self.indicator = indicator
+        self.detail = detail or {}
+
+
+class LiteratureGatePort(ABC):
+    """Post-save screening (Dimensions + lexical + optional LLM sample)."""
+
+    @abstractmethod
+    def assess(
+        self,
+        record: DatasetRecord,
+        sample_size: int = 10,
+        llm_batch_size: int = 25,
+    ) -> LiteratureGateResult:
+        pass
+
+
+class DimensionsDslPort(ABC):
+    """Execute Dimensions DSL queries with rate limiting (async implementations)."""
+
+    @abstractmethod
+    async def execute_dsl(self, dsl: str) -> Any:
+        """Run a DSL string; must enforce ``Settings.dimensions_rate_limit_seconds`` between query starts."""
+        pass
+
+
+class TaskStatus:
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class TaskRepositoryPort(ABC):
+    @abstractmethod
+    def create_task(self, payload: dict[str, Any]) -> str:
+        pass
+
+    @abstractmethod
+    def get_task(self, task_id: str) -> dict[str, Any] | None:
+        pass
+
+    @abstractmethod
+    def list_tasks(self, limit: int = 100) -> list[dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def update_task(
+        self,
+        task_id: str,
+        *,
+        status: str | None = None,
+        result_path: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        pass

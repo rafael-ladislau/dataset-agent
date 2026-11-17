@@ -1,233 +1,678 @@
-"""
-Tool implementations for the dataset agent.
+"""Shared tool implementations for the agent (web search + HTTP GET)."""
 
-This module defines tools used by the agent for gathering information.
-"""
+from __future__ import annotations
 
-import time
 import logging
-import requests
 import os
-from typing import Dict, Any, Literal
 
-from langchain_core.tools import tool
+import httpx
 
-# Set up logging
 logger = logging.getLogger(__name__)
 
 
-@tool
 def web_search(query: str) -> str:
-    """
-    Search the web for the specified query.
-    
-    Args:
-        query (str): The search query string
-        
-    Returns:
-        str: Search results as a formatted string
-    """
-    logger.info(f"Web search tool called with query: '{query}'")
-    
-    # Prefer Tavily automatically when API key is present
-    if os.environ.get("TAVILY_API_KEY"):
-        return _tavily_search(query)
-    
-    # Otherwise, use configured provider or fallback to DuckDuckGo
-    provider = os.environ.get("WEB_SEARCH_PROVIDER", "duckduckgo").lower()
+    """Search the public web (Tavily or DuckDuckGo) and return formatted results."""
+    q = (query or "").strip()
+    if not q:
+        return (
+            "web_search: the model sent an empty or invalid query. "
+            "Call again with a single non-empty search string in the 'query' argument."
+        )
+    qprev = (q[:120] + "…") if len(q) > 120 else q
+    # The configured provider decides (WEB_SEARCH_PROVIDER); a Tavily key alone does not
+    # switch providers (owner decision when merging main).
+    provider, tavily_key = _search_config()
+    logger.info("Tool web_search: provider=%s query=%r", provider, qprev)
+
     if provider == "tavily":
-        return _tavily_search(query)
-    return _duckduckgo_search(query)
+        return _tavily_search(q, api_key=tavily_key)
+    return _ddg_search(q)
 
 
-def _tavily_search(query: str) -> str:
-    """
-    Search the web using Tavily for the specified query.
-    
-    Args:
-        query (str): The search query string
-        
-    Returns:
-        str: Search results as a formatted string
-    """
-    logger.info(f"Using Tavily search provider for query: '{query}'")
-    tool_start_time = time.time()
-    
+def _search_config() -> tuple[str, str]:
+    """Resolve web search provider and Tavily API key from env or Settings (.env)."""
+    provider = os.environ.get("WEB_SEARCH_PROVIDER", "").strip().lower()
+    api_key = os.environ.get("TAVILY_API_KEY", "").strip()
+    if provider:
+        return provider, api_key
+    try:
+        from dataset_agent.settings import Settings
+
+        s = Settings()
+        return s.web_search_provider.strip().lower(), s.tavily_api_key.strip()
+    except Exception:
+        return "duckduckgo", ""
+
+
+def _tavily_search(query: str, *, api_key: str = "") -> str:
+    """Search via Tavily API; fall back to DuckDuckGo on missing key or errors."""
+    api_key = (api_key or os.environ.get("TAVILY_API_KEY", "")).strip()
+    if not api_key:
+        logger.warning("TAVILY_API_KEY not set, falling back to DuckDuckGo")
+        return _ddg_search(query)
     try:
         from tavily import TavilyClient
-        
-        # Get Tavily API key from environment
-        tavily_api_key = os.environ.get("TAVILY_API_KEY")
-        if not tavily_api_key:
-            logger.error("TAVILY_API_KEY not found in environment variables")
-            return "Error: Tavily API key not found. Please set TAVILY_API_KEY environment variable."
-        
-        # Log the search start
-        search_start = time.time()
-        
-        # Initialize Tavily client
-        client = TavilyClient(api_key=tavily_api_key)
-        
-        # Perform search
-        response = client.search(
-            query=query,
-            search_depth="advanced",
-            max_results=7,
-            include_answer=False,
-            include_raw_content=False,
-            include_images=False
-        )
-        
+    except ImportError:
+        logger.warning("tavily-python not installed, falling back to DuckDuckGo")
+        return _ddg_search(query)
+    try:
+        client = TavilyClient(api_key=api_key)
+        response = client.search(query, max_results=6, search_depth="basic")
         results = response.get("results", [])
-        
-        # Calculate and log search time
-        search_time = time.time() - search_start
-        logger.info(f"Tavily search completed in {search_time:.2f} seconds with {len(results)} results")
-        
-        # Format results for the LLM
         if not results:
-            return "No results found."
-        
-        formatted_results = "Search results for '" + query + "':\n\n"
-        for i, result in enumerate(results, 1):
-            formatted_results += f"[{i}] {result['title']}\n"
-            formatted_results += f"URL: {result['url']}\n"
-            formatted_results += f"Summary: {result['content']}\n\n"
-            
-            # Log a sample of results (first result only)
-            if i == 1:
-                logger.info(f"Search results (sample): {formatted_results[:500]}...")
-        
-        tool_execution_time = time.time() - tool_start_time
-        logger.info(f"Tavily search tool completed in {tool_execution_time:.2f} seconds")
-        return formatted_results
-        
-    except ImportError:
-        logger.error("Tavily package not installed. Install with: pip install tavily-python")
-        return "Error: Search capability is not available. Tavily package not installed."
+            logger.info("Tool web_search (tavily): 0 results")
+            return "web_search: no results"
+        logger.info("Tool web_search (tavily): %s results", len(results))
+        parts = []
+        for r in results:
+            title = r.get("title") or ""
+            url = r.get("url") or ""
+            content = (r.get("content") or "")[:400]
+            parts.append(f"- {title}\n  {url}\n  {content}")
+        return "\n".join(parts)
     except Exception as e:
-        logger.error(f"Tavily search failed with error: {str(e)}")
-        return f"Error: Tavily search failed with: {str(e)}"
+        logger.warning("Tavily search failed: %s, falling back to DuckDuckGo", e)
+        return _ddg_search(query)
 
 
-def _duckduckgo_search(query: str) -> str:
-    """
-    Search the web using DuckDuckGo for the specified query.
-    
-    Args:
-        query (str): The search query string
-        
-    Returns:
-        str: Search results as a formatted string
-    """
-    logger.info(f"Using DuckDuckGo search provider for query: '{query}'")
-    tool_start_time = time.time()
-    
+def _ddg_search(query: str) -> str:
+    """Search via DuckDuckGo and return formatted results."""
     try:
-        # Prefer the new ddgs package
-        try:
-            from ddgs import DDGS  # type: ignore
-        except ImportError:
-            # Fallback to old package name for compatibility
-            from duckduckgo_search import DDGS  # type: ignore
-        
-        # Log the search start
-        search_start = time.time()
-        
-        # Try different search backends with error handling
-        results = []
-        
-        # First try the html backend
-        try:
-            with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=7))
-            if results:
-                logger.info(f"Successfully retrieved {len(results)} results from html backend")
-        except Exception as e1:
-            logger.warning(f"HTML backend failed with error: {str(e1)}")
-            
-            # Try lite backend as fallback
-            try:
-                with DDGS() as ddgs:
-                    results = list(ddgs.text(query, max_results=7, backend="lite"))
-                if results:
-                    logger.info(f"Successfully retrieved {len(results)} results from lite backend")
-            except Exception as e2:
-                logger.error(f"Lite backend failed with error: {str(e2)}")
-        
-        # Calculate and log search time
-        search_time = time.time() - search_start
-        logger.info(f"Web search completed in {search_time:.2f} seconds with {len(results)} results")
-        
-        # Format results for the LLM
-        if not results:
-            return "No results found."
-        
-        formatted_results = "Search results for '" + query + "':\n\n"
-        for i, result in enumerate(results, 1):
-            formatted_results += f"[{i}] {result['title']}\n"
-            formatted_results += f"URL: {result['href']}\n"
-            formatted_results += f"Summary: {result['body']}\n\n"
-            
-            # Log a sample of results (first result only)
-            if i == 1:
-                logger.info(f"Search results (sample): {formatted_results[:500]}...")
-        
-        tool_execution_time = time.time() - tool_start_time
-        logger.info(f"Web search tool completed in {tool_execution_time:.2f} seconds")
-        return formatted_results
+        from ddgs import DDGS
     except ImportError:
-        logger.error("DuckDuckGo search package not installed. Install with: pip install duckduckgo-search")
-        return "Error: Search capability is not available. DuckDuckGo search package not installed."
+        return "web_search: ddgs not installed (pip install ddgs)"
+    try:
+        hits = list(DDGS().text(query, max_results=6))
+        if not hits:
+            logger.info("Tool web_search (ddg): 0 results")
+            return "web_search: no results"
+        logger.info("Tool web_search (ddg): %s results", len(hits))
+        parts = []
+        for h in hits:
+            body = (h.get("body") or "")[:400]
+            title = h.get("title") or ""
+            href = h.get("href") or ""
+            parts.append(f"- {title}\n  {href}\n  {body}")
+        return "\n".join(parts)
     except Exception as e:
-        logger.error(f"Web search failed with error: {str(e)}")
-        return f"Error: Web search failed with: {str(e)}"
+        logger.warning("web_search failed: %s", e)
+        return f"web_search error: {e}"
 
 
-@tool
 def make_request(url: str) -> str:
-    """
-    Make a request to a URL and return the response.
-    
-    Args:
-        url: URL to request
-        
-    Returns:
-        str: Response 
-    """
-    logger.info(f"Request tool called with URL: {url}")
-    start_time = time.time()
-    
+    """HTTP GET a URL and return status code + short text preview."""
+    u = (url or "").strip()
+    if not u:
+        return "request error: empty URL"
+    logger.info("Tool make_request: GET %s", u[:200] + ("…" if len(u) > 200 else ""))
     try:
-        # Add timeout to prevent hanging on slow responses
-        response = requests.get(url, timeout=10)
-        elapsed = time.time() - start_time
-        
-        # Format the response based on status code
-        valid = response.status_code == 200
-        logger.info(f"Request to {url} completed with status code {response.status_code} ({elapsed:.2f}s)")
-        
-        # Get the content type and length
-        content_type = response.headers.get('Content-Type', 'unknown')
-        content_length = len(response.text)
-        
-        # Prepare a preview of the content (first 500 chars)
-        content_preview = response.text[:500] if valid else ""
-        
-        # Return formatted response
-        return f"""URL: {url}
-Status code: {response.status_code}
-Valid: {valid}
-Content type: {content_type}
-Content length: {content_length} bytes
-Request time: {elapsed:.2f} seconds
-Content preview:
-{content_preview}"""
+        r = httpx.get(u, timeout=30.0, follow_redirects=True)
+        preview = (r.text or "")[:800]
+        logger.info(
+            "Tool make_request: status=%s bytes=%s",
+            r.status_code,
+            len(r.content),
+        )
+        return f"status_code={r.status_code} content_length={len(r.content)} preview={preview!r}"
     except Exception as e:
-        elapsed = time.time() - start_time
-        logger.error(f"Error making request to {url}: {str(e)} ({elapsed:.2f}s)")
-        return f"""URL: {url}
-Status code: Error
-Valid: False
-Error: {str(e)}
-Request time: {elapsed:.2f} seconds""" 
+        return f"request error: {e}"
+
+
+# Anthropic tool definitions (JSON Schema for the messages API)
+TOOL_DEFINITIONS = [
+    {
+        "name": "web_search",
+        "description": (
+            "Search the public web for up-to-date information about a dataset, "
+            "organization, or topic. Use this to find official websites, dataset "
+            "descriptions, publishers, and alternative names. "
+            "Example: query='Current Population Survey official website census bureau'. "
+            "Always use a specific, non-empty search string."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Non-empty search query string. Be specific: include the "
+                        "dataset name plus context terms (e.g. 'dataset creator "
+                        "publisher organization')."
+                    ),
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "make_request",
+        "description": (
+            "HTTP GET a URL and return the HTTP status code plus a short text preview. "
+            "Use this to validate that a URL is live (status 200) and inspect page "
+            "content for data download links, schema definitions, or documentation. "
+            "Only call with full http(s) URLs. Returns an error string on network failure."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": (
+                        "Full http(s) URL to fetch with GET, e.g. "
+                        "'https://www.census.gov/programs-surveys/cps.html'."
+                    ),
+                },
+            },
+            "required": ["url"],
+            "additionalProperties": False,
+        },
+    },
+]
+
+# ---------------------------------------------------------------------------
+# Result / emit tools — used with tool_choice={"type":"tool"} to get
+# guaranteed structured output without regex parsing.
+# ---------------------------------------------------------------------------
+
+EMIT_DATASET_NAMES: dict = {
+    "name": "emit_dataset_names",
+    "description": (
+        "Return the cleaned list of dataset name aliases suitable for literature "
+        "string search. Call this tool exactly once with the final list."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "dataset_names": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Cleaned dataset name aliases (product titles and acronyms only).",
+            },
+        },
+        "required": ["dataset_names"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_FLAG_TERMS: dict = {
+    "name": "emit_flag_terms",
+    "description": (
+        "Return the cleaned list of organization / sponsor flag terms for literature "
+        "search. Call this tool exactly once with the final list."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "flag_terms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Organization and sponsor terms that identify the dataset publisher.",
+            },
+        },
+        "required": ["flag_terms"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_SUBDATASET_ALIASES: dict = {
+    "name": "emit_subdataset_aliases",
+    "description": (
+        "Split dataset aliases into those that refer to this dataset product versus "
+        "versions/sub-products that should be separate records. Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "keep_aliases": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Aliases that still refer to this dataset (max 40 strings).",
+            },
+            "remove_aliases": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Aliases to drop (different cohort/version/sub-product).",
+            },
+        },
+        "required": ["keep_aliases", "remove_aliases"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_FP_ANALYSIS: dict = {
+    "name": "emit_fp_analysis",
+    "description": (
+        "Return false-positive domains for a risky alias in scientific literature. "
+        "Call exactly once with structured domains and indicator keywords per domain."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "domains": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "domain_name": {
+                            "type": "string",
+                            "description": "Short FP domain label (e.g. biochemistry).",
+                        },
+                        "indicator_terms": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Terms that signal this FP domain in titles/abstracts (max 20).",
+                        },
+                    },
+                    "required": ["domain_name", "indicator_terms"],
+                    "additionalProperties": False,
+                },
+                "description": "Non-empty list of FP collision domains for the alias.",
+            },
+        },
+        "required": ["domains"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_FLAG_TERMS_FOR_ALIAS: dict = {
+    "name": "emit_flag_terms_for_alias",
+    "description": (
+        "Return context flag terms that indicate the paper is about the target dataset "
+        "when a risky alias appears. Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "flag_terms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Domain-positive terms (max 20 strings).",
+            },
+        },
+        "required": ["flag_terms"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_DOMAIN_POSITIVE_KEYWORDS: dict = {
+    "name": "emit_domain_positive_keywords",
+    "description": (
+        "Return short override keywords: if they appear in a title, treat as dataset-relevant. "
+        "Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "keywords": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Override keywords (max 15).",
+            },
+        },
+        "required": ["keywords"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_TITLE_RELEVANCE: dict = {
+    "name": "emit_title_relevance",
+    "description": (
+        "Signal 3: score how relevant a single publication title is to the dataset. "
+        "Call exactly once per title."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "mention_score": {
+                "type": "integer",
+                "description": "0–10: clear mention of this dataset vs unrelated use of terms.",
+            },
+            "context_score": {
+                "type": "integer",
+                "description": "0–10: domain match (uses/analyzes/references this dataset's data).",
+            },
+            "mentioned_term": {
+                "type": "string",
+                "description": "Best matching term or empty string.",
+            },
+            "reason": {
+                "type": "string",
+                "description": "Brief justification (max 25 words).",
+            },
+        },
+        "required": ["mention_score", "context_score", "mentioned_term", "reason"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_QUERY_VARIANTS: dict = {
+    "name": "emit_query_variants",
+    "description": (
+        "Summarize tested Dimensions query variants (counts, FP rates). Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "variants": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string"},
+                        "expected_count": {"type": "integer"},
+                        "fp_rate_pct": {"type": "number"},
+                        "notes": {"type": "string"},
+                    },
+                    "required": ["label", "expected_count", "fp_rate_pct", "notes"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["variants"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_ALIAS_MENTION_CLASSIFICATION: dict = {
+    "name": "emit_alias_mention_classification",
+    "description": (
+        "Decide whether an alias mention in an abstract refers to the target dataset "
+        "or a false positive. Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "is_genuine_dataset_reference": {
+                "type": "boolean",
+                "description": "True if the mention is about the target dataset product.",
+            },
+            "confidence": {
+                "type": "integer",
+                "description": "0–10 self-rated confidence in the classification.",
+            },
+            "reason": {
+                "type": "string",
+                "description": "One short sentence explaining the decision.",
+            },
+        },
+        "required": ["is_genuine_dataset_reference", "confidence", "reason"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_EXCLUDE_TERMS: dict = {
+    "name": "emit_exclude_terms",
+    "description": (
+        "Return NOT-clause candidate phrases derived from confirmed false-positive contexts. "
+        "Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "exclude_terms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Phrases for Dimensions post-filter or DSL NOT (max 25).",
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "Brief summary of how terms were chosen (max 40 words).",
+            },
+        },
+        "required": ["exclude_terms", "reasoning"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_WEB_ALIAS_MEANINGS: dict = {
+    "name": "emit_web_alias_meanings",
+    "description": (
+        "After reviewing web search hits, list alternative meanings of an ambiguous term "
+        "as domains with candidate exclude terms. Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "domains": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "domain_name": {"type": "string"},
+                        "candidate_exclude_terms": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                    "required": ["domain_name", "candidate_exclude_terms"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["domains"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_SUB_PRODUCT_NAMES: dict = {
+    "name": "emit_sub_product_names",
+    "description": (
+        "Return distinct sub-product or module names found on the dataset homepage "
+        "(e.g. QWI, LODES under LEHD). Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "names": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Short product/module names only (max 20).",
+            },
+        },
+        "required": ["names"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_MULTILINGUAL_ALIASES: dict = {
+    "name": "emit_multilingual_aliases",
+    "description": (
+        "Return alternate spellings or translations of the dataset title for search "
+        "(accented/unaccented, other languages). Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "aliases": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Additional citation forms (max 25).",
+            },
+        },
+        "required": ["aliases"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_SUFFIX_FORM: dict = {
+    "name": "emit_suffix_form",
+    "description": (
+        "Return the alias with a suffix such as 'dataset', 'survey', 'data' or 'study' "
+        "when that makes a literature search more specific, otherwise an empty string. "
+        "Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "suffixed_form": {
+                "type": "string",
+                "description": "Suggested suffixed form, or '' when no suffix is needed.",
+            },
+        },
+        "required": ["suffixed_form"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_RELEVANCE_SCORE: dict = {
+    "name": "emit_relevance_score",
+    "description": (
+        "Return the relevance assessment scores for the publication. "
+        "Call this tool exactly once with the evaluation results."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "mention_score": {
+                "type": "integer",
+                "description": "0–10: how clearly the title/abstract mentions this specific dataset.",
+            },
+            "context_score": {
+                "type": "integer",
+                "description": "0–10: how well the publication's domain matches this dataset's purpose.",
+            },
+            "mentioned_term": {
+                "type": "string",
+                "description": "The best-matched alias or term found, or empty string.",
+            },
+            "reason": {
+                "type": "string",
+                "description": "Brief explanation of the scores (max 10 words).",
+            },
+        },
+        "required": ["mention_score", "context_score", "mentioned_term", "reason"],
+        "additionalProperties": False,
+    },
+}
+
+EMIT_TERMS_EVALUATION: dict = {
+    "name": "emit_terms_evaluation",
+    "description": (
+        "Return the effectiveness evaluation of the dataset search terms. "
+        "Call this tool exactly once with the full evaluation results."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "is_effective": {
+                "type": "boolean",
+                "description": "True if current terms are adequate for literature search.",
+            },
+            "dataset_names_score": {
+                "type": "integer",
+                "description": "0–10 quality score for dataset name aliases.",
+            },
+            "flag_terms_score": {
+                "type": "integer",
+                "description": "0–10 quality score for organization flag terms.",
+            },
+            "issues": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of identified issues with current terms.",
+            },
+            "suggested_dataset_names": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "New dataset name aliases to add (not already in current terms).",
+            },
+            "suggested_flag_terms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "New organization terms to add (not already in current terms).",
+            },
+            "suggested_exclude_terms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Phrases to exclude from future searches to reduce off-domain noise.",
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "Brief explanation of the evaluation (max 50 words).",
+            },
+        },
+        "required": [
+            "is_effective",
+            "dataset_names_score",
+            "flag_terms_score",
+            "issues",
+            "suggested_dataset_names",
+            "suggested_flag_terms",
+            "suggested_exclude_terms",
+            "reasoning",
+        ],
+        "additionalProperties": False,
+    },
+}
+
+# Dispatch table mapping tool name → callable (only applies to action tools)
+TOOL_DISPATCH: dict[str, callable] = {
+    "web_search": lambda args: web_search(args.get("query", "")),
+    "make_request": lambda args: make_request(args.get("url", "")),
+}
+
+EMIT_REFINEMENT_CANDIDATES: dict = {
+    "name": "emit_refinement_candidates",
+    "description": (
+        "Propose query refinements from full-text evidence: group the false positives (papers "
+        "that do not mention the dataset) by the other meaning that pulled them in and give "
+        "exclude phrases per group; flag (context) terms and new alias forms from the papers "
+        "that mention the dataset. Call exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "false_positive_groups": {
+                "type": ["array", "null"],
+                "description": "Other meanings among the false positives, largest first (max 6).",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": ["string", "null"], "description": "e.g. 'UI = user interface (HCI)'"},
+                        "cause_term": {"type": ["string", "null"], "description": "Query term that matched them"},
+                        "papers": {"type": ["number", "string", "null"], "description": "Number of false positives in the group"},
+                        "exclude_terms": {"type": ["array", "null"], "items": {"type": "string"}},
+                    },
+                    "additionalProperties": True,
+                },
+            },
+            "exclude_terms": {
+                "type": ["array", "null"],
+                "items": {"type": "string"},
+                "description": "Short phrases present in false-positive titles/snippets, never in matching papers (max 10).",
+            },
+            "flag_terms": {
+                "type": ["array", "null"],
+                "items": {"type": "string"},
+                "description": "Context words/phrases shared by the matching papers' quotes/snippets (max 10).",
+            },
+            "new_aliases": {
+                "type": ["array", "null"],
+                "items": {
+                    "type": ["string", "object"],
+                    "description": (
+                        "The name as written in a matching quote, with what it names. kind: "
+                        "dataset (the name of the dataset or product itself), organization "
+                        "(an agency, institute, consortium, facility or funder), archive or "
+                        "repository (a collection the data sits in), host (a platform, portal "
+                        "or server that hosts it), other."
+                    ),
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {
+                            "type": "string",
+                            "enum": ["dataset", "organization", "archive", "repository",
+                                     "host", "other"],
+                        },
+                    },
+                    "required": ["name"],
+                },
+                "description": "Mention forms of the dataset seen in matching quotes (max 5).",
+            },
+            "reasoning": {"type": "string", "description": "Brief rationale (max 40 words)."},
+        },
+        "required": ["exclude_terms", "flag_terms", "new_aliases"],
+        "additionalProperties": False,
+    },
+}

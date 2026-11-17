@@ -1,19 +1,28 @@
-FROM python:3.10.15-slim-bullseye
+# API HTTP (dataset-research-api). Python 3.12 alinhado a requires-python >=3.11
+FROM python:3.12-slim-bookworm
 
+# Network diagnostics used on the server (ping, curl, wget).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    iputils-ping  curl wget \
+    iputils-ping curl wget \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-WORKDIR app
+WORKDIR /app
 
-COPY src src
-COPY src/requirements.txt .
-RUN rm -rf data
-RUN rm -rf src/data
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DATASET_AGENT_OUTPUT_DIR=/data/output \
+    DATASET_AGENT_TASKS_DB=/data/tasks.db
 
-RUN ls
+COPY pyproject.toml README.md ./
+COPY src ./src
 
-RUN python3 -m pip install -r requirements.txt
+RUN pip install --no-cache-dir .
 
-EXPOSE 8888
+# Dados persistentes (JSON + SQLite de tarefas)
+VOLUME ["/data"]
+
+EXPOSE 8000
+
+CMD ["dataset-research-api"]

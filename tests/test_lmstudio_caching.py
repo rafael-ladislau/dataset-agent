@@ -12,8 +12,16 @@ Run with:
     venv/bin/python test_lmstudio_caching.py
 """
 
+import os
 import time
+
 import anthropic
+
+if __name__ != "__main__" and os.environ.get("DATASET_AGENT_LIVE_LLM") != "1":
+    # Live script that runs at import time: skip it under pytest unless explicitly enabled.
+    import pytest
+
+    pytest.skip("live LM Studio script; set DATASET_AGENT_LIVE_LLM=1", allow_module_level=True)
 
 BASE_URL = "http://localhost:1234"
 MODEL = "gemma-4-31b-it-mlx"

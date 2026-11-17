@@ -1,52 +1,43 @@
+# Uso local:
+#   API + Ollama no Compose:
+#     docker compose --profile llm up --build
+#   Só API (Ollama no host):
+#     cp .env.example .env
+#     docker compose up --build
+#     (Ollama no contêiner API usa host.docker.internal; 127.0.0.1 no .env não vale dentro do Docker.)
+#
+#   Swagger UI: http://localhost:${DATASET_AGENT_API_PORT:-8000}/docs
+#   Hot reload: código em ./src é montado em /app/src; uvicorn --reload recarrega ao salvar.
+#   Dados: ./data no projeto → /data no contêiner (output JSON + tasks.db).
+#
+# Ollama no host (padrão): host.docker.internal (extra_hosts abaixo; Linux usa host-gateway).
+# Com --profile llm (Ollama no compose): crie docker-compose.override.yml com
+#   services.api.environment.DATASET_AGENT_OLLAMA_BASE_URL: http://ollama:11434
+
 services:
-  ollama:
-    volumes:
-      - "/mnt/volume/ollama/data:/root/.ollama"
-    container_name: ollama
-    pull_policy: always
-    tty: true
-    restart: unless-stopped
-    image: docker.io/ollama/ollama:latest
-      #    ports:
-      # - "7869:11434"
-    environment:
-      - OLLAMA_KEEP_ALIVE=24h
-      - OLLAMA_MODEL=qwen3:32b
-      - OLLAMA_NUM_PARALLEL=2
-      - OLLAMA_MAX_LOADED_MODELS=2
-    networks:
-      - dataset
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [ gpu ]
-
   api:
-    platform: linux/amd64
-    build:
-      context: .
-      dockerfile: Dockerfile
-    working_dir: /app
+    build: .
     ports:
-      - "8888:8888"
+      - "${DATASET_AGENT_API_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app/src
+      LOG_LEVEL: DEBUG
+      # Hot reload: main_api + volume ./src; polling ajuda Docker Desktop (macOS/Windows).
+      UVICORN_RELOAD: "true"
+      UVICORN_RELOAD_DIR: /app/src
+      WATCHFILES_FORCE_POLLING: "true"
+      DATASET_AGENT_OUTPUT_DIR: /data/output
+      DATASET_AGENT_TASKS_DB: /data/tasks.db
+      # Fixo: evita que o .env (127.0.0.1) quebre o acesso ao Ollama no host. Sobrescreva com override se usar perfil llm.
+      DATASET_AGENT_OLLAMA_BASE_URL: http://host.docker.internal:11434
     volumes:
-#      - "/Users/leandroferreira/Projects/ladis/dataset-agent/data:/app/data"
-      - "/mnt/volume/sqlite/data:/app/data"
-    networks:
-      - dataset
-        #extra_hosts:
-        #- host.docker.internal:host-gateway
-    command:
-      - python
-      - -m
-      - src.dataset_agent.api
-    depends_on:
-      - ollama
+      - ./data:/data
+      - ./src:/app/src
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
 
-networks:
-  dataset:
-    driver: bridge
-
+volumes:
+  ollama_data:

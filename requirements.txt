@@ -1,26 +1,27 @@
-# Core Framework Dependencies
-fastapi>=0.109.0
-uvicorn>=0.27.0
-pydantic>=2.5.3
+# Runtime dependencies for `pip install -r requirements.txt`.
+# pyproject.toml is the source of truth (`pip install .` / `uv sync`); keep the two in sync.
 
-# LangChain Dependencies
-langchain>=0.3.0
-langchain-core>=0.3.0
-langchain-ollama>=0.2.0
-langchain-openai>=0.2.0
-langgraph>=0.2.50
-langgraph-prebuilt>=0.1.0
-
-# Web Search Dependencies
-duckduckgo-search>=3.9.0
-tavily-python>=0.1.6
-
-# Core Python Dependencies
-requests>=2.31.0
+# Core framework
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+pydantic-settings>=2.2
 python-dotenv>=1.0.0
 python-multipart>=0.0.7
+typer>=0.12
+jsonschema>=4.20
 
-# System Dependencies
-psutil>=5.9.0
+# LLM clients (OpenAI-compatible and Anthropic-style adapters)
+anthropic>=0.42
+openai>=1.40
 
-# Note: uuid is a built-in Python module, not needed as a dependency
+# HTTP, web search and literature
+httpx>=0.27
+requests>=2.31.0
+ddgs>=9.0
+tavily-python>=0.5
+dimcli>=0.9
+
+# Spreadsheet export (scripts/dataset_metadata_spreadsheet.py)
+pandas>=2.0
+openpyxl>=3.1

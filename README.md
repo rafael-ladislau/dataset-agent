@@ -1,335 +1,279 @@
-# Dataset Research Agent
+# dataset-agent
 
-A tool for automatically researching and gathering information about datasets using Large Language Models (LLMs) and web search.
+LLM-powered agent that researches dataset metadata (names, aliases, organizations, URLs, access type) and outputs structured JSON. Supports a **CLI** and an **async HTTP API**.
 
-## Overview
+See `DOCUMENTACAO_PROJETO.md` for a full technical reference and `docs/white-paper-dataset-research-agent.md` for the project white paper.
 
-The Dataset Research Agent is designed to automate the process of gathering information about datasets. It leverages large language models (LLMs) via Ollama, OpenRouter, or LMStudio and the LangChain framework to efficiently gather the following information about datasets:
+## Requirements
 
-- Comprehensive descriptions
-- Alternative names and identifiers (aliases)
-- Organizations associated with the dataset
-- Access type (Open, Restricted, Unknown)
-- Data download URLs
-- Schema/data dictionary URLs
-- Documentation URLs
-
-This tool is particularly useful for data cataloging, metadata enrichment, and dataset discovery tasks.
-
-## Features
-
-- **Automated Research**: Automatically searches the web to find information about datasets
-- **Comprehensive Information Gathering**: Collects descriptions, aliases, organizations, URLs, and more
-- **Robust Text Processing**: Uses multiple extraction methods to process LLM responses
-- **Clean Architecture**: Follows SOLID principles with a clear separation of concerns
-- **Flexible Storage**: Stores research results in JSON files for easy integration with other systems
-
-## Prerequisites
-
-- Python 3.8+
-- **Choose one LLM provider:**
-  - **For Ollama (default):**
-    - [Ollama](https://ollama.com/) installed and running
-    - LLM model pulled in Ollama (e.g., llama3)
-  - **For OpenRouter:**
-    - OpenRouter API key (set in .env file)
-  - **For LMStudio:**
-    - [LMStudio](https://lmstudio.ai) installed and running
-    - LMStudio server enabled on port 1234
-    - A compatible model loaded in LMStudio (e.g., gpt-oss-120b)
+- Python 3.11+
+- An LLM provider — one of:
+  - **LM Studio** (default, local): [lmstudio.ai](https://lmstudio.ai)
+  - **Ollama** (local): [ollama.com](https://ollama.com)
+  - **OpenRouter** (cloud): requires `OPENROUTER_API_KEY`
+  - **OpenLLM**, or any other **OpenAI-compatible** server (vLLM, llama.cpp, hosted APIs)
 
 ## Installation
 
-1. Clone the repository:
-   ```
-   git clone https://github.com/yourusername/dataset-research-agent.git
-   cd dataset-research-agent
-   ```
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 
-2. Install the required packages:
-   ```
-   pip install -r requirements.txt
-   ```
+# Optional: enable Dimensions literature gate
+pip install -e ".[dev,dimensions]"
+```
 
-3. Set up your LLM provider:
-   
-   **For Ollama (default):**
+## Environment Setup
+
+Copy the example file and fill in the values:
+
+```bash
+cp .env.example .env
+```
+
+### Environment Variables
+
+All variables use the `DATASET_AGENT_` prefix.
+
+#### LLM Provider
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATASET_AGENT_LLM_PROVIDER` | `lmstudio` | `lmstudio`, `ollama`, `openrouter`, `openllm`, or `openai_compatible` |
+| `DATASET_AGENT_LLM_API_STYLE` | _(provider default)_ | `openai` (`/v1/chat/completions`) or `anthropic` (`/v1/messages`). Defaults to `openai` for `lmstudio`, `openllm` and `openai_compatible`; `anthropic` for `ollama` and `openrouter` |
+| `DATASET_AGENT_LLM_API_KEY` | `local` | API key for local servers (also read from `LMSTUDIO_API_KEY`); fallback for the provider keys below |
+| `LMSTUDIO_BASE_URL` | `http://127.0.0.1:1234` | LM Studio server URL (host root; `/v1` is added for the OpenAI style) |
+| `DATASET_AGENT_LMSTUDIO_MODEL` | `gemma-4-31b-it-mlx` | Model name as shown in LM Studio (also `DATASET_AGENT_LLM_MODEL`) |
+| `DATASET_AGENT_OLLAMA_MODEL` | `gemma4-31b` | Model name for Ollama |
+| `DATASET_AGENT_OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server URL |
+| `OPENROUTER_API_KEY` | _(empty)_ | **Sensitive** — get at [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter endpoint |
+| `DATASET_AGENT_OPENROUTER_MODEL` | `anthropic/claude-3.5-sonnet` | Model slug for OpenRouter |
+| `OPENLLM_BASE_URL` | `http://127.0.0.1:3000/v1` | OpenLLM OpenAI-compatible base URL (including `/v1`) |
+| `DATASET_AGENT_OPENLLM_MODEL` | _(empty, required)_ | Model id served by OpenLLM |
+| `OPENLLM_API_KEY` | _(empty)_ | Optional OpenLLM key (falls back to `DATASET_AGENT_LLM_API_KEY`) |
+| `DATASET_AGENT_OPENAI_COMPATIBLE_BASE_URL` | _(empty, required)_ | Base URL of any other OpenAI-compatible server, used as given |
+| `DATASET_AGENT_OPENAI_COMPATIBLE_MODEL` | _(empty, required)_ | Model id for that server |
+| `DATASET_AGENT_OPENAI_COMPATIBLE_API_KEY` | _(empty)_ | Optional key (falls back to `DATASET_AGENT_LLM_API_KEY`) |
+| `DATASET_AGENT_LLM_MAX_TOKENS` | `8192` | Max completion tokens per LLM call; reasoning models such as gpt-oss spend reasoning tokens from this budget, so keep it generous. The local reasoning-model runs (qwen, nemotron) used 16384 and still saw a few replies cut off; raise it for such models. |
+
+##### Using LM Studio
+
+1. Download and install [LM Studio](https://lmstudio.ai).
+2. Download a model (e.g., `gemma-4-31b-it-mlx`).
+3. Load the model (click the **↔** icon).
+4. Start the local server: **Developer → Local Server → Start Server** (default port `1234`).
+5. Verify it is running: `curl http://localhost:1234/v1/models`.
+6. Point the agent at it via `.env`:
    ```bash
-   # Install Ollama (on macOS or Linux)
-   curl -fsSL https://ollama.com/install.sh | sh
-   
-   # Start Ollama
-   ollama serve
-   
-   # Pull the model you want to use
-   ollama pull llama3
+   DATASET_AGENT_LLM_PROVIDER=lmstudio
+   DATASET_AGENT_LMSTUDIO_MODEL=gemma-4-31b-it-mlx
+   LMSTUDIO_BASE_URL=http://localhost:1234
    ```
 
-   **For OpenRouter:**
-   
-   Create a `.env` file in the root directory with your OpenRouter API key:
-   ```bash
-   OPENROUTER_API_KEY=your_api_key_here
-   ```
+To use LM Studio's Anthropic-compatible endpoint instead, set `DATASET_AGENT_LLM_API_STYLE=anthropic`.
 
-   **For LMStudio:**
-   
-   1. Download and install [LMStudio](https://lmstudio.ai)
-   2. Open LMStudio and download a model (e.g., gpt-oss-120b)
-   3. Load the model by clicking the ↔ icon
-   4. Start the local server:
-      - Go to **Developer** → **Local Server**
-      - Click **Start Server** (default port: 1234)
-      - Verify it's running: `curl http://localhost:1234/v1/models`
-   5. Configure the agent to use LMStudio:
-      ```bash
-      # Add to .env file
-      DATASET_AGENT_LLM_PROVIDER=lmstudio
-      DATASET_AGENT_LLM_MODEL=gpt-oss-120b
-      LMSTUDIO_BASE_URL=http://localhost:1234/v1
-      ```
-
-## Usage
-
-### Command Line Interface
-
-The simplest way to use the Dataset Research Agent is through the command line:
+##### Using OpenLLM or another OpenAI-compatible server
 
 ```bash
-python -m src.dataset_agent.main "Census of Agriculture"
+DATASET_AGENT_LLM_PROVIDER=openllm
+OPENLLM_BASE_URL=http://openllm-host:3000/v1
+DATASET_AGENT_OPENLLM_MODEL=gpt-oss-120b
+
+# or any other server
+DATASET_AGENT_LLM_PROVIDER=openai_compatible
+DATASET_AGENT_OPENAI_COMPATIBLE_BASE_URL=http://vllm-host:8000/v1
+DATASET_AGENT_OPENAI_COMPATIBLE_MODEL=qwen3.6-35b-a3b
 ```
 
-You can also provide an optional URL as a starting point:
+##### Structured output and reasoning models
+
+Structured steps (aliases, flag terms, false-positive analysis, …) ask the model for a JSON object
+that matches a schema. The OpenAI-style adapter tries, in order: a `json_schema` response format,
+a forced tool call, and JSON parsed from the reply text. It validates every result against the
+schema and retries once with the validation error before moving to the next strategy. A strategy
+the server rejects (HTTP 4xx) is skipped for that call. When no reply validates, a `WARNING` is logged and the
+last parsed object is repaired against the schema (`"true"`/`"false"` to booleans, numeric
+strings to numbers, a lone string to a one-item list, unknown keys dropped when the schema forbids
+them). The step gets the repaired object if it now validates, otherwise an empty result. The
+Anthropic-style adapter validates, retries and repairs its forced tool call the same way.
+
+Reasoning output (`reasoning_content` / `reasoning` fields and `<think>…</think>` blocks) is
+dropped before text is returned or parsed. Tool calls that a model writes into its reply text,
+instead of returning them as tool calls, are not executed.
+
+##### Using OpenRouter
 
 ```bash
-python -m src.dataset_agent.main "Census of Agriculture" --url "https://www.nass.usda.gov/AgCensus/"
+DATASET_AGENT_LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=your_api_key_here
+DATASET_AGENT_OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
 ```
 
-Additional command line options:
+#### Runtime
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATASET_AGENT_AGENT_MAX_ITERATIONS` | `5` | Max LLM tool-call iterations per step |
+| `DATASET_AGENT_AGENT_TIMEOUT_SECONDS` | `120` | Per-step timeout |
+| `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `DATASET_AGENT_LOG_DIR` | _(empty)_ | When set, writes rotating logs (`dataset_agent.log`, `dataset_agent_errors.log`, 10 MB × 5) |
+
+#### API Security _(optional)_
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_KEYS` | _(empty)_ | Comma-separated keys; when set, write endpoints require an `x-api-key` header. Empty disables auth. |
+| `CORS_ORIGINS` | `*` | Comma-separated allowed CORS origins |
+
+#### Persistence
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATASET_AGENT_OUTPUT_DIR` | `./output` | Directory for generated JSON files |
+| `DATASET_AGENT_TASKS_DB` | `./tasks.db` | SQLite file for async task state |
+
+#### Literature Gate _(optional)_
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATASET_AGENT_LITERATURE_GATE` | `noop` | `noop` (disabled) or `dimensions` |
+| `DATASET_AGENT_LITERATURE_MAX_ATTEMPTS` | `3` | Retry attempts for gate validation |
+| `DATASET_AGENT_LITERATURE_THRESHOLD` | `0.5` | Minimum score to pass validation |
+| `DATASET_AGENT_DIMENSIONS_API_KEY` | _(empty)_ | **Sensitive** — get at [app.dimensions.ai](https://app.dimensions.ai) → Account → API |
+
+## CLI
 
 ```bash
-python -m src.dataset_agent.main "Dataset Name" [--url URL] [--output-dir OUTPUT_DIR] [--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}] [--log-file LOG_FILE] [--llm-provider {ollama,openrouter,lmstudio}] [--llm-model MODEL_NAME] [--env-file ENV_FILE_PATH]
+dataset-research run "NASS Census of Agriculture"
+
+# with webhook notification on completion
+dataset-research run "NASS Census of Agriculture" --webhook https://example.com/hook
 ```
 
-#### LLM Provider Options
+Output JSON is printed to stdout; the saved file path is printed to stderr.
 
-- `--llm-provider`: Choose between:
-  - `ollama` (default) - Uses locally running Ollama
-  - `openrouter` - Uses OpenRouter cloud API
-  - `lmstudio` - Uses locally running LMStudio with OpenAI-compatible API
-- `--llm-model`: Specify the model to use
-  - For Ollama: model name (e.g., "llama3", "qwen3:32b")
-  - For OpenRouter: model identifier (e.g., "anthropic/claude-3-opus")
-  - For LMStudio: model name shown in LMStudio (e.g., "gpt-oss-120b")
-- `--env-file`: Path to .env file with API credentials (defaults to ".env")
+## API
 
-#### Examples:
-
-**Using Ollama with a specific model:**
-```bash
-python -m src.dataset_agent.main "Census of Agriculture" --llm-provider ollama --llm-model llama3
-```
-
-**Using OpenRouter:**
-```bash
-python -m src.dataset_agent.main "Census of Agriculture" --llm-provider openrouter --llm-model anthropic/claude-3-opus
-```
-
-**Using LMStudio:**
-```bash
-# Make sure LMStudio is running with a model loaded
-python -m src.dataset_agent.main "Census of Agriculture" --llm-provider lmstudio --llm-model gpt-oss-120b
-```
-
-**Using LMStudio with custom port:**
-```bash
-LMSTUDIO_BASE_URL=http://localhost:5000/v1 python -m src.dataset_agent.main "Census of Agriculture" --llm-provider lmstudio --llm-model gpt-oss-120b
-```
-
-### Programmatic Usage
-
-You can also use the Dataset Research Agent in your own Python code:
-
-```python
-from src.dataset_agent.config import Config
-from src.dataset_agent.main import run_research
-
-# Create a configuration (optional)
-config = Config(
-    log_level="INFO", 
-    output_dir="/path/to/output",
-    llm_provider="lmstudio",  # or "ollama", "openrouter"
-    llm_model="gpt-oss-120b",  # or your preferred model
-    lmstudio_base_url="http://localhost:1234/v1"  # only needed for LMStudio
-)
-
-# Run research
-dataset_info = run_research("Census of Agriculture", config=config)
-
-# Access research results
-print(f"Description: {dataset_info.description}")
-print(f"Aliases: {dataset_info.aliases}")
-print(f"Access type: {dataset_info.access_type}")
-print(f"Data URL: {dataset_info.data_url}")
-```
-
-## Project Structure
-
-The project follows a clean architecture approach with clear separation of concerns:
-
-```
-dataset-agent/
-├── src/
-│   └── dataset_agent/
-│       ├── main.py          # CLI entry point
-│       ├── config.py        # Configuration
-│       ├── domain/          # Core business logic (models, usecases)
-│       ├── adapters/        # LLM agent, storage, tools, extractor
-│       └── utils/           # Text processing utilities
-├── docs/                    # Project documentation
-│   ├── agent-os-overview.md
-│   ├── lmstudio-integration-guide.md
-│   ├── lmstudio-provider-spec.md
-│   ├── lmstudio-quick-reference.md
-│   ├── official-name-detection-summary.md
-│   ├── datasets-social-economic.md
-│   ├── aliases-agent-summary.md
-│   └── white-paper-dataset-research-agent.md
-├── scripts/                 # Batch run scripts + output processing
-│   ├── README.md            # Script documentation
-│   ├── run_asthma_datasets.sh
-│   ├── run_employment_datasets.sh
-│   ├── run_health_welfare_datasets.sh
-│   ├── run_pediatric_datasets.sh
-│   ├── run_social_economic_datasets.sh
-│   └── dataset_metadata_spreadsheet.py
-├── tests/                   # Test scripts
-│   ├── test_aliases.py
-│   ├── test_description_cleaning.py
-│   └── test_integration.py
-├── results/                 # Research result JSON files
-│   └── TRACKING.md          # Batch run history and metadata
-├── output/                  # Employment batch results
-├── workforce/               # Workforce batch results
-├── data/                    # Data files and generated spreadsheets
-├── agent-os/                # AI agent configuration (standards, specs)
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── .env.example
-```
-
-## Design Principles
-
-This project follows SOLID principles and clean architecture:
-
-- **Single Responsibility Principle**: Each class has a single responsibility
-- **Open/Closed Principle**: The code is open for extension but closed for modification
-- **Liskov Substitution Principle**: Different implementations can be substituted without affecting the core logic
-- **Interface Segregation Principle**: Interfaces are specific to their clients
-- **Dependency Inversion Principle**: High-level modules depend on abstractions
-
-The project uses a use-case driven approach that:
-
-1. Clearly defines the primary business logic in the domain layer
-2. Implements adapters for external services (LLM, web search, storage)
-3. Uses dependency injection to make the system flexible and testable
-
-## Output Format
-
-Research results are saved as JSON files with the following structure:
-
-```json
-{
-  "dataset_name": "Census of Agriculture",
-  "home_url": "https://www.nass.usda.gov/AgCensus/",
-  "description": "...",
-  "aliases": ["Ag Census", "USDA Census of Agriculture", ...],
-  "organizations": ["USDA", "National Agricultural Statistics Service", ...],
-  "access_type": "Open",
-  "data_url": "https://www.nass.usda.gov/AgCensus/Data/",
-  "schema_url": "https://www.nass.usda.gov/AgCensus/Documentation/",
-  "documentation_url": "https://www.nass.usda.gov/AgCensus/Help/",
-  "_metadata": {
-    "timing": {
-      "description": 12.5,
-      "organizations": 8.3,
-      "total": 120.2
-    },
-    "status": "success",
-    "completed": true
-  }
-}
-```
-
-## Troubleshooting
-
-### LMStudio Issues
-
-**Error: "LMStudio server is not responding"**
-- Ensure LMStudio is running
-- Check that the server is enabled in LMStudio (**Developer** → **Local Server**)
-- Verify the port is 1234 (or update `LMSTUDIO_BASE_URL` in your `.env` file)
-- Test the connection: `curl http://localhost:1234/v1/models`
-
-**Error: "No models loaded"**
-- Load a model in LMStudio before running the agent
-- Click the **↔** icon in LMStudio to load a model into memory
-- Verify the model is loaded: `curl http://localhost:1234/v1/models`
-
-**Slow responses with LMStudio**
-- Use a smaller model for faster inference
-- Reduce context length in LMStudio settings
-- Enable GPU acceleration if available (check LMStudio settings)
-- Consider using a quantized model (e.g., Q4 or Q8)
-
-**Tool calling not working**
-- Ensure your model supports function calling
-- Check LMStudio logs for tool-related errors
-- Try a different model (recommended: gpt-oss, llama-3.2, qwen)
-- Verify that the model is properly loaded and responding
-
-### General Issues
-
-**Import Errors**
-- Make sure all dependencies are installed: `pip install -r requirements.txt`
-- If using a virtual environment, ensure it's activated
-
-**Web Search Failures**
-- Check your internet connection
-- Verify your Tavily API key is set (if using Tavily)
-- Try switching to DuckDuckGo: `WEB_SEARCH_PROVIDER=duckduckgo`
-
-## Batch Processing
-
-To run the agent against a predefined list of datasets, use the batch scripts in `scripts/`. See [`scripts/README.md`](scripts/README.md) for full documentation.
+Start the server:
 
 ```bash
-./scripts/run_health_welfare_datasets.sh
-START_FROM=5 ./scripts/run_employment_datasets.sh
+dataset-research-api
+# or: uvicorn dataset_agent.interfaces.api:app --reload
 ```
 
-To convert results to an Excel spreadsheet:
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/tasks` | Create a research task (async) |
+| `GET` | `/tasks/{id}` | Check task status |
+| `GET` | `/tasks/{id}/result` | Retrieve completed `DatasetRecord` |
+| `GET` | `/tasks` | List all tasks |
+| `POST` | `/validate` | Run literature gate on existing terms |
+| `POST` | `/optimize` | Optimize a Dimensions publications query (sync) |
+| `POST` | `/optimize/tasks` | Optimize query (async) |
+| `GET` | `/optimize/tasks/{id}/result` | Retrieve optimize result |
+| `GET` | `/health` | Health check; probes the configured LLM provider (`GET <base>/models`, or `/api/tags` for Ollama) |
+
+`POST /tasks` also accepts optional per-request overrides for that run only: `model`,
+`temperature` (0-2), `top_p` (greater than 0, at most 1) and `top_k` (>= 1). They apply to the research and
+optimize agent; the full-text referent judge and the scope check keep their configured model
+and sampling. The result records what the agent ran with in `llm_sampling`; with the
+OpenAI-compatible API style `top_k` is not sent and is listed under `not_applied`.
+
+When `API_KEYS` is configured, write endpoints (`POST /tasks`, `/validate`, `/optimize`, `/optimize/tasks`, `/proposals/{id}/approve`, `/proposals/{id}/submit`) require an `x-api-key` header:
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: your_key" \
+  -d '{"dataset_name":"Current Population Survey"}'
+```
+
+Example:
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"dataset_name":"Current Population Survey"}'
+```
+
+## Full-text query refinement
+
+With `DATASET_AGENT_FULLTEXT_REFINEMENT_ENABLED=true`, `POST /optimize` probes each candidate
+query against open-access full text through the extraction pipeline, refines aliases, flag
+and exclude terms from the evidence, and returns a `proposal`. A human approves it
+(`POST /proposals/{id}/approve`) and then submits it (`POST /proposals/{id}/submit`), which
+creates the real extraction task on the configured target (`dev` by default). See
+`docs/fulltext-refinement.md`.
+
+## Docker / Compose
+
+```bash
+docker compose up
+```
+
+The API is exposed on port `8000`. Data is persisted in `./data` (output JSON + SQLite). Set environment variables in a `.env` file at the project root before starting.
+
+For the server deployment (API on host port `8888` plus a GPU Ollama container, data under
+`/mnt/volume`), use `docker-compose.server.yml`:
+
+```bash
+docker compose -f docker-compose.server.yml up -d --build
+```
+
+`requirements.txt` mirrors the runtime dependencies in `pyproject.toml` for `pip install -r
+requirements.txt`.
+
+## Batch scripts and spreadsheet export
+
+`scripts/run_*_datasets.sh` run the agent over predefined dataset lists (see
+[`scripts/README.md`](scripts/README.md)). They still call the pre-refactor CLI
+(`python -m src.dataset_agent.main` with `--llm-provider`, `--llm-model`, `--output-dir`) and
+need porting to `dataset-research run` before use.
+
+Convert result JSON files to an Excel workbook:
 
 ```bash
 python scripts/dataset_metadata_spreadsheet.py results/ data/output.xlsx
 ```
 
+## Tests
+
+```bash
+pytest
+```
+
+Live LLM smoke tests are skipped by default. To run one tool call and one structured call against
+real OpenAI-compatible servers, list `<base_url>|<model>` pairs:
+
+```bash
+DATASET_AGENT_LIVE_LLM=1 \
+DATASET_AGENT_LIVE_LLM_TARGETS="http://127.0.0.1:1234/v1|qwen3.6-35b-a3b,http://openllm-host:3000/v1|gpt-oss-120b" \
+pytest tests/test_llm_live.py -s
+```
+
+The output shows which structured-output strategy each target used.
+
+gpt-oss structured-output smokes are gated separately by `DATASET_AGENT_LIVE_GPT_OSS_ENDPOINTS`
+(comma-separated `<host_root>|<model>` pairs; `/v1` is appended), for example
+`http://127.0.0.1:1234|gpt-oss-120b,http://127.0.0.1:11434|gpt-oss:120b`.
+
+Reference outputs from previous agent runs are stored in `results/` (70 datasets) and `workforce/` (11 datasets). These can be used to validate output format and compare quality against the refactored agent.
+
 ## Documentation
 
-| Document | Description |
-|---|---|
-| [docs/agent-os-overview.md](docs/agent-os-overview.md) | Agent OS structure and product context |
-| [docs/lmstudio-integration-guide.md](docs/lmstudio-integration-guide.md) | LMStudio setup and integration guide |
-| [docs/lmstudio-provider-spec.md](docs/lmstudio-provider-spec.md) | LMStudio feature specification |
-| [docs/official-name-detection-summary.md](docs/official-name-detection-summary.md) | Official name detection implementation |
-| [docs/white-paper-dataset-research-agent.md](docs/white-paper-dataset-research-agent.md) | Comprehensive project white paper |
-| [results/TRACKING.md](results/TRACKING.md) | History of batch runs and agent evolution |
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+| File | Contents |
+|------|----------|
+| `DOCUMENTACAO_PROJETO.md` | Full technical reference (architecture, pipeline, adapters) |
+| `docs/white-paper-dataset-research-agent.md` | Capabilities, limitations, and proposed improvements |
+| `docs/lmstudio-integration-guide.md` | LMStudio integration guide (reference for future support) |
+| `docs/lmstudio-provider-spec.md` | LMStudio provider specification |
+| `docs/aliases-agent-summary.md` | Summary of alias extraction behavior |
+| `docs/fulltext-refinement.md` | Full-text query refinement loop, settings, proposal/approve/submit flow |
+| `docs/dimensions-search-semantics.md` | Measured Dimensions phrase, punctuation, plural and operator rules behind the query builder and text matching |
+| `docs/agent-os-overview.md` | Agent OS structure and product context |
+| `docs/official-name-detection-summary.md` | Official name detection (pre-refactor implementation) |
+| `results/TRACKING.md` | History of batch runs and agent evolution |

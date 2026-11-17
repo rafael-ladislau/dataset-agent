@@ -1,0 +1,223 @@
+"""Dataset-specific query heuristics (spec §9, gap doc §2.8).
+
+Used during query optimization Phase 1/2 before or alongside ``build_for_clause``.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import unicodedata
+from typing import TYPE_CHECKING, Sequence
+
+from dataset_agent.adapters.text_processing import dedupe_strings_ci_preserve_order
+from dataset_agent.adapters.tools import (
+    EMIT_MULTILINGUAL_ALIASES,
+    EMIT_SUB_PRODUCT_NAMES,
+    make_request,
+)
+
+if TYPE_CHECKING:
+    from dataset_agent.domain.ports import AgentPort, DimensionsDslPort
+
+logger = logging.getLogger(__name__)
+
+# Spec / gap: aliases shorter than 5 characters must use hybrid (AND flags), not bare OR.
+SHORT_ACRONYM_MAX_LEN = 4
+
+_SUFFIX_CANDIDATES: tuple[str, ...] = ("dataset", "survey", "program", "data", "study")
+
+# Minimal English function-word set: if every token is in this set and there are <4 tokens,
+# the dataset title is likely a rhetorical/common phrase (e.g. "All of Us").
+_COMMON_ENGLISH_WORDS: frozenset[str] = frozenset(
+    """
+    a an the and or of to in for on at by from as is are was were been being
+    be have has had do does did will would could should may might must can need
+    this that these those it we you he she they i me my our your their us one
+    all any both each few more most other some such no nor not only own same so
+    than too very just also now here there when where why how who what which
+    then once ever never every into onto upon out off over under again further
+    once twice
+    """.split()
+)
+
+def is_short_acronym(alias: str) -> bool:
+    """True if *alias* must not appear as a bare OR term (length ≤ 4 characters)."""
+    s = (alias or "").strip()
+    if not s:
+        return False
+    return len(s) <= SHORT_ACRONYM_MAX_LEN
+
+
+def looks_like_acronym_head(head: str, max_len: int = SHORT_ACRONYM_MAX_LEN) -> bool:
+    """Acronym-shaped single token: all upper case, vowelless, or a short mixed-case form
+    with an upper-case letter after its first character ("AoU", "eICU").
+    Title-case words ("All", "Add", "The") do not count."""
+    if not head.isalnum() or not any(ch.isalpha() for ch in head):
+        return False
+    if head.isupper() or not any(ch in "aeiouyAEIOUY" for ch in head):
+        return True
+    return len(head) <= max_len and any(ch.isupper() for ch in head[1:])
+
+
+def is_acronym_shaped_name(name: str) -> bool:
+    """A single acronym-shaped token of up to 10 characters ("BINEX", "COCONet",
+    "TLALOCNet"): such coined tokens are often reused by unrelated products, companies or
+    genes, so a grounded name of this shape is flag-gated."""
+    words = (name or "").split()
+    if len(words) != 1 or len(words[0]) > 10:
+        return False
+    return looks_like_acronym_head(words[0], max_len=10)
+
+
+def is_acronym_suffix_form(alias: str) -> bool:
+    """``<short acronym> <generic suffix>`` ("WR dataset", "QWR program", "ONET data"):
+    the suffix narrows the acronym but the phrase still matches its other meanings.
+    The acronym must look like one: upper case, without vowels ("Wr", "Wrp"), or short mixed case ("AoU")."""
+    words = (alias or "").split()
+    if len(words) != 2 or words[1].lower() not in _SUFFIX_CANDIDATES:
+        return False
+    head = words[0]
+    if not head.isalnum() or len(head) > SHORT_ACRONYM_MAX_LEN:
+        return False
+    return looks_like_acronym_head(head)
+
+
+def head_acronym(term: str) -> str | None:
+    """First word of a multi-word term when it looks like an acronym, else None.
+
+    2-6 alphanumeric characters with at least one letter, upper case, without vowels, or (<=4 chars) mixed case with an inner capital ("AoU").
+    Shared rule: keep identical to the extraction pipeline's copy."""
+    words = (term or "").split()
+    if len(words) < 2:
+        return None
+    head = words[0]
+    if not 2 <= len(head) <= 6 or not head.isalnum() or not any(ch.isalpha() for ch in head):
+        return None
+    return head if looks_like_acronym_head(head) else None
+
+
+def apply_short_acronym_heuristic(
+    safe: Sequence[str],
+    risky: Sequence[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Move short acronyms from *safe* into *risky* so V1 never ORs them alone."""
+    rk: list[str] = [x.strip() for x in (risky or []) if isinstance(x, str) and x.strip()]
+    rk_lower = {x.lower() for x in rk}
+    st: list[str] = []
+    for x in safe:
+        if not isinstance(x, str) or not x.strip():
+            continue
+        s = x.strip()
+        if is_short_acronym(s):
+            if s.lower() not in rk_lower:
+                rk.append(s)
+                rk_lower.add(s.lower())
+        else:
+            st.append(s)
+    return dedupe_strings_ci_preserve_order(st), dedupe_strings_ci_preserve_order(rk)
+
+
+def detect_rhetorical_name(dataset_name: str) -> bool:
+    """Heuristic: very short titles made only of ultra-common English words."""
+    raw = (dataset_name or "").strip()
+    if not raw:
+        return False
+    words = re.findall(r"[A-Za-z]+", raw)
+    if not words or len(words) >= 4:
+        return False
+    lowered = [w.lower() for w in words]
+    if any(len(w) > 10 for w in lowered):
+        return False
+    return all(w in _COMMON_ENGLISH_WORDS for w in lowered)
+
+
+def detect_sub_products(url: str | None, agent: AgentPort) -> list[str]:
+    """LLM over homepage HTML preview: short names of sub-products (e.g. QWI, LODES)."""
+    if not url or not str(url).strip().startswith(("http://", "https://")):
+        return []
+    preview = make_request(str(url).strip())
+    prompt = f"""Dataset homepage URL: {url!r}
+
+HTTP fetch preview (truncated):
+{preview[:6000]}
+
+List **distinct data product or module names** hosted under the same program
+(short tokens like QWI, LODES, PUMS — not generic words like \"data\" or \"documentation\").
+
+Use emit_sub_product_names exactly once. If the page is unusable or there are no sub-products, return an empty list."""
+    try:
+        structured = agent.get_structured(prompt, EMIT_SUB_PRODUCT_NAMES)
+    except Exception as e:
+        logger.warning("detect_sub_products failed: %s", e)
+        return []
+    names = structured.get("names")
+    if not isinstance(names, list):
+        return []
+    return [str(x).strip() for x in names if isinstance(x, str) and x.strip()][:20]
+
+
+def generate_multilingual_aliases(dataset_name: str, agent: AgentPort) -> list[str]:
+    """LLM: alternate spellings / translations useful for Dimensions search."""
+    prompt = f"""Dataset title: {dataset_name!r}.
+
+Produce alternate citation forms: unaccented variants, common translations,
+and official non-English titles if they exist.
+
+Use emit_multilingual_aliases exactly once."""
+    try:
+        raw = agent.get_structured(prompt, EMIT_MULTILINGUAL_ALIASES)
+    except Exception as e:
+        logger.warning("generate_multilingual_aliases failed: %s", e)
+        return []
+    aliases = raw.get("aliases")
+    if not isinstance(aliases, list):
+        return []
+    out = [str(x).strip() for x in aliases if isinstance(x, str) and x.strip()][:25]
+    return dedupe_strings_ci_preserve_order(out)
+
+
+def strip_accents(text: str) -> str:
+    """ASCII fold for simple multilingual dedupe (helper for callers)."""
+    if not text:
+        return ""
+    nk = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in nk if not unicodedata.combining(ch))
+
+
+async def check_suffix_necessity(
+    dsl_port: DimensionsDslPort,
+    alias: str,
+    *,
+    search_in: str = "full_data",
+    ratio_threshold: float = 100.0,
+) -> str | None:
+    """If count(bare)/count(bare + suffix) > *ratio_threshold*, return best suffixed form.
+
+    A multi-word alias already ending in a generic suffix ("MIDAS survey") is never
+    promoted again ("MIDAS survey survey").
+    """
+    from dataset_agent.adapters.dimensions_dsl import run_alias_count
+
+    bare = (alias or "").strip()
+    if not bare or len(bare) > 120:
+        return None
+    words = bare.split()
+    if len(words) > 1 and words[-1].lower() in _SUFFIX_CANDIDATES:
+        return None
+    c_bare = await run_alias_count(dsl_port, bare, search_in=search_in)
+    if c_bare <= 0:
+        return None
+
+    best: str | None = None
+    best_ratio = 0.0
+    for suf in _SUFFIX_CANDIDATES:
+        suffixed = f"{bare} {suf}".strip()
+        c_s = await run_alias_count(dsl_port, suffixed, search_in=search_in)
+        if c_s <= 0:
+            continue
+        ratio = float(c_bare) / float(c_s)
+        if ratio > ratio_threshold and ratio > best_ratio:
+            best_ratio = ratio
+            best = suffixed
+    return best

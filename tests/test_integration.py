@@ -5,11 +5,13 @@ Test script for the dataset agent.
 This script runs a simple test of the dataset research agent with a sample dataset.
 """
 
-import json
+import asyncio
 import time
 import sys
-from src.dataset_agent.config import Config
-from src.dataset_agent.main import run_research
+
+from dataset_agent.bootstrap import run_full_pipeline
+from dataset_agent.domain.models import ResearchRequest
+from dataset_agent.settings import Settings
 
 
 def main():
@@ -20,15 +22,16 @@ def main():
     
     print(f"Testing dataset research agent with {dataset_name}...")
     
-    # Create configuration
-    config = Config(log_level="INFO")
+    # Configuration comes from Settings (environment / .env)
+    settings = Settings()
     
     # Time the research
     start_time = time.time()
     
     try:
         # Run research
-        result = run_research(dataset_name, dataset_url, config)
+        request = ResearchRequest(dataset_name=dataset_name, dataset_url=dataset_url)
+        result, _path = asyncio.run(run_full_pipeline(request, settings))
         
         # Calculate execution time
         execution_time = time.time() - start_time
@@ -37,8 +40,8 @@ def main():
         print("\nTest Results:")
         print(f"Execution time: {execution_time:.2f} seconds")
         print(f"Description length: {len(result.description)} chars")
-        print(f"Aliases: {', '.join(result.aliases[:5])}...")
-        print(f"Organizations: {', '.join(result.organizations[:5])}...")
+        print(f"Aliases: {', '.join(result.dataset_names[:5])}...")
+        print(f"Flag terms: {', '.join(result.flag_terms[:5])}...")
         print(f"Access type: {result.access_type}")
         print(f"Data URL: {result.data_url}")
         print(f"Schema URL: {result.schema_url}")
