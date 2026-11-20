@@ -33,9 +33,11 @@ class FakeLLMServer:
     queue: list[Reply] = field(default_factory=list)
     requests: list[dict[str, Any]] = field(default_factory=list)
     paths: list[str] = field(default_factory=list)
+    headers: list[dict[str, str]] = field(default_factory=list)
 
     def _handle(self, request: Any) -> Any:
         self.paths.append(request.url.path)
+        self.headers.append({k.lower(): v for k, v in request.headers.items()})
         self.requests.append(json.loads(request.content or b"{}"))
         if not self.queue:
             raise AssertionError("fake LLM server received an unexpected request")
