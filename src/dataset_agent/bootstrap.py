@@ -24,7 +24,9 @@ def _build_agent(settings: Settings) -> AgentPort:
     """Create the LLM agent adapter for the configured provider and API style."""
     endpoint = settings.llm_endpoint()
     agent_cls = OpenAICompatibleAgent if endpoint.api_style == "openai" else AnthropicAgent
+    auth = {} if endpoint.api_style == "openai" else {"auth_mode": settings.llm_auth_mode}
     return agent_cls(
+        **auth,
         model_name=endpoint.model,
         base_url=endpoint.base_url,
         api_key=endpoint.api_key,
@@ -79,7 +81,9 @@ def build_request_agent(
     )
     if openai_style:
         return OpenAICompatibleAgent(**common), sampling
-    return AnthropicAgent(**common, top_k=sampling.top_k), sampling
+    return AnthropicAgent(
+        **common, top_k=sampling.top_k, auth_mode=settings.llm_auth_mode
+    ), sampling
 
 
 def build_referent_agent(settings: Settings) -> AgentPort:
@@ -103,6 +107,7 @@ def build_referent_agent(settings: Settings) -> AgentPort:
         thinking_budget=settings.referent_thinking_budget,
         top_p=settings.referent_top_p,
         top_k=settings.referent_top_k,
+        auth_mode=settings.llm_auth_mode,
     )
 
 

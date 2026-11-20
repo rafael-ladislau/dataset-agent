@@ -53,3 +53,64 @@ def test_openai_style_sends_bearer_only():
     assert server.paths[0] == "/v1/chat/completions"
 
 
+def test_anthropic_bearer_mode_sends_bearer_not_x_api_key(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    server = FakeLLMServer(ANTHROPIC)
+    h = _sent(server, lambda: _anthropic(server, auth_mode="bearer").get_information("q", tools=[]))
+    assert h["authorization"] == f"Bearer {KEY}"
+    assert "x-api-key" not in h
+
+
+def test_anthropic_bearer_mode_forced_tool_call_still_works(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    server = FakeLLMServer(ANTHROPIC)
+    server.push(server.structured("emit", {"ok": True}))
+    agent = _anthropic(server, auth_mode="bearer")
+    assert agent.get_structured("q", TOOL) == {"ok": True}
+    assert server.headers[0]["authorization"] == f"Bearer {KEY}"
+    assert server.requests[0]["tool_choice"] == {"type": "tool", "name": "emit"}
+
+
+def test_unknown_auth_mode_is_rejected():
+    with pytest.raises(ValueError):
+        AnthropicAgent(model_name="m", base_url="http://x", api_key=KEY, auth_mode="basic")
+
+
+def _settings(tmp_path, **over):
+    return Settings(tasks_db=tmp_path / "t.db", output_dir=tmp_path / "out", _env_file=None,
+                    llm_provider="openai_compatible", openai_compatible_base_url="http://x",
+                    openai_compatible_model="m", openai_compatible_api_key=KEY, **over)
+
+
+def test_auth_mode_defaults_to_x_api_key(tmp_path):
+    assert _settings(tmp_path).llm_auth_mode == "x-api-key"
+
+
+def test_auth_mode_reads_the_env_var(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATASET_AGENT_LLM_AUTH_MODE", "bearer")
+    assert _settings(tmp_path).llm_auth_mode == "bearer"
+
+
+def _auth_of(agent):
+    return agent._auth_mode
+
+
+def test_every_anthropic_construction_gets_the_auth_mode(tmp_path):
+    s = _settings(tmp_path, llm_api_style="anthropic", llm_auth_mode="bearer",
+                  referent_thinking_budget=1024)
+    assert _auth_of(_build_agent(s)) == "bearer"
+    assert _auth_of(build_referent_agent(s)) == "bearer"
+    request = ResearchRequest(dataset_name="x", temperature=0.2)
+    agent, _ = build_request_agent(s, request)
+    assert _auth_of(agent) == "bearer"
+    # no override: falls back to the main agent
+    agent, _ = build_request_agent(s, ResearchRequest(dataset_name="x"))
+    assert _auth_of(agent) == "bearer"
+
+
+def test_openai_style_ignores_the_auth_mode(tmp_path):
+    s = _settings(tmp_path, llm_api_style="openai", llm_auth_mode="bearer")
+    assert isinstance(_build_agent(s), OpenAICompatibleAgent)
+    agent, _ = build_request_agent(s, ResearchRequest(dataset_name="x", temperature=0.2))
+    assert isinstance(agent, OpenAICompatibleAgent)

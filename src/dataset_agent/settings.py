@@ -12,6 +12,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LLMProvider = Literal["ollama", "lmstudio", "openrouter", "openllm", "openai_compatible"]
 LLMApiStyle = Literal["anthropic", "openai"]
+#: Header that carries the key on the Anthropic style (the OpenAI style always sends Bearer).
+LLMAuthMode = Literal["x-api-key", "bearer"]
 
 #: API style used when ``llm_api_style`` is not set.
 DEFAULT_LLM_API_STYLE: dict[str, LLMApiStyle] = {
@@ -128,6 +130,9 @@ class Settings(BaseSettings):
     openai_compatible_model: str = ""
     openai_compatible_api_key: str = ""
     llm_max_tokens: int = 8192
+    #: Anthropic style only: ``x-api-key`` (default; Sandstone/LiteLLM, LM Studio, Ollama) or
+    #: ``bearer`` (``Authorization: Bearer``; a vLLM started with ``--api-key``).
+    llm_auth_mode: LLMAuthMode = "x-api-key"
     llm_api_key: str = Field(
         default="local",
         validation_alias=AliasChoices("LMSTUDIO_API_KEY", "DATASET_AGENT_LLM_API_KEY"),

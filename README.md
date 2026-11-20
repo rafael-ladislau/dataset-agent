@@ -56,6 +56,7 @@ All variables use the `DATASET_AGENT_` prefix.
 | `DATASET_AGENT_OPENAI_COMPATIBLE_BASE_URL` | _(empty, required)_ | Base URL of any other OpenAI-compatible server, used as given |
 | `DATASET_AGENT_OPENAI_COMPATIBLE_MODEL` | _(empty, required)_ | Model id for that server |
 | `DATASET_AGENT_OPENAI_COMPATIBLE_API_KEY` | _(empty)_ | Optional key (falls back to `DATASET_AGENT_LLM_API_KEY`) |
+| `DATASET_AGENT_LLM_AUTH_MODE` | `x-api-key` | Anthropic style only: `x-api-key` or `bearer` (`Authorization: Bearer`, for a vLLM started with `--api-key`). The OpenAI style always sends Bearer |
 | `DATASET_AGENT_LLM_MAX_TOKENS` | `8192` | Max completion tokens per LLM call; reasoning models such as gpt-oss spend reasoning tokens from this budget, so keep it generous. The local reasoning-model runs (qwen, nemotron) used 16384 and still saw a few replies cut off; raise it for such models. |
 
 ##### Using LM Studio
@@ -86,6 +87,25 @@ DATASET_AGENT_LLM_PROVIDER=openai_compatible
 DATASET_AGENT_OPENAI_COMPATIBLE_BASE_URL=http://vllm-host:8000/v1
 DATASET_AGENT_OPENAI_COMPATIBLE_MODEL=qwen3.6-35b-a3b
 ```
+
+##### Keyed endpoints (Sandstone, vLLM with `--api-key`)
+
+```bash
+# Sandstone (LiteLLM): glm-5.3-flash primary, deepseek-v4-flash fallback
+DATASET_AGENT_LLM_PROVIDER=openai_compatible
+DATASET_AGENT_LLM_API_STYLE=openai
+DATASET_AGENT_OPENAI_COMPATIBLE_BASE_URL=https://sandstone.sci.utah.edu/v1
+DATASET_AGENT_OPENAI_COMPATIBLE_MODEL=glm-5.3-flash
+DATASET_AGENT_OPENAI_COMPATIBLE_API_KEY=<sandstone-key>
+
+# keyed vLLM through a local tunnel (accepts only Authorization: Bearer)
+DATASET_AGENT_OPENAI_COMPATIBLE_BASE_URL=http://127.0.0.1:18436/v1
+DATASET_AGENT_OPENAI_COMPATIBLE_MODEL=qwen3.6-35b-a3b
+DATASET_AGENT_OPENAI_COMPATIBLE_API_KEY=<vllm-key>
+```
+
+The OpenAI style sends the key as `Authorization: Bearer`. The Anthropic style sends it as
+`x-api-key` unless `DATASET_AGENT_LLM_AUTH_MODE=bearer`, which a keyed vLLM needs on `/v1/messages`.
 
 ##### Structured output and reasoning models
 

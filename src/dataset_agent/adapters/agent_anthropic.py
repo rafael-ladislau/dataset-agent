@@ -52,7 +52,13 @@ class AnthropicAgent(AgentPort):
         thinking_budget: int = 0,
         top_p: float | None = None,
         top_k: int | None = None,
+        auth_mode: str = "x-api-key",
     ):
+        if auth_mode not in ("x-api-key", "bearer"):
+            raise ValueError(f"auth_mode must be 'x-api-key' or 'bearer', got {auth_mode!r}")
+        #: ``x-api-key`` (the SDK default) or ``bearer`` (``Authorization: Bearer``, for
+        #: servers such as a vLLM started with ``--api-key``).
+        self._auth_mode = auth_mode
         self._model_name = model_name
         self._base_url = base_url.rstrip("/")
         self._temperature = temperature
@@ -86,8 +92,13 @@ class AnthropicAgent(AgentPort):
                 extra["http_client"] = self._http_client
             if self._max_retries is not None:
                 extra["max_retries"] = self._max_retries
+            auth = (
+                {"auth_token": self._api_key}
+                if self._auth_mode == "bearer"
+                else {"api_key": self._api_key}
+            )
             self._client = Anthropic(
-                api_key=self._api_key,
+                **auth,
                 base_url=self._base_url,
                 timeout=float(self._timeout_seconds),
                 **extra,
