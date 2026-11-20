@@ -89,6 +89,7 @@ class OpenAICompatibleAgent(AgentPort):
         http_client: Any | None = None,
         max_retries: int | None = None,
         top_p: float | None = None,
+        reasoning_effort: str | None = None,
     ):
         self._model_name = model_name
         self._base_url = base_url.rstrip("/")
@@ -96,6 +97,8 @@ class OpenAICompatibleAgent(AgentPort):
         self._temperature = temperature
         #: Sent only when set; ``top_k`` is not an OpenAI chat-completions parameter.
         self._top_p = top_p
+        #: Sent only when set (native ``reasoning_effort`` chat-completions parameter).
+        self._reasoning_effort = reasoning_effort
         self._max_tokens = max_tokens
         self._max_iterations = max_iterations
         self._timeout_seconds = timeout_seconds
@@ -134,6 +137,8 @@ class OpenAICompatibleAgent(AgentPort):
     def _create(self, messages: list[dict[str, Any]], **extra: Any) -> Any:
         if self._top_p is not None:
             extra.setdefault("top_p", self._top_p)
+        if self._reasoning_effort:
+            extra.setdefault("reasoning_effort", self._reasoning_effort)
         return self._get_client().chat.completions.create(
             model=self._model_name,
             messages=messages,

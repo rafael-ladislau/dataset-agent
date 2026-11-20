@@ -133,6 +133,9 @@ class Settings(BaseSettings):
     #: Anthropic style only: ``x-api-key`` (default; Sandstone/LiteLLM, LM Studio, Ollama) or
     #: ``bearer`` (``Authorization: Bearer``; a vLLM started with ``--api-key``).
     llm_auth_mode: LLMAuthMode = "x-api-key"
+    #: ``reasoning_effort`` sent with every LLM call when set (e.g. ``low``, ``medium``,
+    #: ``high``); unset sends nothing. Free string: the gateway or server decides what it accepts.
+    llm_reasoning_effort: str | None = None
     llm_api_key: str = Field(
         default="local",
         validation_alias=AliasChoices("LMSTUDIO_API_KEY", "DATASET_AGENT_LLM_API_KEY"),
@@ -549,6 +552,15 @@ class Settings(BaseSettings):
         """``DATASET_AGENT_LLM_API_STYLE=`` (empty) means "use the provider default"."""
         if isinstance(v, str) and not v.strip():
             return None
+        return v
+
+    @field_validator("llm_reasoning_effort", mode="before")
+    @classmethod
+    def _empty_reasoning_effort_is_unset(cls, v: object) -> object:
+        """Empty means unset; the value is stripped and lowercased."""
+        if isinstance(v, str):
+            v = v.strip().lower()
+            return v or None
         return v
 
     @field_validator("fp_sample_size")

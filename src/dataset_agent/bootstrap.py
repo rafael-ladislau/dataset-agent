@@ -27,6 +27,7 @@ def _build_agent(settings: Settings) -> AgentPort:
     auth = {} if endpoint.api_style == "openai" else {"auth_mode": settings.llm_auth_mode}
     return agent_cls(
         **auth,
+        reasoning_effort=settings.llm_reasoning_effort,
         model_name=endpoint.model,
         base_url=endpoint.base_url,
         api_key=endpoint.api_key,
@@ -64,6 +65,7 @@ def build_request_agent(
                      else request.temperature),
         top_p=request.top_p,
         top_k=None if openai_style else request.top_k,
+        reasoning_effort=settings.llm_reasoning_effort,
         overridden=[f for f in requested if f not in not_applied],
         not_applied=not_applied,
     )
@@ -78,6 +80,7 @@ def build_request_agent(
         timeout_seconds=settings.agent_timeout_seconds,
         temperature=sampling.temperature,
         top_p=sampling.top_p,
+        reasoning_effort=settings.llm_reasoning_effort,
     )
     if openai_style:
         return OpenAICompatibleAgent(**common), sampling
@@ -108,6 +111,7 @@ def build_referent_agent(settings: Settings) -> AgentPort:
         top_p=settings.referent_top_p,
         top_k=settings.referent_top_k,
         auth_mode=settings.llm_auth_mode,
+        reasoning_effort=settings.llm_reasoning_effort,
     )
 
 

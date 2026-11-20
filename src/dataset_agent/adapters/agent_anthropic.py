@@ -53,6 +53,7 @@ class AnthropicAgent(AgentPort):
         top_p: float | None = None,
         top_k: int | None = None,
         auth_mode: str = "x-api-key",
+        reasoning_effort: str | None = None,
     ):
         if auth_mode not in ("x-api-key", "bearer"):
             raise ValueError(f"auth_mode must be 'x-api-key' or 'bearer', got {auth_mode!r}")
@@ -73,6 +74,7 @@ class AnthropicAgent(AgentPort):
         self._thinking_budget = max(0, int(thinking_budget))
         self._top_p = top_p
         self._top_k = top_k
+        self._reasoning_effort = reasoning_effort
         self._client: Anthropic | None = None
         #: Number of ``get_structured`` calls that got no schema-valid tool call
         #: (the result was a coerced near-miss or ``{}``).
@@ -117,6 +119,9 @@ class AnthropicAgent(AgentPort):
             body["top_p"] = self._top_p
         if self._top_k is not None:
             body["top_k"] = self._top_k
+        if self._reasoning_effort:
+            # Gateway extension (LiteLLM, vLLM), not a native Anthropic Messages field.
+            body["reasoning_effort"] = self._reasoning_effort
         return body
 
     # ------------------------------------------------------------------

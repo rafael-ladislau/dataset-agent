@@ -148,6 +148,7 @@ class LLMSampling(BaseModel):
     temperature: float
     top_p: Optional[float] = None
     top_k: Optional[int] = None
+    reasoning_effort: Optional[str] = None
     overridden: list[str] = Field(
         default_factory=list, description="Fields the request overrode (applied ones)"
     )

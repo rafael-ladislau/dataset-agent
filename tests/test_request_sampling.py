@@ -225,3 +225,57 @@ def test_without_overrides_the_pipeline_is_wired_as_before(monkeypatch, tmp_path
     assert seen["referent_agent"] is None and seen["main_overridden"] is False
     assert record.llm_sampling.overridden == []
     assert record.llm_sampling.temperature == 0.6
+
+
+# --- reasoning effort -------------------------------------------------------------------
+
+
+def test_openai_adapter_sends_reasoning_effort_only_when_set():
+    sent = []
+
+    def fake_create(**kw):
+        sent.append(kw)
+        return MagicMock()
+
+    for effort in (None, "low"):
+        agent = OpenAICompatibleAgent(model_name="m", base_url="http://127.0.0.1:9/v1",
+                                      api_key="k", reasoning_effort=effort)
+        agent._client = MagicMock()
+        agent._client.chat.completions.create = fake_create
+        agent._create([{"role": "user", "content": "hi"}])
+    assert "reasoning_effort" not in sent[0]
+    assert sent[1]["reasoning_effort"] == "low"
+
+
+def test_anthropic_sampling_body_has_reasoning_effort_only_when_set():
+    kw = dict(model_name="m", base_url="http://127.0.0.1:9", api_key="k")
+    assert "reasoning_effort" not in AnthropicAgent(**kw)._sampling_body()
+    body = AnthropicAgent(**kw, reasoning_effort="high")._sampling_body()
+    assert body["reasoning_effort"] == "high" and body["temperature"] == 0.6
+
+
+@pytest.mark.parametrize("style", ["openai", "anthropic"])
+def test_bootstrap_passes_reasoning_effort_to_every_agent(style):
+    s = _settings(llm_provider="lmstudio", llm_api_style=style, llm_reasoning_effort="low",
+                  referent_thinking_budget=1024)
+    assert bootstrap._build_agent(s)._reasoning_effort == "low"
+    agent, sampling = bootstrap.build_request_agent(
+        s, ResearchRequest(dataset_name="X", temperature=0.2))
+    assert agent._reasoning_effort == "low"
+    assert sampling.reasoning_effort == "low"
+    _, default_sampling = bootstrap.build_request_agent(s, ResearchRequest(dataset_name="X"))
+    assert default_sampling.reasoning_effort == "low"
+    if style == "anthropic":
+        assert bootstrap.build_referent_agent(s)._reasoning_effort == "low"
+    unset = _settings(llm_provider="lmstudio", llm_api_style=style)
+    assert bootstrap._build_agent(unset)._reasoning_effort is None
+    assert bootstrap.build_request_agent(
+        unset, ResearchRequest(dataset_name="X"))[1].reasoning_effort is None
+
+
+def test_reasoning_effort_setting_from_env(monkeypatch: pytest.MonkeyPatch):
+    for raw, want in (("low", "low"), ("  HIGH ", "high"), ("", None), ("   ", None)):
+        monkeypatch.setenv("DATASET_AGENT_LLM_REASONING_EFFORT", raw)
+        assert _settings().llm_reasoning_effort == want
+    monkeypatch.delenv("DATASET_AGENT_LLM_REASONING_EFFORT")
+    assert _settings().llm_reasoning_effort is None
