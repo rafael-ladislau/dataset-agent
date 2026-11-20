@@ -231,6 +231,11 @@ class Settings(BaseSettings):
 
     #: FP rate % threshold that triggers refinement in the optimization loop.
     optimize_fp_threshold_pct: float = Field(default=10.0, ge=0.0, le=100.0)
+    #: Excludes guard: when V4 keeps less than ``1 - this`` of V3's results, each exclude
+    #: is measured against V3. 1.0 disables the guard.
+    optimize_exclude_max_total_share: float = Field(default=0.5, ge=0.0, le=1.0)
+    #: An exclude that removes more than this share of V3's results is dropped.
+    optimize_exclude_max_term_share: float = Field(default=0.10, ge=0.0, le=1.0)
     #: Max optimization loop iterations (build DSL → gate → refine).
     optimize_max_iterations: int = Field(default=2, ge=1, le=10)
 

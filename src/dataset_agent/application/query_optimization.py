@@ -97,6 +97,7 @@ from dataset_agent.adapters.query_builder import (
     _or_group,
     build_for_clause,
     default_variant_build_order,
+    drop_contradicting_excludes,
     flag_gate_notes,
     run_variant,
 )
@@ -211,6 +212,29 @@ def _fp_better(new: float | None, best: float | None) -> bool:
     if new is None:
         return False
     return best is None or float(new) < float(best)
+
+
+def _guard_excludes(
+    excludes: list[str],
+    *,
+    names: list[str],
+    flags: list[str],
+    notes_parts: list[str],
+    where: str = "",
+) -> list[str]:
+    """Drop excludes that contradict a name or flag term; log and note each drop."""
+    kept, dropped = drop_contradicting_excludes(excludes, names=names, flag_terms=flags)
+    if dropped:
+        flag_keys = {search_key(f) for f in flags}
+        shown = []
+        for term, inc in dropped:
+            kind = "flag" if search_key(inc) in flag_keys else "name"
+            logger.warning(
+                "exclude guard%s: dropped %r (inside %s %r)", where, term, kind, inc
+            )
+            shown.append(f"{term!r} (inside {kind} {inc!r})")
+        notes_parts.append(f"exclude guard: dropped [{', '.join(shown)}]")
+    return kept
 
 
 def _pick_start_variant(tested: list[VariantTestedEntry]) -> VariantTestedEntry:
@@ -3510,6 +3534,79 @@ class QueryOptimizationUseCase:
             c_full=c_full, desc_for_signal3=desc_for_signal3, run_id=run_id, t0=t0,
         )
 
+    async def _guard_exclude_impact(
+        self,
+        tested: list[VariantTestedEntry],
+        exclusion_terms: list[str],
+        *,
+        safe: list[str],
+        risky: list[str],
+        flag_terms: list[str],
+        notes_parts: list[str],
+    ) -> list[str]:
+        """Measure each exclude against V3 when V4 collapsed it; drop the ones that remove
+        a large share of V3. Rewrites the V4 entry of *tested* in place. Costs no
+        Dimensions call unless V4 is below ``1 - optimize_exclude_max_total_share`` of V3."""
+        v3 = next((v for v in tested if v.label == "V3"), None)
+        v4 = next((v for v in tested if v.label == "V4"), None)
+        total_share = float(self._settings.optimize_exclude_max_total_share)
+        if v3 is None or v4 is None or not exclusion_terms:
+            return exclusion_terms
+        n3 = v3.expected_count or 0
+        n4 = v4.expected_count or 0
+        if n3 <= 0 or n4 >= (1.0 - total_share) * n3:
+            return exclusion_terms
+        term_share = float(self._settings.optimize_exclude_max_term_share)
+        kept: list[str] = []
+        dropped: list[str] = []
+        for term in exclusion_terms[:25]:
+            if not self._budget_left():
+                dropped.append(f"{term!r} unmeasured (budget)")
+                continue
+            try:
+                vr = await run_variant(
+                    self._dsl, "V3+term", f"({v3.for_clause}) AND {_or_group([term])}", limit=1,
+                )
+                self._dims_calls += 1
+            except DimensionsDslError:
+                dropped.append(f"{term!r} unmeasured (error)")
+                continue
+            n_term = vr.get("expected_count") or 0
+            if n_term > term_share * n3:
+                pct = round(100 * n_term / n3)
+                logger.warning(
+                    "exclude impact: dropped %r, it removes %s%% of V3 (%s of %s)",
+                    term, pct, n_term, n3,
+                )
+                dropped.append(f"{term!r} removes {pct}% of V3")
+            else:
+                kept.append(term)
+        kept.extend(exclusion_terms[25:])
+        if not dropped:
+            return exclusion_terms
+        new_n4: int | None = None
+        rebuilt = dict(default_variant_build_order(safe, risky, flag_terms, kept)).get("V4")
+        idx = tested.index(v4)
+        if rebuilt is None:
+            tested.pop(idx)
+        else:
+            top_titles = v4.top_titles
+            if self._budget_left():
+                try:
+                    vr = await run_variant(self._dsl, "V4", rebuilt, limit=20)
+                    self._dims_calls += 1
+                    new_n4 = vr.get("expected_count")
+                    top_titles = list(vr.get("top_titles") or [])[:10]
+                except DimensionsDslError:
+                    pass
+            tested[idx] = VariantTestedEntry(
+                label="V4", for_clause=rebuilt, expected_count=new_n4,
+                fp_rate_pct=0.0, top_titles=top_titles,
+            )
+        after = "dropped" if rebuilt is None else new_n4
+        notes_parts.append(f"exclude impact: dropped [{', '.join(dropped)}], V4 {n4} -> {after}")
+        return kept
+
     async def _select_and_finish(
         self,
         request: OptimizeRequest,
@@ -3532,6 +3629,12 @@ class QueryOptimizationUseCase:
         With *model* (AI-model runs) the terms were measured already: full-text probes are skipped and
         refinement keeps to the model rules (see ``_refine_model_terms``)."""
         exclusion_terms = dedupe_strings_ci_preserve_order(exclude_terms)
+        if model is None:
+            # AI-model runs keep their measured terms (model rules in _refine_model_terms).
+            exclusion_terms = _guard_excludes(
+                exclusion_terms, names=list(safe) + list(risky), flags=list(flag_terms),
+                notes_parts=notes_parts,
+            )
 
         phase2 = "phase2_variant_building"
         seq = default_variant_build_order(
@@ -3602,6 +3705,12 @@ class QueryOptimizationUseCase:
                 exclusion_terms=exclusion_terms,
                 all_variants_tested=tested,
                 notes=" ".join(notes_parts),
+            )
+
+        if model is None:
+            exclusion_terms = await self._guard_exclude_impact(
+                tested, exclusion_terms, safe=safe, risky=risky, flag_terms=flag_terms,
+                notes_parts=notes_parts,
             )
 
         logger.info(
@@ -3952,6 +4061,11 @@ class QueryOptimizationUseCase:
                     )
 
                 suggested = await asyncio.to_thread(_derive)
+                if suggested:
+                    suggested = _guard_excludes(
+                        suggested, names=current_safe + current_risky, flags=current_flags,
+                        notes_parts=notes_parts, where=" (gate)",
+                    )
                 if suggested:
                     exc_work = dedupe_strings_ci_preserve_order(exc_work + suggested[:25])
                     notes_parts.append(

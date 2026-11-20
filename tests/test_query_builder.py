@@ -11,6 +11,7 @@ from dataset_agent.adapters.query_builder import (
     build_for_clause,
     build_readable_for_clause,
     default_variant_build_order,
+    drop_contradicting_excludes,
     run_variant,
 )
 
@@ -146,3 +147,55 @@ def test_v4_keeps_flags_when_every_flag_collides() -> None:
 def test_flag_equal_to_safe_alias_is_kept() -> None:
     fc = build_for_clause(safe=["NIH"], variant="V4", risky=["AoU"], flag_terms=["NIH", "CDC"])
     assert fc.count("NIH") == 2
+
+
+def test_exclude_guard_atus_shaped_terms() -> None:
+    kept, dropped = drop_contradicting_excludes(
+        ["American Time Use Survey", "BLS", "time-use", "Census Bureau", "ATUS-X", "IPUMS",
+         "-atus", "species", "leisure", "genus"],
+        names=["American Time Use Survey", "ATUS", "ATUS data"],
+        flag_terms=["BLS", "Bureau of Labor Statistics", "Census Bureau", "IPUMS"],
+    )
+    assert kept == ["species", "leisure", "genus"]
+    assert [d for d, _ in dropped] == [
+        "American Time Use Survey", "BLS", "time-use", "Census Bureau", "ATUS-X", "IPUMS",
+        "-atus",
+    ]
+    assert dict(dropped)["time-use"] == "American Time Use Survey"
+
+
+def test_exclude_guard_acs_shaped_terms() -> None:
+    kept, dropped = drop_contradicting_excludes(
+        ["census", "pubs.acs.org", "chemistry"],
+        names=["American Community Survey", "ACS"],
+        flag_terms=["Census Bureau"],
+    )
+    assert dropped == [("census", "Census Bureau")]
+    # A dot between two letters stays inside the token: "pubs.acs.org" does not contain "ACS".
+    assert kept == ["pubs.acs.org", "chemistry"]
+
+
+def test_exclude_guard_folds_case_and_plural_but_not_substrings() -> None:
+    kept, dropped = drop_contradicting_excludes(
+        ["STUDENT SURVEYS", "stent", "Student"],
+        names=[], flag_terms=["Student Survey"],
+    )
+    assert [d for d, _ in dropped] == ["STUDENT SURVEYS", "Student"]
+    assert kept == ["stent"]
+
+
+def test_exclude_guard_empty_and_order() -> None:
+    assert drop_contradicting_excludes(None, names=None, flag_terms=None) == ([], [])
+    assert drop_contradicting_excludes([], names=["A"], flag_terms=["B"]) == ([], [])
+    kept, _ = drop_contradicting_excludes(
+        ["zeta", "alpha", "mid"], names=["Alpha Study"], flag_terms=[]
+    )
+    assert kept == ["zeta", "mid"]
+
+
+def test_build_for_clause_still_emits_an_alias_in_exclusion_terms() -> None:
+    fc = build_for_clause(
+        safe=["Long Dataset Name"], variant="V4", risky=["RISK"], flag_terms=["NIH Study"],
+        exclusion_terms=["RISK"],
+    )
+    assert "NOT" in fc and fc.endswith('(\\"RISK\\")')

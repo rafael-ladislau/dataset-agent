@@ -823,3 +823,119 @@ def test_unknown_fp_rate_stops_the_gate_loop_without_within_threshold(monkeypatc
     assert "gate_iter0: FP rate unknown; stopping." in out.notes
     assert out.fp_rate_pct is None
     assert out.confidence.value == "low"
+
+
+# ---- exclusion guards ------------------------------------------------------------------
+
+
+class _CountingDSL:
+    """Answers by query shape and records every query."""
+
+    def __init__(self, v3=1000, v4=5, terms=None) -> None:
+        self.v3, self.v4, self.terms = v3, v4, dict(terms or {})
+        self.queries: list[str] = []
+
+    async def execute_dsl(self, dsl: str) -> SimpleNamespace:
+        self.queries.append(dsl)
+        for term, n in self.terms.items():
+            if f'AND (\\"{term}\\")' in dsl:
+                return SimpleNamespace(count_total=n, publications=[])
+        if " NOT " in dsl:
+            return SimpleNamespace(count_total=self.v4, publications=[])
+        return SimpleNamespace(count_total=self.v3, publications=[])
+
+
+def _guard_uc(tmp_path, dsl, **overrides) -> QueryOptimizationUseCase:
+    kw = dict(
+        tasks_db=tmp_path / "t.db",
+        output_dir=tmp_path / "out",
+        dimensions_api_key="test-key",
+        optimize_max_dimensions_calls=50,
+        optimize_signal3_max_titles=0,
+        optimize_abstract_exclude_max_hits=0,
+        optimize_abstract_classify_max_calls=0,
+        optimize_fp_domains_max_aliases=0,
+        optimize_web_disambig_max_aliases=0,
+    )
+    kw.update(overrides)
+    return QueryOptimizationUseCase(
+        dsl_port=dsl, research=MagicMock(), agent=MagicMock(), settings=Settings(**kw),
+    )
+
+
+def _guard_req(excludes) -> OptimizeRequest:
+    return OptimizeRequest(
+        dataset_name="American Time Use Survey",
+        dataset_names=["American Time Use Survey", "ATUS"],
+        flag_terms=["Bureau of Labor Statistics"],
+        exclude_terms=excludes,
+    )
+
+
+def test_guard_drops_own_name_exclude_from_the_final_query(tmp_path) -> None:
+    dsl = _CountingDSL(v3=1000, v4=900)
+    uc = _guard_uc(tmp_path, dsl)
+    out = asyncio.run(uc.execute(_guard_req(
+        ["American Time Use Survey", "Bureau of Labor Statistics", "species"]
+    )))
+    assert out.success is True
+    assert out.exclusion_terms == ["species"]
+    assert 'NOT (\\"American Time Use Survey\\"' not in out.dsl_query
+    assert "exclude guard: dropped ['American Time Use Survey' (inside name" in out.notes
+    assert "'Bureau of Labor Statistics' (inside flag" in out.notes
+
+
+def test_impact_guard_drops_the_exclude_that_removes_most_of_v3(tmp_path) -> None:
+    dsl = _CountingDSL(v3=1000, v4=5, terms={"journal": 950, "chemistry": 20})
+    uc = _guard_uc(tmp_path, dsl)
+    out = asyncio.run(uc.execute(_guard_req(["journal", "chemistry"])))
+    assert out.success is True
+    assert out.exclusion_terms == ["chemistry"]
+    assert "exclude impact: dropped ['journal' removes 95% of V3], V4 5 -> " in out.notes
+    v4 = next(v for v in out.all_variants_tested if v.label == "V4")
+    assert '\\"journal\\"' not in v4.for_clause and '\\"chemistry\\"' in v4.for_clause
+    # V4 was recounted: the final repaired clause was queried
+    assert any(" NOT " in q and "journal" not in q for q in dsl.queries)
+
+
+def test_impact_guard_is_free_when_v4_keeps_half_of_v3(tmp_path) -> None:
+    base = _CountingDSL(v3=1000, v4=500, terms={"journal": 950})
+    asyncio.run(_guard_uc(tmp_path, base).execute(_guard_req(["journal", "chemistry"])))
+    assert not any('AND (\\"journal\\")' in q for q in base.queries)
+    off = _CountingDSL(v3=1000, v4=5, terms={"journal": 950})
+    asyncio.run(
+        _guard_uc(tmp_path, off, optimize_exclude_max_total_share=1.0)
+        .execute(_guard_req(["journal", "chemistry"]))
+    )
+    assert not any('AND (\\"journal\\")' in q for q in off.queries)
+
+
+def test_impact_guard_drops_unmeasured_excludes_when_budget_runs_out(tmp_path) -> None:
+    dsl = _CountingDSL(v3=1000, v4=5, terms={"journal": 950, "chemistry": 20})
+    # 3 phase-1 + V1/V3/V4 probes use 6; room for the first term only.
+    uc = _guard_uc(tmp_path, dsl, optimize_max_dimensions_calls=7)
+    out = asyncio.run(uc.execute(_guard_req(["chemistry", "journal", "species"])))
+    assert "unmeasured (budget)" in out.notes
+    assert "species" not in out.exclusion_terms and "journal" not in out.exclusion_terms
+
+
+def test_gate_loop_derived_alias_never_reaches_the_clause(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(
+        qopt_mod, "derive_exclude_terms_from_fps",
+        lambda _agent, **kw: ["American Time Use Survey", "offdomainterm"],
+    )
+    monkeypatch.setattr(
+        qopt_mod, "evaluate_for_clause_sync",
+        lambda *a, **k: {
+            "fp_rate_pct": 15.0, "genuine_count": 85, "fp_count": 15, "matched_count": 100,
+            "total_pubs": 100, "coverage_pct": 100.0, "for_clause": k.get("for_clause", ""),
+            "query": "q", "publications_total": 100,
+            "fp_hits": [{"matched_alias": "ATUS", "snippet": "atus risk"}],
+        },
+    )
+    uc = _guard_uc(tmp_path, _CountingDSL(v3=1000, v4=900))
+    out = asyncio.run(uc.execute(_guard_req(["species"])))
+    assert "offdomainterm" in out.exclusion_terms
+    assert "American Time Use Survey" not in out.exclusion_terms

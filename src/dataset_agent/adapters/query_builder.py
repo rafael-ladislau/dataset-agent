@@ -119,6 +119,36 @@ def flag_gate_notes(
     return notes
 
 
+def drop_contradicting_excludes(
+    exclusion_terms: Sequence[str] | None,
+    *,
+    names: Sequence[str] | None,
+    flag_terms: Sequence[str] | None,
+) -> tuple[list[str], list[tuple[str, str]]]:
+    """Split excludes into ``(kept, dropped)``; *dropped* holds ``(exclude, inclusion term)``.
+
+    An exclude is dropped when it and a dataset name or flag term are one phrase or one
+    contains the other (token-based, case, hyphen and plural folding:
+    :func:`~dataset_agent.adapters.dimensions_phrase.phrase_contains`). ``NOT "census"``
+    next to the flag "Census Bureau" removes the very papers the flag asks for. Order is
+    preserved. This is not part of :func:`build_for_clause`: the recall-complement probes
+    deliberately place aliases in ``exclusion_terms``.
+    """
+    inclusion = _clean(names) + _clean(flag_terms)
+    kept: list[str] = []
+    dropped: list[tuple[str, str]] = []
+    for ex in _clean(exclusion_terms):
+        hit = next(
+            (inc for inc in inclusion if phrase_contains(inc, ex) or phrase_contains(ex, inc)),
+            None,
+        )
+        if hit is None:
+            kept.append(ex)
+        else:
+            dropped.append((ex, hit))
+    return kept, dropped
+
+
 def build_for_clause(
     *,
     safe: Sequence[str],
